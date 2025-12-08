@@ -442,9 +442,31 @@ export async function registerRoutes(
 
   // Analytics
   app.get("/api/analytics", async (req, res) => {
-    const { range } = req.query;
-    const analytics = await storage.getAnalytics((range as string) || "year");
-    res.json(analytics);
+    try {
+      const { range } = req.query;
+      const analytics = await storage.getAnalytics((range as string) || "year");
+      res.json(analytics);
+    } catch (error) {
+      console.error("Analytics error:", error);
+      res.status(500).json({ 
+        error: "Failed to fetch analytics",
+        summary: {
+          totalRevenue: 0,
+          totalLeads: 0,
+          conversionRate: 0,
+          netProfit: 0,
+          revenueChange: 0,
+          leadsChange: 0,
+          conversionChange: 0,
+          profitChange: 0,
+        },
+        sourceComparison: [],
+        monthlyRevenue: [],
+        serviceBreakdown: [],
+        techPerformance: [],
+        conversionFunnel: [],
+      });
+    }
   });
 
   return httpServer;
