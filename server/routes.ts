@@ -64,11 +64,16 @@ export async function registerRoutes(
 
   // Leads
   app.get("/api/leads", async (req, res) => {
-    const { status } = req.query;
-    const leads = status 
-      ? await storage.getLeadsByStatus(status as string)
-      : await storage.getLeads();
-    res.json(leads);
+    try {
+      const { status } = req.query;
+      const leads = status 
+        ? await storage.getLeadsByStatus(status as string)
+        : await storage.getLeads();
+      res.json(leads);
+    } catch (error) {
+      console.error("Error fetching leads:", error);
+      res.status(500).json({ error: "Failed to fetch leads" });
+    }
   });
 
   app.get("/api/leads/:id", async (req, res) => {
@@ -114,16 +119,21 @@ export async function registerRoutes(
 
   // Jobs
   app.get("/api/jobs", async (req, res) => {
-    const { status, technicianId } = req.query;
-    let jobs;
-    if (technicianId) {
-      jobs = await storage.getJobsByTechnician(technicianId as string);
-    } else if (status) {
-      jobs = await storage.getJobsByStatus(status as string);
-    } else {
-      jobs = await storage.getJobs();
+    try {
+      const { status, technicianId } = req.query;
+      let jobs;
+      if (technicianId) {
+        jobs = await storage.getJobsByTechnician(technicianId as string);
+      } else if (status) {
+        jobs = await storage.getJobsByStatus(status as string);
+      } else {
+        jobs = await storage.getJobs();
+      }
+      res.json(jobs);
+    } catch (error) {
+      console.error("Error fetching jobs:", error);
+      res.status(500).json({ error: "Failed to fetch jobs" });
     }
-    res.json(jobs);
   });
 
   app.get("/api/jobs/:id", async (req, res) => {
@@ -411,13 +421,18 @@ export async function registerRoutes(
 
   // Notifications
   app.get("/api/notifications", async (req, res) => {
-    const { userId, unread } = req.query;
-    if (!userId) return res.status(400).json({ error: "userId required" });
-    
-    const notifications = unread === "true"
-      ? await storage.getUnreadNotifications(userId as string)
-      : await storage.getNotificationsByUser(userId as string);
-    res.json(notifications);
+    try {
+      const { userId, unread } = req.query;
+      if (!userId) return res.status(400).json({ error: "userId required" });
+      
+      const notifications = unread === "true"
+        ? await storage.getUnreadNotifications(userId as string)
+        : await storage.getNotificationsByUser(userId as string);
+      res.json(notifications);
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+      res.status(500).json({ error: "Failed to fetch notifications" });
+    }
   });
 
   app.post("/api/notifications", async (req, res) => {
