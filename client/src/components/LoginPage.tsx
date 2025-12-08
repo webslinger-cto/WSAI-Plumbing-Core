@@ -9,6 +9,7 @@ import cseLogo from "@assets/cse-logo.png";
 import { YELP_REVIEW_URL } from "@/App";
 
 const HOMEADVISOR_REVIEW_URL = "https://www.homeadvisor.com/rated.ChicagoSewerExperts.65557541.html";
+const ANGI_REVIEW_URL = "https://www.angi.com/companylist/us/il/chicago/chicago-sewer-experts-reviews-1.htm?msockid=24bb858d5e4a60e506b093dc5f346117";
 
 interface LoginPageProps {
   onLogin: (role: "admin" | "dispatcher" | "technician", username: string) => void;
@@ -55,6 +56,18 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             level="H"
             includeMargin={false}
             data-testid="qr-login-homeadvisor-review"
+          />
+        </div>
+      </div>
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1">
+        <span className="text-xs font-bold text-primary">Angi</span>
+        <div className="bg-white p-1.5 rounded-md">
+          <QRCodeSVG
+            value={ANGI_REVIEW_URL}
+            size={64}
+            level="H"
+            includeMargin={false}
+            data-testid="qr-login-angi-review"
           />
         </div>
       </div>
