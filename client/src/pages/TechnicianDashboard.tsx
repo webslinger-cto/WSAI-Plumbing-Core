@@ -54,6 +54,7 @@ const jobStatusConfig: Record<string, { label: string; color: string; icon: type
 
 const DEMO_TECHNICIAN_ID = "tech-1";
 const DEMO_USER_ID = "user-tech-1";
+const DEMO_TECHNICIAN_NAME = "Marcus Rodriguez";
 
 function getCurrentPosition(): Promise<{ latitude: number; longitude: number } | null> {
   return new Promise((resolve) => {
@@ -535,6 +536,7 @@ export default function TechnicianDashboard() {
             <DialogTitle>Create New Quote</DialogTitle>
           </DialogHeader>
           <QuoteBuilder
+            technicianName={DEMO_TECHNICIAN_NAME}
             onSave={(quote) => {
               console.log("Quote saved:", quote);
               setShowQuoteBuilder(false);
@@ -637,6 +639,7 @@ export default function TechnicianDashboard() {
                   customerName={selectedJob.customerName}
                   customerPhone={selectedJob.customerPhone}
                   customerAddress={`${selectedJob.address}, ${selectedJob.city}`}
+                  technicianName={DEMO_TECHNICIAN_NAME}
                   onSave={(quote) => {
                     console.log("Quote saved:", quote);
                     setSelectedJob(null);

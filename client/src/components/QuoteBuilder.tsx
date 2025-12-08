@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Send, Save, CreditCard } from "lucide-react";
+import { Plus, Trash2, Send, Save, CreditCard, Star, QrCode } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 
 interface LineItem {
   id: string;
@@ -27,9 +28,13 @@ interface QuoteBuilderProps {
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
+  technicianName?: string;
   onSave?: (quote: QuoteData) => void;
   onSend?: (quote: QuoteData) => void;
 }
+
+const GOOGLE_REVIEW_PLACE_ID = "ChIJSTKCCzZwBYgRPN0F2TRRuoA";
+const GOOGLE_REVIEW_URL = `https://search.google.com/local/writereview?placeid=${GOOGLE_REVIEW_PLACE_ID}`;
 
 export interface QuoteData {
   customerName: string;
@@ -58,6 +63,7 @@ export default function QuoteBuilder({
   customerName = "",
   customerPhone = "",
   customerAddress = "",
+  technicianName = "Your Technician",
   onSave,
   onSend,
 }: QuoteBuilderProps) {
@@ -67,6 +73,7 @@ export default function QuoteBuilder({
   const [notes, setNotes] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [showPayment, setShowPayment] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   const addLineItem = (preset?: typeof SERVICE_PRESETS[0]) => {
     const newItem: LineItem = {
@@ -343,6 +350,78 @@ export default function QuoteBuilder({
         </Card>
       )}
 
+      {showFeedback && (
+        <Card className="border-yellow-500/30 bg-yellow-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold uppercase tracking-wider flex items-center gap-2">
+              <Star className="w-4 h-4 text-yellow-500" />
+              Customer Feedback
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-center space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Thank you for choosing Chicago Sewer Experts!
+              </p>
+              <p className="text-sm">
+                Your technician today was <span className="font-semibold text-foreground">{technicianName}</span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                We would love to hear about your experience. Scan the QR code below to leave us a Google review!
+              </p>
+            </div>
+            
+            <div className="flex flex-col items-center gap-4 py-4">
+              <div className="bg-white p-4 rounded-lg">
+                <QRCodeSVG
+                  value={GOOGLE_REVIEW_URL}
+                  size={160}
+                  level="H"
+                  includeMargin={false}
+                  data-testid="qr-google-review"
+                />
+              </div>
+              <div className="text-center space-y-1">
+                <p className="text-sm font-medium flex items-center justify-center gap-2">
+                  <QrCode className="w-4 h-4" />
+                  Scan to Review
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Or visit: google.com/maps and search "Chicago Sewer Experts"
+                </p>
+              </div>
+            </div>
+
+            <Separator />
+            
+            <div className="space-y-3">
+              <p className="text-sm font-medium">How was your experience with {technicianName}?</p>
+              <div className="flex justify-center gap-1">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Button
+                    key={star}
+                    variant="ghost"
+                    size="icon"
+                    className="text-yellow-500"
+                    data-testid={`button-star-${star}`}
+                  >
+                    <Star className="w-6 h-6 fill-current" />
+                  </Button>
+                ))}
+              </div>
+              <Textarea
+                placeholder="Tell us about your experience (optional)..."
+                className="min-h-[60px]"
+                data-testid="input-feedback-comment"
+              />
+              <Button variant="outline" className="w-full" data-testid="button-submit-feedback">
+                Submit Feedback
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="flex flex-wrap gap-3">
         <Button
           variant="outline"
@@ -359,6 +438,14 @@ export default function QuoteBuilder({
         >
           <CreditCard className="w-4 h-4 mr-2" />
           {showPayment ? "Hide Payment" : "Accept Payment"}
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => setShowFeedback(!showFeedback)}
+          data-testid="button-toggle-feedback"
+        >
+          <Star className="w-4 h-4 mr-2" />
+          {showFeedback ? "Hide Feedback" : "Customer Feedback"}
         </Button>
         <Button
           onClick={() => onSend?.(getQuoteData())}
