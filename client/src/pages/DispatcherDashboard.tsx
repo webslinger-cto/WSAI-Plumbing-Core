@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -10,8 +10,8 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import JobTimeline from "@/components/JobTimeline";
 import {
   Select,
@@ -35,6 +35,13 @@ import {
   PlayCircle,
   Calendar,
   Plus,
+  Moon,
+  Sun,
+  PhoneCall,
+  UserCheck,
+  UserX,
+  Bell,
+  Shield,
 } from "lucide-react";
 import type { Job, Lead, Call, Technician } from "@shared/schema";
 import { useState } from "react";
@@ -57,6 +64,23 @@ const priorityConfig: Record<string, { label: string; color: string }> = {
   high: { label: "High", color: "bg-amber-500/20 text-amber-400" },
   urgent: { label: "Urgent", color: "bg-destructive/20 text-destructive" },
 };
+
+interface EmergencyTeamMember {
+  id: string;
+  technicianId: string;
+  technicianName: string;
+  phone: string;
+  isOnCall: boolean;
+  isPrimary: boolean;
+  lastCallTime?: string;
+  callsHandled: number;
+}
+
+const mockEmergencyTeam: EmergencyTeamMember[] = [
+  { id: "1", technicianId: "1", technicianName: "Mike Johnson", phone: "(312) 555-0101", isOnCall: true, isPrimary: true, callsHandled: 12 },
+  { id: "2", technicianId: "2", technicianName: "Carlos Rodriguez", phone: "(312) 555-0102", isOnCall: true, isPrimary: false, callsHandled: 8 },
+  { id: "3", technicianId: "3", technicianName: "David Smith", phone: "(312) 555-0103", isOnCall: false, isPrimary: false, callsHandled: 5 },
+];
 
 function JobCard({ job, onAssign, onViewDetails }: { job: Job; onAssign: (job: Job) => void; onViewDetails?: (job: Job) => void }) {
   const status = jobStatusConfig[job.status] || jobStatusConfig.pending;
@@ -260,6 +284,339 @@ function AssignJobDialog({
   );
 }
 
+function EmergencyTeamMemberCard({ 
+  member, 
+  onToggleOnCall, 
+  onSetPrimary 
+}: { 
+  member: EmergencyTeamMember; 
+  onToggleOnCall: (id: string) => void;
+  onSetPrimary: (id: string) => void;
+}) {
+  return (
+    <Card className={`${member.isOnCall ? "border-emerald-500/50" : "opacity-60"}`}>
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-full ${member.isOnCall ? "bg-emerald-500/20" : "bg-muted"}`}>
+              {member.isOnCall ? (
+                <UserCheck className={`w-5 h-5 ${member.isPrimary ? "text-primary" : "text-emerald-400"}`} />
+              ) : (
+                <UserX className="w-5 h-5 text-muted-foreground" />
+              )}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="font-medium" data-testid={`text-oncall-name-${member.id}`}>{member.technicianName}</p>
+                {member.isPrimary && (
+                  <Badge className="bg-primary/20 text-primary text-xs">Primary</Badge>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">{member.phone}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={member.isOnCall}
+              onCheckedChange={() => onToggleOnCall(member.id)}
+              data-testid={`switch-oncall-${member.id}`}
+            />
+          </div>
+        </div>
+        
+        <div className="mt-3 pt-3 border-t flex items-center justify-between">
+          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+            <div className="flex items-center gap-1">
+              <PhoneCall className="w-3 h-3" />
+              <span>{member.callsHandled} calls handled</span>
+            </div>
+          </div>
+          {member.isOnCall && !member.isPrimary && (
+            <Button 
+              size="sm" 
+              variant="outline"
+              onClick={() => onSetPrimary(member.id)}
+              data-testid={`button-set-primary-${member.id}`}
+            >
+              <Shield className="w-3 h-3 mr-1" />
+              Set Primary
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CallTeamTab({ technicians }: { technicians: Technician[] }) {
+  const { toast } = useToast();
+  const [emergencyTeam, setEmergencyTeam] = useState<EmergencyTeamMember[]>(mockEmergencyTeam);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [selectedTechToAdd, setSelectedTechToAdd] = useState<string>("");
+
+  const currentHour = new Date().getHours();
+  const isNightShift = currentHour >= 19 || currentHour < 7;
+
+  const onCallCount = emergencyTeam.filter(m => m.isOnCall).length;
+  const primaryMember = emergencyTeam.find(m => m.isPrimary && m.isOnCall);
+
+  const handleToggleOnCall = (id: string) => {
+    setEmergencyTeam(prev => prev.map(m => {
+      if (m.id === id) {
+        const newOnCall = !m.isOnCall;
+        if (!newOnCall && m.isPrimary) {
+          return { ...m, isOnCall: false, isPrimary: false };
+        }
+        return { ...m, isOnCall: newOnCall };
+      }
+      return m;
+    }));
+    toast({
+      title: "On-Call Status Updated",
+      description: "Technician on-call status has been changed.",
+    });
+  };
+
+  const handleSetPrimary = (id: string) => {
+    setEmergencyTeam(prev => prev.map(m => ({
+      ...m,
+      isPrimary: m.id === id,
+    })));
+    toast({
+      title: "Primary Contact Updated",
+      description: "Primary on-call technician has been set.",
+    });
+  };
+
+  const handleAddToTeam = () => {
+    if (!selectedTechToAdd) return;
+    const tech = technicians.find(t => t.id === selectedTechToAdd);
+    if (!tech) return;
+
+    const alreadyInTeam = emergencyTeam.some(m => m.technicianId === selectedTechToAdd);
+    if (alreadyInTeam) {
+      toast({
+        title: "Already in Team",
+        description: "This technician is already part of the emergency team.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const newMember: EmergencyTeamMember = {
+      id: `new-${Date.now()}`,
+      technicianId: tech.id,
+      technicianName: tech.fullName,
+      phone: tech.phone,
+      isOnCall: true,
+      isPrimary: false,
+      callsHandled: 0,
+    };
+
+    setEmergencyTeam(prev => [...prev, newMember]);
+    setAddDialogOpen(false);
+    setSelectedTechToAdd("");
+    toast({
+      title: "Technician Added",
+      description: `${tech.fullName} has been added to the emergency call team.`,
+    });
+  };
+
+  const handleRemoveFromTeam = (id: string) => {
+    setEmergencyTeam(prev => prev.filter(m => m.id !== id));
+    toast({
+      title: "Technician Removed",
+      description: "Technician has been removed from the emergency team.",
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          {isNightShift ? (
+            <div className="p-3 rounded-lg bg-indigo-500/20">
+              <Moon className="w-6 h-6 text-indigo-400" />
+            </div>
+          ) : (
+            <div className="p-3 rounded-lg bg-amber-500/20">
+              <Sun className="w-6 h-6 text-amber-400" />
+            </div>
+          )}
+          <div>
+            <h2 className="text-lg font-semibold">Emergency Call Team</h2>
+            <p className="text-sm text-muted-foreground">7:00 PM - 7:00 AM After-Hours Coverage</p>
+          </div>
+        </div>
+        <Badge className={isNightShift ? "bg-indigo-500/20 text-indigo-400" : "bg-muted text-muted-foreground"}>
+          {isNightShift ? "Night Shift Active" : "Day Shift"}
+        </Badge>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-md bg-emerald-500/20">
+                <UserCheck className="w-5 h-5 text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold" data-testid="text-oncall-count">{onCallCount}</p>
+                <p className="text-sm text-muted-foreground">On-Call Techs</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-md bg-primary/20">
+                <Shield className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-lg font-bold truncate" data-testid="text-primary-oncall">
+                  {primaryMember?.technicianName || "Not Set"}
+                </p>
+                <p className="text-sm text-muted-foreground">Primary Contact</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-md bg-amber-500/20">
+                <Bell className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">4</p>
+                <p className="text-sm text-muted-foreground">Rings Before Forward</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle className="text-lg">Call Team Roster</CardTitle>
+              <CardDescription>Technicians available for after-hours emergency calls</CardDescription>
+            </div>
+            <Button onClick={() => setAddDialogOpen(true)} data-testid="button-add-to-team">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Technician
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {emergencyTeam.map((member) => (
+              <EmergencyTeamMemberCard
+                key={member.id}
+                member={member}
+                onToggleOnCall={handleToggleOnCall}
+                onSetPrimary={handleSetPrimary}
+              />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Call Forwarding Rules</CardTitle>
+          <CardDescription>Automated routing for after-hours calls</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <Phone className="w-5 h-5 text-muted-foreground" />
+                <div>
+                  <p className="font-medium">Main Office Line</p>
+                  <p className="text-sm text-muted-foreground">(312) 555-PIPE</p>
+                </div>
+              </div>
+              <div className="text-sm text-right">
+                <p className="text-muted-foreground">After 4 rings, forward to:</p>
+                <p className="font-medium text-primary">{primaryMember?.technicianName || "Primary On-Call"}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-500" />
+                <div>
+                  <p className="font-medium">Escalation Path</p>
+                  <p className="text-sm text-muted-foreground">If primary doesn't answer in 30s</p>
+                </div>
+              </div>
+              <div className="text-sm text-right">
+                <p className="text-muted-foreground">Forward to:</p>
+                <p className="font-medium">Next Available On-Call</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <PhoneCall className="w-5 h-5 text-destructive" />
+                <div>
+                  <p className="font-medium">Final Fallback</p>
+                  <p className="text-sm text-muted-foreground">If no technician answers</p>
+                </div>
+              </div>
+              <div className="text-sm text-right">
+                <p className="text-muted-foreground">Forward to:</p>
+                <p className="font-medium">Answering Service</p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Technician to Emergency Team</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Select Technician</label>
+              <Select value={selectedTechToAdd} onValueChange={setSelectedTechToAdd}>
+                <SelectTrigger data-testid="select-add-technician">
+                  <SelectValue placeholder="Choose a technician..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {technicians.map((tech) => (
+                    <SelectItem key={tech.id} value={tech.id}>
+                      <div className="flex items-center gap-2">
+                        <Wrench className="w-4 h-4" />
+                        <span>{tech.fullName}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setAddDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleAddToTeam} disabled={!selectedTechToAdd} data-testid="button-confirm-add-team">
+                Add to Team
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 export default function DispatcherDashboard() {
   const { toast } = useToast();
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
@@ -338,207 +695,226 @@ export default function DispatcherDashboard() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-md bg-primary/20">
-                <Clock className="w-5 h-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold" data-testid="text-pending-count">{pendingJobs.length}</p>
-                <p className="text-sm text-muted-foreground">Pending Jobs</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <Tabs defaultValue="dispatch" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="dispatch" data-testid="tab-dispatch">
+            <Truck className="w-4 h-4 mr-2" />
+            Dispatch Board
+          </TabsTrigger>
+          <TabsTrigger value="callteam" data-testid="tab-callteam">
+            <Moon className="w-4 h-4 mr-2" />
+            Call Team (7PM-7AM)
+          </TabsTrigger>
+        </TabsList>
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-md bg-blue-500/20">
-                <Truck className="w-5 h-5 text-blue-400" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold" data-testid="text-active-count">{activeJobs.length}</p>
-                <p className="text-sm text-muted-foreground">Active Jobs</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <TabsContent value="dispatch" className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-md bg-primary/20">
+                    <Clock className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold" data-testid="text-pending-count">{pendingJobs.length}</p>
+                    <p className="text-sm text-muted-foreground">Pending Jobs</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-md bg-emerald-500/20">
-                <Wrench className="w-5 h-5 text-emerald-400" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold" data-testid="text-available-techs">{availableTechs.length}</p>
-                <p className="text-sm text-muted-foreground">Available Techs</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-md bg-blue-500/20">
+                    <Truck className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold" data-testid="text-active-count">{activeJobs.length}</p>
+                    <p className="text-sm text-muted-foreground">Active Jobs</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-md bg-amber-500/20">
-                <User className="w-5 h-5 text-amber-400" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold" data-testid="text-new-leads">{newLeads.length}</p>
-                <p className="text-sm text-muted-foreground">New Leads</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-md bg-emerald-500/20">
+                    <Wrench className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold" data-testid="text-available-techs">{availableTechs.length}</p>
+                    <p className="text-sm text-muted-foreground">Available Techs</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg">Job Board</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                <div>
-                  <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
-                    <Clock className="w-4 h-4" />
-                    Pending ({pendingJobs.length})
-                  </h3>
-                  <ScrollArea className="h-[400px]">
-                    {pendingJobs.map((job) => (
-                      <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
-                    ))}
-                    {pendingJobs.length === 0 && (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        No pending jobs
-                      </p>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-md bg-amber-500/20">
+                    <User className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold" data-testid="text-new-leads">{newLeads.length}</p>
+                    <p className="text-sm text-muted-foreground">New Leads</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Job Board</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                    <div>
+                      <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
+                        <Clock className="w-4 h-4" />
+                        Pending ({pendingJobs.length})
+                      </h3>
+                      <ScrollArea className="h-[400px]">
+                        {pendingJobs.map((job) => (
+                          <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
+                        ))}
+                        {pendingJobs.length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            No pending jobs
+                          </p>
+                        )}
+                      </ScrollArea>
+                    </div>
+
+                    <div>
+                      <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
+                        <User className="w-4 h-4" />
+                        Assigned ({assignedJobs.length})
+                      </h3>
+                      <ScrollArea className="h-[400px]">
+                        {assignedJobs.map((job) => (
+                          <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
+                        ))}
+                        {assignedJobs.length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            No assigned jobs
+                          </p>
+                        )}
+                      </ScrollArea>
+                    </div>
+
+                    <div>
+                      <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4" />
+                        Confirmed ({confirmedJobs.length})
+                      </h3>
+                      <ScrollArea className="h-[400px]">
+                        {confirmedJobs.map((job) => (
+                          <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
+                        ))}
+                        {confirmedJobs.length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            No confirmed jobs
+                          </p>
+                        )}
+                      </ScrollArea>
+                    </div>
+
+                    <div>
+                      <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
+                        <Truck className="w-4 h-4" />
+                        En Route ({enRouteJobs.length})
+                      </h3>
+                      <ScrollArea className="h-[400px]">
+                        {enRouteJobs.map((job) => (
+                          <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
+                        ))}
+                        {enRouteJobs.length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            No en route jobs
+                          </p>
+                        )}
+                      </ScrollArea>
+                    </div>
+
+                    <div>
+                      <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
+                        <PlayCircle className="w-4 h-4" />
+                        On Site ({onSiteJobs.length})
+                      </h3>
+                      <ScrollArea className="h-[400px]">
+                        {onSiteJobs.map((job) => (
+                          <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
+                        ))}
+                        {onSiteJobs.length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            No on site jobs
+                          </p>
+                        )}
+                      </ScrollArea>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="space-y-6">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Phone className="w-4 h-4" />
+                    Recent Calls
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <ScrollArea className="h-[200px]">
+                    {callsLoading ? (
+                      <div className="p-4 text-center text-muted-foreground">Loading...</div>
+                    ) : calls.length === 0 ? (
+                      <div className="p-4 text-center text-muted-foreground">No recent calls</div>
+                    ) : (
+                      calls.slice(0, 10).map((call) => (
+                        <CallItem key={call.id} call={call} />
+                      ))
                     )}
                   </ScrollArea>
-                </div>
+                </CardContent>
+              </Card>
 
-                <div>
-                  <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
                     <User className="w-4 h-4" />
-                    Assigned ({assignedJobs.length})
-                  </h3>
-                  <ScrollArea className="h-[400px]">
-                    {assignedJobs.map((job) => (
-                      <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
-                    ))}
-                    {assignedJobs.length === 0 && (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        No assigned jobs
-                      </p>
+                    New Leads
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <ScrollArea className="h-[200px]">
+                    {leadsLoading ? (
+                      <div className="p-4 text-center text-muted-foreground">Loading...</div>
+                    ) : newLeads.length === 0 ? (
+                      <div className="p-4 text-center text-muted-foreground">No new leads</div>
+                    ) : (
+                      newLeads.slice(0, 10).map((lead) => (
+                        <LeadItem key={lead.id} lead={lead} />
+                      ))
                     )}
                   </ScrollArea>
-                </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
 
-                <div>
-                  <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4" />
-                    Confirmed ({confirmedJobs.length})
-                  </h3>
-                  <ScrollArea className="h-[400px]">
-                    {confirmedJobs.map((job) => (
-                      <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
-                    ))}
-                    {confirmedJobs.length === 0 && (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        No confirmed jobs
-                      </p>
-                    )}
-                  </ScrollArea>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
-                    <Truck className="w-4 h-4" />
-                    En Route ({enRouteJobs.length})
-                  </h3>
-                  <ScrollArea className="h-[400px]">
-                    {enRouteJobs.map((job) => (
-                      <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
-                    ))}
-                    {enRouteJobs.length === 0 && (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        No en route jobs
-                      </p>
-                    )}
-                  </ScrollArea>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
-                    <PlayCircle className="w-4 h-4" />
-                    On Site ({onSiteJobs.length})
-                  </h3>
-                  <ScrollArea className="h-[400px]">
-                    {onSiteJobs.map((job) => (
-                      <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
-                    ))}
-                    {onSiteJobs.length === 0 && (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        No on site jobs
-                      </p>
-                    )}
-                  </ScrollArea>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="space-y-6">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Phone className="w-4 h-4" />
-                Recent Calls
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <ScrollArea className="h-[200px]">
-                {callsLoading ? (
-                  <div className="p-4 text-center text-muted-foreground">Loading...</div>
-                ) : calls.length === 0 ? (
-                  <div className="p-4 text-center text-muted-foreground">No recent calls</div>
-                ) : (
-                  calls.slice(0, 10).map((call) => (
-                    <CallItem key={call.id} call={call} />
-                  ))
-                )}
-              </ScrollArea>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <User className="w-4 h-4" />
-                New Leads
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <ScrollArea className="h-[200px]">
-                {leadsLoading ? (
-                  <div className="p-4 text-center text-muted-foreground">Loading...</div>
-                ) : newLeads.length === 0 ? (
-                  <div className="p-4 text-center text-muted-foreground">No new leads</div>
-                ) : (
-                  newLeads.slice(0, 10).map((lead) => (
-                    <LeadItem key={lead.id} lead={lead} />
-                  ))
-                )}
-              </ScrollArea>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+        <TabsContent value="callteam">
+          <CallTeamTab technicians={technicians} />
+        </TabsContent>
+      </Tabs>
 
       <AssignJobDialog
         job={selectedJob}
@@ -588,34 +964,21 @@ export default function DispatcherDashboard() {
                     <div className="space-y-1">
                       <p className="text-sm text-muted-foreground">Scheduled</p>
                       <p className="font-medium">
-                        {format(new Date(selectedJob.scheduledDate), "MMM d, yyyy")} {selectedJob.scheduledTimeStart && `at ${selectedJob.scheduledTimeStart}`}
+                        {format(new Date(selectedJob.scheduledDate), "MMM d, yyyy")}
+                        {selectedJob.scheduledTimeStart && ` at ${selectedJob.scheduledTimeStart}`}
                       </p>
                     </div>
                   )}
-                  {selectedJob.description && (
+                  {selectedJob.notes && (
                     <div className="space-y-1 col-span-2">
-                      <p className="text-sm text-muted-foreground">Description</p>
-                      <p className="font-medium">{selectedJob.description}</p>
+                      <p className="text-sm text-muted-foreground">Notes</p>
+                      <p className="text-sm">{selectedJob.notes}</p>
                     </div>
                   )}
                 </div>
-                {selectedJob.status === "pending" && (
-                  <div className="flex gap-2 pt-4">
-                    <Button 
-                      onClick={() => {
-                        setDetailsDialogOpen(false);
-                        setAssignDialogOpen(true);
-                      }}
-                      data-testid="button-assign-from-details"
-                    >
-                      <User className="w-4 h-4 mr-2" />
-                      Assign Technician
-                    </Button>
-                  </div>
-                )}
               </TabsContent>
               <TabsContent value="timeline" className="mt-4">
-                <JobTimeline job={selectedJob} />
+                <JobTimeline jobId={selectedJob.id} />
               </TabsContent>
             </Tabs>
           )}
