@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
+import { useSearch } from "wouter";
+import { format, formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -46,13 +49,19 @@ import {
   Camera,
   X,
   ClipboardCheck,
+  Clock,
+  Timer,
 } from "lucide-react";
 import cseMascot from "@assets/cse-mascot.png";
+import JobTimeline from "@/components/JobTimeline";
+import type { Job } from "@shared/schema";
 
 interface ChecklistItemState {
   completed: boolean;
   issue: boolean;
   notes: string;
+  completedAt?: string;
+  issueFlaggedAt?: string;
 }
 
 interface QuoteLineItem {
@@ -201,6 +210,10 @@ const TECH_FEE = 2.0;
 
 export default function QuotePage() {
   const { toast } = useToast();
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  const jobId = params.get("jobId");
+  
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPos, setLastPos] = useState({ x: 0, y: 0 });
@@ -213,7 +226,13 @@ export default function QuotePage() {
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [currentNotesItem, setCurrentNotesItem] = useState<string | null>(null);
   const [tempNotes, setTempNotes] = useState("");
-  const [sessionId] = useState(() => Math.random().toString(16).slice(2, 10).toUpperCase());
+  const [sessionId, setSessionId] = useState(() => Math.random().toString(16).slice(2, 10).toUpperCase());
+  const [inspectionStartTime, setInspectionStartTime] = useState(() => new Date().toISOString());
+
+  const { data: job, isLoading: jobLoading, isError: jobError } = useQuery<Job>({
+    queryKey: ["/api/jobs", jobId],
+    enabled: !!jobId,
+  });
 
   const allItems = CHECKLIST_SECTIONS.flatMap(s => s.items);
   const completedCount = Object.values(checklistState).filter(s => s.completed).length;
@@ -225,16 +244,28 @@ export default function QuotePage() {
   };
 
   const toggleCompleted = (id: string) => {
+    const currentState = getItemState(id);
+    const newCompleted = !currentState.completed;
     setChecklistState(prev => ({
       ...prev,
-      [id]: { ...getItemState(id), completed: !getItemState(id).completed },
+      [id]: { 
+        ...currentState, 
+        completed: newCompleted,
+        completedAt: newCompleted ? new Date().toISOString() : undefined,
+      },
     }));
   };
 
   const toggleIssue = (id: string) => {
+    const currentState = getItemState(id);
+    const newIssue = !currentState.issue;
     setChecklistState(prev => ({
       ...prev,
-      [id]: { ...getItemState(id), issue: !getItemState(id).issue },
+      [id]: { 
+        ...currentState, 
+        issue: newIssue,
+        issueFlaggedAt: newIssue ? new Date().toISOString() : undefined,
+      },
     }));
   };
 
@@ -311,6 +342,8 @@ export default function QuotePage() {
     setCustomerName("");
     setLeadSource("");
     setReportedIssue("");
+    setSessionId(Math.random().toString(16).slice(2, 10).toUpperCase());
+    setInspectionStartTime(new Date().toISOString());
     clearSignature();
     toast({ title: "Reset complete", description: "Checklist and quote have been reset." });
   };
@@ -758,27 +791,85 @@ export default function QuotePage() {
             </CardContent>
           </Card>
 
+          {jobId && (
+            <Card>
+              <CardHeader className="py-3 px-4">
+                <CardTitle className="text-sm font-semibold uppercase tracking-wide flex items-center gap-2">
+                  <Timer className="w-4 h-4" />
+                  Job Timeline
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4 pt-0">
+                {jobLoading ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">Loading job timeline...</p>
+                ) : jobError ? (
+                  <p className="text-sm text-destructive text-center py-4">Failed to load job timeline</p>
+                ) : job ? (
+                  <JobTimeline job={job} showCountdown={true} />
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">Job not found</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader className="py-3 px-4">
-              <CardTitle className="text-sm font-semibold uppercase tracking-wide">
-                Activity Log
-              </CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm font-semibold uppercase tracking-wide flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  Activity Log
+                </CardTitle>
+                <Badge variant="secondary" className="text-[10px]">
+                  Started {formatDistanceToNow(new Date(inspectionStartTime), { addSuffix: true })}
+                </Badge>
+              </div>
             </CardHeader>
             <CardContent className="px-4 pb-4 pt-0">
-              <ScrollArea className="h-[150px]">
+              <ScrollArea className="h-[180px]">
                 <div className="space-y-1.5 text-xs">
                   {Object.entries(checklistState)
                     .filter(([_, state]) => state.completed || state.issue || state.notes)
+                    .sort((a, b) => {
+                      const timeA = a[1].completedAt || a[1].issueFlaggedAt;
+                      const timeB = b[1].completedAt || b[1].issueFlaggedAt;
+                      if (!timeA && !timeB) return a[0].localeCompare(b[0]);
+                      if (!timeA) return 1;
+                      if (!timeB) return -1;
+                      return timeB.localeCompare(timeA);
+                    })
                     .map(([id, state]) => {
                       const item = allItems.find(i => i.id === id);
-                      const actions = [];
-                      if (state.completed) actions.push("Done");
-                      if (state.issue) actions.push("Issue");
-                      if (state.notes) actions.push("Notes");
+                      const timestamp = state.completedAt || state.issueFlaggedAt;
                       return (
-                        <div key={id} className="flex items-center justify-between p-2 rounded bg-muted/30">
-                          <span className="truncate flex-1">{item?.title || id}</span>
-                          <span className="text-muted-foreground text-[10px]">{actions.join(", ")}</span>
+                        <div key={id} className="p-2 rounded bg-muted/30 space-y-1" data-testid={`activity-${id}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate flex-1 font-medium">{item?.title || id}</span>
+                            <div className="flex items-center gap-1">
+                              {state.completed && (
+                                <Badge variant="outline" className="text-[9px] border-green-500/50 text-green-400 bg-green-500/10">
+                                  Done
+                                </Badge>
+                              )}
+                              {state.issue && (
+                                <Badge variant="outline" className="text-[9px] border-red-500/50 text-red-400 bg-red-500/10">
+                                  Issue
+                                </Badge>
+                              )}
+                              {state.notes && (
+                                <Badge variant="outline" className="text-[9px] border-yellow-500/50 text-yellow-400 bg-yellow-500/10">
+                                  Notes
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          {timestamp && (
+                            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                              <Clock className="w-2.5 h-2.5" />
+                              <span>{format(new Date(timestamp), "h:mm a")}</span>
+                              <span>({formatDistanceToNow(new Date(timestamp), { addSuffix: true })})</span>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -787,17 +878,6 @@ export default function QuotePage() {
                   )}
                 </div>
               </ScrollArea>
-              <div className="flex flex-wrap gap-2 mt-3 text-[10px]">
-                <Badge variant="outline" className="gap-1">
-                  <span className="w-2 h-2 rounded-full bg-green-500" /> Done
-                </Badge>
-                <Badge variant="outline" className="gap-1">
-                  <span className="w-2 h-2 rounded-full bg-red-500" /> Issue
-                </Badge>
-                <Badge variant="outline" className="gap-1">
-                  <span className="w-2 h-2 rounded-full bg-yellow-500" /> Notes
-                </Badge>
-              </div>
             </CardContent>
           </Card>
         </div>
