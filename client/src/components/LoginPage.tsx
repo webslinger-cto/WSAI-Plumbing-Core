@@ -59,18 +59,6 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           />
         </div>
       </div>
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1">
-        <span className="text-xs font-bold text-primary">Angi</span>
-        <div className="bg-white p-1.5 rounded-md">
-          <QRCodeSVG
-            value={ANGI_REVIEW_URL}
-            size={64}
-            level="H"
-            includeMargin={false}
-            data-testid="qr-login-angi-review"
-          />
-        </div>
-      </div>
       <div className="absolute top-4 right-4 flex flex-col items-center gap-1">
         <span className="text-xs font-bold text-primary">Yelp</span>
         <div className="bg-white p-1.5 rounded-md">
@@ -80,6 +68,18 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             level="H"
             includeMargin={false}
             data-testid="qr-login-yelp-review"
+          />
+        </div>
+      </div>
+      <div className="absolute bottom-4 left-4 flex flex-col items-center gap-1">
+        <span className="text-xs font-bold text-primary">Angi</span>
+        <div className="bg-white p-1.5 rounded-md">
+          <QRCodeSVG
+            value={ANGI_REVIEW_URL}
+            size={64}
+            level="H"
+            includeMargin={false}
+            data-testid="qr-login-angi-review"
           />
         </div>
       </div>
