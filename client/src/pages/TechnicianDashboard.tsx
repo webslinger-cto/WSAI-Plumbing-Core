@@ -61,17 +61,36 @@ function getCurrentPosition(): Promise<{ latitude: number; longitude: number } |
       resolve(null);
       return;
     }
+    
+    let resolved = false;
+    
+    // Short fallback timeout - if geolocation doesn't respond quickly, proceed without it
+    const timeoutId = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        resolve(null);
+      }
+    }, 2000);
+    
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        resolve({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeoutId);
+          resolve({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+        }
       },
       () => {
-        resolve(null);
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeoutId);
+          resolve(null);
+        }
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: false, timeout: 1500, maximumAge: 30000 }
     );
   });
 }
