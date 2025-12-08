@@ -8,6 +8,8 @@ import { QRCodeSVG } from "qrcode.react";
 import cseLogo from "@assets/cse-logo.png";
 import { YELP_REVIEW_URL } from "@/App";
 
+const HOMEADVISOR_REVIEW_URL = "https://www.homeadvisor.com/rated.ChicagoSewerExperts.65557541.html";
+
 interface LoginPageProps {
   onLogin: (role: "admin" | "dispatcher" | "technician", username: string) => void;
 }
@@ -44,6 +46,15 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background via-background to-muted/30 relative">
+      <div className="absolute top-4 left-4 bg-white p-1.5 rounded-md">
+        <QRCodeSVG
+          value={HOMEADVISOR_REVIEW_URL}
+          size={64}
+          level="H"
+          includeMargin={false}
+          data-testid="qr-login-homeadvisor-review"
+        />
+      </div>
       <div className="absolute top-4 right-4 bg-white p-1.5 rounded-md">
         <QRCodeSVG
           value={YELP_REVIEW_URL}
