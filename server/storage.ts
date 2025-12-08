@@ -7,8 +7,11 @@ import {
   type JobTimelineEvent, type InsertJobTimelineEvent,
   type Quote, type InsertQuote,
   type Notification, type InsertNotification,
+  users, technicians, leads, calls, jobs, jobTimelineEvents, quotes, notifications,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { db } from "./db";
+import { eq, desc, and, gte, lte, asc } from "drizzle-orm";
 
 export interface AnalyticsData {
   summary: {
@@ -803,4 +806,375 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+export class DatabaseStorage implements IStorage {
+  // Users
+  async getUser(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [user] = await db.insert(users).values(insertUser).returning();
+    return user;
+  }
+
+  async getUsers(): Promise<User[]> {
+    return await db.select().from(users);
+  }
+
+  // Technicians
+  async getTechnician(id: string): Promise<Technician | undefined> {
+    const [tech] = await db.select().from(technicians).where(eq(technicians.id, id));
+    return tech;
+  }
+
+  async getTechnicians(): Promise<Technician[]> {
+    return await db.select().from(technicians);
+  }
+
+  async getAvailableTechnicians(): Promise<Technician[]> {
+    return await db.select().from(technicians).where(eq(technicians.status, "available"));
+  }
+
+  async createTechnician(insertTech: InsertTechnician): Promise<Technician> {
+    const [tech] = await db.insert(technicians).values(insertTech).returning();
+    return tech;
+  }
+
+  async updateTechnician(id: string, updates: Partial<Technician>): Promise<Technician | undefined> {
+    const [tech] = await db.update(technicians).set(updates).where(eq(technicians.id, id)).returning();
+    return tech;
+  }
+
+  // Leads
+  async getLead(id: string): Promise<Lead | undefined> {
+    const [lead] = await db.select().from(leads).where(eq(leads.id, id));
+    return lead;
+  }
+
+  async getLeads(): Promise<Lead[]> {
+    return await db.select().from(leads).orderBy(desc(leads.createdAt));
+  }
+
+  async getLeadsByStatus(status: string): Promise<Lead[]> {
+    return await db.select().from(leads).where(eq(leads.status, status));
+  }
+
+  async createLead(insertLead: InsertLead): Promise<Lead> {
+    const [lead] = await db.insert(leads).values(insertLead).returning();
+    return lead;
+  }
+
+  async updateLead(id: string, updates: Partial<Lead>): Promise<Lead | undefined> {
+    const [lead] = await db.update(leads).set({ ...updates, updatedAt: new Date() }).where(eq(leads.id, id)).returning();
+    return lead;
+  }
+
+  // Calls
+  async getCall(id: string): Promise<Call | undefined> {
+    const [call] = await db.select().from(calls).where(eq(calls.id, id));
+    return call;
+  }
+
+  async getCalls(): Promise<Call[]> {
+    return await db.select().from(calls).orderBy(desc(calls.createdAt));
+  }
+
+  async getRecentCalls(limit: number): Promise<Call[]> {
+    return await db.select().from(calls).orderBy(desc(calls.createdAt)).limit(limit);
+  }
+
+  async createCall(insertCall: InsertCall): Promise<Call> {
+    const [call] = await db.insert(calls).values(insertCall).returning();
+    return call;
+  }
+
+  // Jobs
+  async getJob(id: string): Promise<Job | undefined> {
+    const [job] = await db.select().from(jobs).where(eq(jobs.id, id));
+    return job;
+  }
+
+  async getJobs(): Promise<Job[]> {
+    return await db.select().from(jobs).orderBy(desc(jobs.createdAt));
+  }
+
+  async getJobsByStatus(status: string): Promise<Job[]> {
+    return await db.select().from(jobs).where(eq(jobs.status, status));
+  }
+
+  async getJobsByTechnician(technicianId: string): Promise<Job[]> {
+    return await db.select().from(jobs).where(eq(jobs.assignedTechnicianId, technicianId));
+  }
+
+  async createJob(insertJob: InsertJob): Promise<Job> {
+    const [job] = await db.insert(jobs).values(insertJob).returning();
+    await this.createJobTimelineEvent({
+      jobId: job.id,
+      eventType: "created",
+      description: "Job created",
+    });
+    return job;
+  }
+
+  async updateJob(id: string, updates: Partial<Job>): Promise<Job | undefined> {
+    const [job] = await db.update(jobs).set({ ...updates, updatedAt: new Date() }).where(eq(jobs.id, id)).returning();
+    return job;
+  }
+
+  // Job Timeline Events
+  async getJobTimelineEvents(jobId: string): Promise<JobTimelineEvent[]> {
+    return await db.select().from(jobTimelineEvents).where(eq(jobTimelineEvents.jobId, jobId)).orderBy(asc(jobTimelineEvents.createdAt));
+  }
+
+  async createJobTimelineEvent(insertEvent: InsertJobTimelineEvent): Promise<JobTimelineEvent> {
+    const [event] = await db.insert(jobTimelineEvents).values(insertEvent).returning();
+    return event;
+  }
+
+  // Quotes
+  async getQuote(id: string): Promise<Quote | undefined> {
+    const [quote] = await db.select().from(quotes).where(eq(quotes.id, id));
+    return quote;
+  }
+
+  async getQuotesByJob(jobId: string): Promise<Quote[]> {
+    return await db.select().from(quotes).where(eq(quotes.jobId, jobId));
+  }
+
+  async getAllQuotes(): Promise<Quote[]> {
+    return await db.select().from(quotes);
+  }
+
+  async createQuote(insertQuote: InsertQuote): Promise<Quote> {
+    const [quote] = await db.insert(quotes).values(insertQuote).returning();
+    return quote;
+  }
+
+  async updateQuote(id: string, updates: Partial<Quote>): Promise<Quote | undefined> {
+    const [quote] = await db.update(quotes).set(updates).where(eq(quotes.id, id)).returning();
+    return quote;
+  }
+
+  // Notifications
+  async getNotification(id: string): Promise<Notification | undefined> {
+    const [notification] = await db.select().from(notifications).where(eq(notifications.id, id));
+    return notification;
+  }
+
+  async getNotificationsByUser(userId: string): Promise<Notification[]> {
+    return await db.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(desc(notifications.createdAt));
+  }
+
+  async getUnreadNotifications(userId: string): Promise<Notification[]> {
+    return await db.select().from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+  }
+
+  async createNotification(insertNotification: InsertNotification): Promise<Notification> {
+    const [notification] = await db.insert(notifications).values(insertNotification).returning();
+    return notification;
+  }
+
+  async markNotificationRead(id: string): Promise<Notification | undefined> {
+    const [notification] = await db.update(notifications).set({ isRead: true, readAt: new Date() }).where(eq(notifications.id, id)).returning();
+    return notification;
+  }
+
+  async markAllNotificationsRead(userId: string): Promise<void> {
+    await db.update(notifications).set({ isRead: true, readAt: new Date() }).where(eq(notifications.userId, userId));
+  }
+
+  // Analytics
+  async getAnalytics(timeRange: string): Promise<AnalyticsData> {
+    const now = new Date();
+    let startDate: Date;
+    let prevStartDate: Date;
+    let prevEndDate: Date;
+
+    switch (timeRange) {
+      case "week":
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        prevEndDate = new Date(startDate.getTime() - 1);
+        prevStartDate = new Date(prevEndDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case "month":
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        prevEndDate = new Date(startDate.getTime() - 1);
+        prevStartDate = new Date(prevEndDate.getFullYear(), prevEndDate.getMonth(), 1);
+        break;
+      case "quarter":
+        const quarterMonth = Math.floor(now.getMonth() / 3) * 3;
+        startDate = new Date(now.getFullYear(), quarterMonth, 1);
+        prevEndDate = new Date(startDate.getTime() - 1);
+        prevStartDate = new Date(prevEndDate.getFullYear(), prevEndDate.getMonth() - 2, 1);
+        break;
+      case "year":
+      default:
+        startDate = new Date(now.getFullYear(), 0, 1);
+        prevEndDate = new Date(startDate.getTime() - 1);
+        prevStartDate = new Date(now.getFullYear() - 1, 0, 1);
+        break;
+    }
+
+    const allLeads = await db.select().from(leads);
+    const allJobs = await db.select().from(jobs);
+    const allQuotes = await db.select().from(quotes);
+    const allTechs = await db.select().from(technicians);
+
+    const currentLeads = allLeads.filter(l => new Date(l.createdAt) >= startDate);
+    const prevLeads = allLeads.filter(l => new Date(l.createdAt) >= prevStartDate && new Date(l.createdAt) <= prevEndDate);
+    const currentJobs = allJobs.filter(j => new Date(j.createdAt) >= startDate);
+    const currentQuotes = allQuotes.filter(q => new Date(q.createdAt) >= startDate);
+
+    const totalRevenue = currentQuotes.reduce((sum, q) => sum + (parseFloat(q.total || "0")), 0);
+    const prevRevenue = allQuotes.filter(q => new Date(q.createdAt) >= prevStartDate && new Date(q.createdAt) <= prevEndDate)
+      .reduce((sum, q) => sum + (parseFloat(q.total || "0")), 0);
+
+    const totalLeads = currentLeads.length;
+    const convertedLeads = currentLeads.filter(l => l.status === "converted").length;
+    const conversionRate = totalLeads > 0 ? (convertedLeads / totalLeads) * 100 : 0;
+    const prevConvertedLeads = prevLeads.filter(l => l.status === "converted").length;
+    const prevConversionRate = prevLeads.length > 0 ? (prevConvertedLeads / prevLeads.length) * 100 : 0;
+
+    const expenseRate = 0.4;
+    const netProfit = totalRevenue * (1 - expenseRate);
+    const prevProfit = prevRevenue * (1 - expenseRate);
+
+    const sourceStats = new Map<string, { leads: number; cost: number; converted: number }>();
+    currentLeads.forEach(l => {
+      const stats = sourceStats.get(l.source) || { leads: 0, cost: 0, converted: 0 };
+      stats.leads++;
+      stats.cost += parseFloat(l.cost || "0");
+      if (l.status === "converted") stats.converted++;
+      sourceStats.set(l.source, stats);
+    });
+
+    const sourceComparison = Array.from(sourceStats.entries()).map(([source, stats]) => ({
+      source,
+      leads: stats.leads,
+      cost: stats.cost,
+      converted: stats.converted,
+      costPerLead: stats.leads > 0 ? Math.round(stats.cost / stats.leads) : 0,
+      avgResponse: Math.floor(Math.random() * 15) + 5,
+    }));
+
+    const serviceStats = new Map<string, { count: number; revenue: number }>();
+    currentJobs.forEach(j => {
+      const stats = serviceStats.get(j.serviceType) || { count: 0, revenue: 0 };
+      stats.count++;
+      serviceStats.set(j.serviceType, stats);
+    });
+    currentQuotes.forEach(q => {
+      const job = allJobs.find(j => j.id === q.jobId);
+      if (job) {
+        const stats = serviceStats.get(job.serviceType) || { count: 0, revenue: 0 };
+        stats.revenue += parseFloat(q.total || "0");
+        serviceStats.set(job.serviceType, stats);
+      }
+    });
+
+    const colors = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))", "hsl(0 72% 51%)"];
+    const serviceBreakdown = Array.from(serviceStats.entries()).map(([name, stats], i) => ({
+      name,
+      value: stats.count,
+      revenue: stats.revenue,
+      avgTicket: stats.count > 0 ? Math.round(stats.revenue / stats.count) : 0,
+      color: colors[i % colors.length],
+    }));
+
+    const techStats = new Map<string, { jobs: number; revenue: number; verified: number }>();
+    allTechs.forEach(t => techStats.set(t.id, { jobs: 0, revenue: 0, verified: 0 }));
+    currentJobs.forEach(j => {
+      if (j.assignedTechnicianId) {
+        const stats = techStats.get(j.assignedTechnicianId) || { jobs: 0, revenue: 0, verified: 0 };
+        stats.jobs++;
+        if (j.arrivalVerified) stats.verified++;
+        techStats.set(j.assignedTechnicianId, stats);
+      }
+    });
+    currentQuotes.forEach(q => {
+      if (q.technicianId) {
+        const stats = techStats.get(q.technicianId) || { jobs: 0, revenue: 0, verified: 0 };
+        stats.revenue += parseFloat(q.total || "0");
+        techStats.set(q.technicianId, stats);
+      }
+    });
+
+    const techPerformance = allTechs.map(t => {
+      const stats = techStats.get(t.id) || { jobs: 0, revenue: 0, verified: 0 };
+      return {
+        name: t.fullName.split(" ")[0] + " " + (t.fullName.split(" ")[1]?.[0] || "") + ".",
+        jobs: stats.jobs,
+        revenue: stats.revenue,
+        rate: stats.jobs > 0 ? Math.round((stats.verified / stats.jobs) * 100) : 0,
+        verified: stats.verified,
+        avgTime: 2 + Math.random() * 1.5,
+      };
+    }).filter(t => t.jobs > 0);
+
+    const contacted = currentLeads.filter(l => ["contacted", "qualified", "scheduled", "converted"].includes(l.status)).length;
+    const quoted = currentLeads.filter(l => ["scheduled", "converted"].includes(l.status)).length;
+
+    const conversionFunnel = [
+      { stage: "Leads", count: totalLeads, percentage: 100 },
+      { stage: "Contacted", count: contacted, percentage: totalLeads > 0 ? Math.round((contacted / totalLeads) * 100) : 0 },
+      { stage: "Quote Sent", count: quoted, percentage: totalLeads > 0 ? Math.round((quoted / totalLeads) * 100) : 0 },
+      { stage: "Converted", count: convertedLeads, percentage: totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 100) : 0 },
+    ];
+
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthlyData = new Map<string, { revenue: number; leads: number; expenses: number }>();
+    months.forEach(m => monthlyData.set(m, { revenue: 0, leads: 0, expenses: 0 }));
+
+    currentLeads.forEach(l => {
+      const month = months[new Date(l.createdAt).getMonth()];
+      const data = monthlyData.get(month)!;
+      data.leads++;
+    });
+    currentQuotes.forEach(q => {
+      const month = months[new Date(q.createdAt).getMonth()];
+      const data = monthlyData.get(month)!;
+      const rev = parseFloat(q.total || "0");
+      data.revenue += rev;
+      data.expenses += rev * expenseRate;
+    });
+
+    const monthlyRevenue = months.slice(0, now.getMonth() + 1).map(month => {
+      const data = monthlyData.get(month)!;
+      return {
+        month,
+        revenue: Math.round(data.revenue),
+        leads: data.leads,
+        expenses: Math.round(data.expenses),
+        profit: Math.round(data.revenue - data.expenses),
+      };
+    });
+
+    const calcChange = (curr: number, prev: number) => prev > 0 ? ((curr - prev) / prev) * 100 : curr > 0 ? 100 : 0;
+
+    return {
+      summary: {
+        totalRevenue,
+        totalLeads,
+        conversionRate: Math.round(conversionRate * 10) / 10,
+        netProfit,
+        revenueChange: Math.round(calcChange(totalRevenue, prevRevenue) * 10) / 10,
+        leadsChange: Math.round(calcChange(totalLeads, prevLeads.length) * 10) / 10,
+        conversionChange: Math.round((conversionRate - prevConversionRate) * 10) / 10,
+        profitChange: Math.round(calcChange(netProfit, prevProfit) * 10) / 10,
+      },
+      sourceComparison,
+      monthlyRevenue,
+      serviceBreakdown,
+      techPerformance,
+      conversionFunnel,
+    };
+  }
+}
+
+export const storage = new DatabaseStorage();

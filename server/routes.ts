@@ -236,8 +236,8 @@ export async function registerRoutes(
       const result = isWithinRadius(
         latitude,
         longitude,
-        parseFloat(job.latitude),
-        parseFloat(job.longitude)
+        parseFloat(job.latitude!),
+        parseFloat(job.longitude!)
       );
       arrivalVerified = result.isWithin;
       arrivalDistance = result.distance;
@@ -381,7 +381,14 @@ export async function registerRoutes(
   });
 
   app.patch("/api/quotes/:id", async (req, res) => {
-    const quote = await storage.updateQuote(req.params.id, req.body);
+    const updates = { ...req.body };
+    const dateFields = ['sentAt', 'viewedAt', 'acceptedAt', 'declinedAt', 'expiresAt'];
+    dateFields.forEach(field => {
+      if (updates[field] && typeof updates[field] === 'string') {
+        updates[field] = new Date(updates[field]);
+      }
+    });
+    const quote = await storage.updateQuote(req.params.id, updates);
     if (!quote) return res.status(404).json({ error: "Quote not found" });
     res.json(quote);
   });
