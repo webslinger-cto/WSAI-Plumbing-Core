@@ -139,18 +139,18 @@ function App() {
               onLogout={handleLogout}
             />
             <div className="flex flex-col flex-1 min-w-0">
-              <header className="flex items-center gap-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                <div className="bg-white p-1.5 flex-shrink-0">
+              <header className="flex items-center gap-4 px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                <SidebarTrigger data-testid="button-sidebar-toggle" />
+                <div className="flex-1" />
+                <div className="bg-white p-1.5 rounded-md flex-shrink-0">
                   <QRCodeSVG
                     value={GOOGLE_REVIEW_URL}
-                    size={80}
+                    size={64}
                     level="H"
                     includeMargin={false}
                     data-testid="qr-header-google-review"
                   />
                 </div>
-                <SidebarTrigger data-testid="button-sidebar-toggle" />
-                <div className="flex-1" />
               </header>
               <main className="flex-1 overflow-auto p-6">
                 {auth.role === "admin" ? (
