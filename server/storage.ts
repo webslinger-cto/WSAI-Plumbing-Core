@@ -991,6 +991,7 @@ export class DatabaseStorage implements IStorage {
 
   // Analytics
   async getAnalytics(timeRange: string): Promise<AnalyticsData> {
+    console.log('[Analytics] Starting getAnalytics with timeRange:', timeRange);
     const now = new Date();
     let startDate: Date;
     let prevStartDate: Date;
@@ -1021,10 +1022,21 @@ export class DatabaseStorage implements IStorage {
         break;
     }
 
+    console.log('[Analytics] Fetching leads...');
     const allLeads = await db.select().from(leads);
+    console.log('[Analytics] Fetched', allLeads.length, 'leads');
+    
+    console.log('[Analytics] Fetching jobs...');
     const allJobs = await db.select().from(jobs);
+    console.log('[Analytics] Fetched', allJobs.length, 'jobs');
+    
+    console.log('[Analytics] Fetching quotes...');
     const allQuotes = await db.select().from(quotes);
+    console.log('[Analytics] Fetched', allQuotes.length, 'quotes');
+    
+    console.log('[Analytics] Fetching technicians...');
     const allTechs = await db.select().from(technicians);
+    console.log('[Analytics] Fetched', allTechs.length, 'technicians');
 
     const currentLeads = allLeads.filter(l => new Date(l.createdAt) >= startDate);
     const prevLeads = allLeads.filter(l => new Date(l.createdAt) >= prevStartDate && new Date(l.createdAt) <= prevEndDate);

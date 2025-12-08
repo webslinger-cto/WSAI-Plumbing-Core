@@ -16,10 +16,26 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Health check
+  app.get("/api/health", async (req, res) => {
+    try {
+      const users = await storage.getUsers();
+      res.json({ status: "ok", userCount: users.length });
+    } catch (error) {
+      console.error("Health check failed:", error);
+      res.status(500).json({ status: "error", error: String(error) });
+    }
+  });
+
   // Technicians
   app.get("/api/technicians", async (req, res) => {
-    const technicians = await storage.getTechnicians();
-    res.json(technicians);
+    try {
+      const technicians = await storage.getTechnicians();
+      res.json(technicians);
+    } catch (error) {
+      console.error("Error fetching technicians:", error);
+      res.status(500).json({ error: "Failed to fetch technicians" });
+    }
   });
 
   app.get("/api/technicians/available", async (req, res) => {
