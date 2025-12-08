@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import KPICard from "@/components/KPICard";
@@ -34,6 +34,9 @@ import {
   PlayCircle,
   Navigation,
   AlertCircle,
+  MapPinCheck,
+  MapPinOff,
+  Loader2,
 } from "lucide-react";
 import type { Job, Notification } from "@shared/schema";
 import { formatDistanceToNow, format } from "date-fns";
@@ -52,10 +55,32 @@ const jobStatusConfig: Record<string, { label: string; color: string; icon: type
 const DEMO_TECHNICIAN_ID = "tech-1";
 const DEMO_USER_ID = "user-tech-1";
 
+function getCurrentPosition(): Promise<{ latitude: number; longitude: number } | null> {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+      },
+      () => {
+        resolve(null);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  });
+}
+
 export default function TechnicianDashboard() {
   const { toast } = useToast();
   const [showQuoteBuilder, setShowQuoteBuilder] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [arrivingJobId, setArrivingJobId] = useState<string | null>(null);
 
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
     queryKey: ["/api/jobs", { technicianId: DEMO_TECHNICIAN_ID }],
@@ -102,17 +127,64 @@ export default function TechnicianDashboard() {
   });
 
   const arriveMutation = useMutation({
-    mutationFn: async (jobId: string) => {
-      return apiRequest("POST", `/api/jobs/${jobId}/arrive`, { technicianId: DEMO_TECHNICIAN_ID });
+    mutationFn: async ({ jobId, latitude, longitude }: { jobId: string; latitude?: number; longitude?: number }) => {
+      return apiRequest("POST", `/api/jobs/${jobId}/arrive`, { 
+        technicianId: DEMO_TECHNICIAN_ID,
+        latitude,
+        longitude,
+      });
     },
-    onSuccess: () => {
+    onSuccess: (data: Job) => {
       queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
-      toast({ title: "Arrived", description: "You have arrived at the job site." });
+      if (data.arrivalVerified === true) {
+        const distance = data.arrivalDistance ?? "unknown";
+        toast({ 
+          title: "Arrived - Location Verified", 
+          description: `Your location was verified (${distance}m from job site).` 
+        });
+      } else if (data.arrivalVerified === false) {
+        const distance = data.arrivalDistance ?? "unknown";
+        toast({ 
+          title: "Arrived - Location Not Verified", 
+          description: `You appear to be ${distance}m from the job site.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Arrived", description: "You have arrived at the job site. Location could not be verified." });
+      }
     },
     onError: () => {
       toast({ title: "Error", description: "Could not update status.", variant: "destructive" });
     },
+    onSettled: () => {
+      setArrivingJobId(null);
+    },
   });
+
+  const handleArrive = useCallback(async (jobId: string) => {
+    setArrivingJobId(jobId);
+    try {
+      const position = await getCurrentPosition();
+      if (!position) {
+        toast({ 
+          title: "Location Unavailable", 
+          description: "Could not get your location. Arrival will be recorded without verification.",
+        });
+      }
+      arriveMutation.mutate({ 
+        jobId, 
+        latitude: position?.latitude, 
+        longitude: position?.longitude 
+      });
+    } catch {
+      toast({ 
+        title: "Location Error", 
+        description: "Failed to get location. Arrival will be recorded without verification.",
+        variant: "destructive",
+      });
+      arriveMutation.mutate({ jobId });
+    }
+  }, [arriveMutation, toast]);
 
   const startMutation = useMutation({
     mutationFn: async (jobId: string) => {
@@ -186,12 +258,16 @@ export default function TechnicianDashboard() {
       case "en_route":
         return (
           <Button
-            onClick={(e) => { e.stopPropagation(); arriveMutation.mutate(job.id); }}
-            disabled={arriveMutation.isPending}
+            onClick={(e) => { e.stopPropagation(); handleArrive(job.id); }}
+            disabled={arriveMutation.isPending || arrivingJobId === job.id}
             data-testid={`button-arrive-${job.id}`}
           >
-            <MapPin className="w-4 h-4 mr-2" />
-            I've Arrived
+            {arrivingJobId === job.id ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <MapPin className="w-4 h-4 mr-2" />
+            )}
+            {arrivingJobId === job.id ? "Getting Location..." : "I've Arrived"}
           </Button>
         );
       case "on_site":
@@ -488,6 +564,29 @@ export default function TechnicianDashboard() {
                       {jobStatusConfig[selectedJob.status]?.label || selectedJob.status}
                     </Badge>
                   </div>
+                  {selectedJob.arrivedAt && (
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">Arrival Verification</p>
+                      <div className="flex items-center gap-2">
+                        {selectedJob.arrivalVerified === true ? (
+                          <Badge className="bg-green-500/20 text-green-400">
+                            <MapPinCheck className="w-3 h-3 mr-1" />
+                            Verified ({selectedJob.arrivalDistance ?? "N/A"}m)
+                          </Badge>
+                        ) : selectedJob.arrivalVerified === false ? (
+                          <Badge className="bg-amber-500/20 text-amber-400">
+                            <MapPinOff className="w-3 h-3 mr-1" />
+                            Not Verified ({selectedJob.arrivalDistance ?? "N/A"}m)
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-muted text-muted-foreground">
+                            <MapPin className="w-3 h-3 mr-1" />
+                            Location Not Available
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   {selectedJob.scheduledDate && (
                     <div className="space-y-1">
                       <p className="text-sm text-muted-foreground">Scheduled</p>

@@ -10,6 +10,7 @@ import {
   insertNotificationSchema,
   insertTechnicianSchema,
 } from "@shared/schema";
+import { isWithinRadius } from "./geocoding";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -219,21 +220,58 @@ export async function registerRoutes(
   });
 
   app.post("/api/jobs/:id/arrive", async (req, res) => {
-    const { technicianId } = req.body;
+    const { technicianId, latitude, longitude } = req.body;
     const job = await storage.getJob(req.params.id);
     if (!job) return res.status(404).json({ error: "Job not found" });
     
     const now = new Date();
+    let arrivalVerified: boolean | null = null;
+    let arrivalDistance: number | null = null;
+    
+    const hasValidTechLocation = latitude !== undefined && latitude !== null;
+    const hasValidJobLocation = job.latitude !== undefined && job.latitude !== null && 
+                                job.longitude !== undefined && job.longitude !== null;
+    
+    if (hasValidTechLocation && hasValidJobLocation) {
+      const result = isWithinRadius(
+        latitude,
+        longitude,
+        parseFloat(job.latitude),
+        parseFloat(job.longitude)
+      );
+      arrivalVerified = result.isWithin;
+      arrivalDistance = result.distance;
+    }
+    
     const updated = await storage.updateJob(req.params.id, {
       status: "on_site",
       arrivedAt: now,
+      arrivalLat: hasValidTechLocation ? String(latitude) : null,
+      arrivalLng: hasValidTechLocation ? String(longitude) : null,
+      arrivalVerified,
+      arrivalDistance: arrivalDistance !== null ? String(arrivalDistance) : null,
     });
+    
+    const locationInfo = arrivalVerified !== null
+      ? ` (${arrivalVerified ? "Location verified" : "Location not verified"} - ${arrivalDistance}m from job site)`
+      : "";
+    
+    const metadata: Record<string, unknown> = {};
+    if (hasValidTechLocation) {
+      metadata.latitude = latitude;
+      metadata.longitude = longitude;
+    }
+    if (arrivalVerified !== null) {
+      metadata.arrivalVerified = arrivalVerified;
+      metadata.arrivalDistance = arrivalDistance;
+    }
     
     await storage.createJobTimelineEvent({
       jobId: req.params.id,
       eventType: "arrived",
-      description: "Technician arrived at job site",
+      description: `Technician arrived at job site${locationInfo}`,
       createdBy: technicianId,
+      metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : undefined,
     });
     
     res.json(updated);
