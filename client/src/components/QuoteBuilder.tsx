@@ -371,22 +371,22 @@ export default function QuoteBuilder({
               </p>
             </div>
             
-            <div className="flex flex-col items-center gap-4 py-4">
-              <div className="bg-white p-4 rounded-lg">
+            <div className="flex flex-col items-center gap-3 py-3">
+              <div className="bg-white p-3 rounded-lg">
                 <QRCodeSVG
                   value={GOOGLE_REVIEW_URL}
-                  size={160}
+                  size={120}
                   level="H"
                   includeMargin={false}
                   data-testid="qr-google-review"
                 />
               </div>
-              <div className="text-center space-y-1">
-                <p className="text-sm font-medium flex items-center justify-center gap-2">
-                  <QrCode className="w-4 h-4" />
+              <div className="text-center space-y-0.5">
+                <p className="text-xs font-medium flex items-center justify-center gap-1.5">
+                  <QrCode className="w-3 h-3" />
                   Scan to Review
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[10px] text-muted-foreground">
                   Or visit: google.com/maps and search "Chicago Sewer Experts"
                 </p>
               </div>

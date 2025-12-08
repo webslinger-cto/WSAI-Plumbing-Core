@@ -48,48 +48,48 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background via-background to-muted/30 relative">
-      <div className="absolute top-4 left-4 flex flex-col items-center gap-1">
-        <span className="text-xs font-bold text-primary">HomeAdvisor</span>
-        <div className="bg-white p-1.5 rounded-md">
+      <div className="absolute top-4 left-4 flex flex-col items-center gap-0.5">
+        <span className="text-[10px] font-bold text-primary">HomeAdvisor</span>
+        <div className="bg-white p-1 rounded-md">
           <QRCodeSVG
             value={HOMEADVISOR_REVIEW_URL}
-            size={64}
+            size={48}
             level="H"
             includeMargin={false}
             data-testid="qr-login-homeadvisor-review"
           />
         </div>
       </div>
-      <div className="absolute top-4 right-4 flex flex-col items-center gap-1">
-        <span className="text-xs font-bold text-primary">Yelp</span>
-        <div className="bg-white p-1.5 rounded-md">
+      <div className="absolute top-4 right-4 flex flex-col items-center gap-0.5">
+        <span className="text-[10px] font-bold text-primary">Yelp</span>
+        <div className="bg-white p-1 rounded-md">
           <QRCodeSVG
             value={YELP_REVIEW_URL}
-            size={64}
+            size={48}
             level="H"
             includeMargin={false}
             data-testid="qr-login-yelp-review"
           />
         </div>
       </div>
-      <div className="absolute bottom-4 left-4 flex flex-col items-center gap-1">
-        <span className="text-xs font-bold text-primary">Angi</span>
-        <div className="bg-white p-1.5 rounded-md">
+      <div className="absolute bottom-4 left-4 flex flex-col items-center gap-0.5">
+        <span className="text-[10px] font-bold text-primary">Angi</span>
+        <div className="bg-white p-1 rounded-md">
           <QRCodeSVG
             value={ANGI_REVIEW_URL}
-            size={64}
+            size={48}
             level="H"
             includeMargin={false}
             data-testid="qr-login-angi-review"
           />
         </div>
       </div>
-      <div className="absolute bottom-4 right-4 flex flex-col items-center gap-1">
-        <span className="text-xs font-bold text-primary">Birdeye</span>
-        <div className="bg-white p-1.5 rounded-md">
+      <div className="absolute bottom-4 right-4 flex flex-col items-center gap-0.5">
+        <span className="text-[10px] font-bold text-primary">Birdeye</span>
+        <div className="bg-white p-1 rounded-md">
           <QRCodeSVG
             value={BIRDEYE_REVIEW_URL}
-            size={64}
+            size={48}
             level="H"
             includeMargin={false}
             data-testid="qr-login-birdeye-review"
