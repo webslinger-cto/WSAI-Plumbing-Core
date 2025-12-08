@@ -417,5 +417,12 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
+  // Analytics
+  app.get("/api/analytics", async (req, res) => {
+    const { range } = req.query;
+    const analytics = await storage.getAnalytics((range as string) || "year");
+    res.json(analytics);
+  });
+
   return httpServer;
 }

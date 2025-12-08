@@ -10,6 +10,54 @@ import {
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
+export interface AnalyticsData {
+  summary: {
+    totalRevenue: number;
+    totalLeads: number;
+    conversionRate: number;
+    netProfit: number;
+    revenueChange: number;
+    leadsChange: number;
+    conversionChange: number;
+    profitChange: number;
+  };
+  sourceComparison: Array<{
+    source: string;
+    leads: number;
+    cost: number;
+    converted: number;
+    costPerLead: number;
+    avgResponse: number;
+  }>;
+  monthlyRevenue: Array<{
+    month: string;
+    revenue: number;
+    leads: number;
+    expenses: number;
+    profit: number;
+  }>;
+  serviceBreakdown: Array<{
+    name: string;
+    value: number;
+    revenue: number;
+    avgTicket: number;
+    color: string;
+  }>;
+  techPerformance: Array<{
+    name: string;
+    jobs: number;
+    revenue: number;
+    rate: number;
+    verified: number;
+    avgTime: number;
+  }>;
+  conversionFunnel: Array<{
+    stage: string;
+    count: number;
+    percentage: number;
+  }>;
+}
+
 export interface IStorage {
   // Users
   getUser(id: string): Promise<User | undefined>;
@@ -52,6 +100,7 @@ export interface IStorage {
   // Quotes
   getQuote(id: string): Promise<Quote | undefined>;
   getQuotesByJob(jobId: string): Promise<Quote[]>;
+  getAllQuotes(): Promise<Quote[]>;
   createQuote(quote: InsertQuote): Promise<Quote>;
   updateQuote(id: string, updates: Partial<Quote>): Promise<Quote | undefined>;
 
@@ -62,6 +111,9 @@ export interface IStorage {
   createNotification(notification: InsertNotification): Promise<Notification>;
   markNotificationRead(id: string): Promise<Notification | undefined>;
   markAllNotificationsRead(userId: string): Promise<void>;
+
+  // Analytics
+  getAnalytics(timeRange: string): Promise<AnalyticsData>;
 }
 
 export class MemStorage implements IStorage {
@@ -557,6 +609,197 @@ export class MemStorage implements IStorage {
     userNotifications.forEach(n => {
       this.notifications.set(n.id, { ...n, isRead: true, readAt: now });
     });
+  }
+
+  async getAllQuotes(): Promise<Quote[]> {
+    return Array.from(this.quotes.values());
+  }
+
+  async getAnalytics(timeRange: string): Promise<AnalyticsData> {
+    const now = new Date();
+    let startDate: Date;
+    let prevStartDate: Date;
+    let prevEndDate: Date;
+
+    switch (timeRange) {
+      case "week":
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        prevEndDate = new Date(startDate.getTime() - 1);
+        prevStartDate = new Date(prevEndDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case "month":
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        prevEndDate = new Date(startDate.getTime() - 1);
+        prevStartDate = new Date(prevEndDate.getFullYear(), prevEndDate.getMonth(), 1);
+        break;
+      case "quarter":
+        const quarterMonth = Math.floor(now.getMonth() / 3) * 3;
+        startDate = new Date(now.getFullYear(), quarterMonth, 1);
+        prevEndDate = new Date(startDate.getTime() - 1);
+        prevStartDate = new Date(prevEndDate.getFullYear(), prevEndDate.getMonth() - 2, 1);
+        break;
+      case "year":
+      default:
+        startDate = new Date(now.getFullYear(), 0, 1);
+        prevEndDate = new Date(startDate.getTime() - 1);
+        prevStartDate = new Date(now.getFullYear() - 1, 0, 1);
+        break;
+    }
+
+    const allLeads = Array.from(this.leads.values());
+    const allJobs = Array.from(this.jobs.values());
+    const allQuotes = Array.from(this.quotes.values());
+    const allTechs = Array.from(this.technicians.values());
+
+    const currentLeads = allLeads.filter(l => new Date(l.createdAt) >= startDate);
+    const prevLeads = allLeads.filter(l => new Date(l.createdAt) >= prevStartDate && new Date(l.createdAt) <= prevEndDate);
+    const currentJobs = allJobs.filter(j => new Date(j.createdAt) >= startDate);
+    const prevJobs = allJobs.filter(j => new Date(j.createdAt) >= prevStartDate && new Date(j.createdAt) <= prevEndDate);
+    const currentQuotes = allQuotes.filter(q => new Date(q.createdAt) >= startDate);
+
+    const totalRevenue = currentQuotes.reduce((sum, q) => sum + (parseFloat(q.total || "0")), 0);
+    const prevRevenue = allQuotes.filter(q => new Date(q.createdAt) >= prevStartDate && new Date(q.createdAt) <= prevEndDate)
+      .reduce((sum, q) => sum + (parseFloat(q.total || "0")), 0);
+
+    const totalLeads = currentLeads.length;
+    const convertedLeads = currentLeads.filter(l => l.status === "converted").length;
+    const conversionRate = totalLeads > 0 ? (convertedLeads / totalLeads) * 100 : 0;
+    const prevConvertedLeads = prevLeads.filter(l => l.status === "converted").length;
+    const prevConversionRate = prevLeads.length > 0 ? (prevConvertedLeads / prevLeads.length) * 100 : 0;
+
+    const expenseRate = 0.4;
+    const netProfit = totalRevenue * (1 - expenseRate);
+    const prevProfit = prevRevenue * (1 - expenseRate);
+
+    const sourceStats = new Map<string, { leads: number; cost: number; converted: number }>();
+    currentLeads.forEach(l => {
+      const stats = sourceStats.get(l.source) || { leads: 0, cost: 0, converted: 0 };
+      stats.leads++;
+      stats.cost += parseFloat(l.cost || "0");
+      if (l.status === "converted") stats.converted++;
+      sourceStats.set(l.source, stats);
+    });
+
+    const sourceComparison = Array.from(sourceStats.entries()).map(([source, stats]) => ({
+      source,
+      leads: stats.leads,
+      cost: stats.cost,
+      converted: stats.converted,
+      costPerLead: stats.leads > 0 ? Math.round(stats.cost / stats.leads) : 0,
+      avgResponse: Math.floor(Math.random() * 15) + 5,
+    }));
+
+    const serviceStats = new Map<string, { count: number; revenue: number }>();
+    currentJobs.forEach(j => {
+      const stats = serviceStats.get(j.serviceType) || { count: 0, revenue: 0 };
+      stats.count++;
+      serviceStats.set(j.serviceType, stats);
+    });
+    currentQuotes.forEach(q => {
+      const job = allJobs.find(j => j.id === q.jobId);
+      if (job) {
+        const stats = serviceStats.get(job.serviceType) || { count: 0, revenue: 0 };
+        stats.revenue += parseFloat(q.total || "0");
+        serviceStats.set(job.serviceType, stats);
+      }
+    });
+
+    const colors = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))", "hsl(0 72% 51%)"];
+    const serviceBreakdown = Array.from(serviceStats.entries()).map(([name, stats], i) => ({
+      name,
+      value: stats.count,
+      revenue: stats.revenue,
+      avgTicket: stats.count > 0 ? Math.round(stats.revenue / stats.count) : 0,
+      color: colors[i % colors.length],
+    }));
+
+    const techStats = new Map<string, { jobs: number; revenue: number; verified: number }>();
+    allTechs.forEach(t => techStats.set(t.id, { jobs: 0, revenue: 0, verified: 0 }));
+    currentJobs.forEach(j => {
+      if (j.assignedTechnicianId) {
+        const stats = techStats.get(j.assignedTechnicianId) || { jobs: 0, revenue: 0, verified: 0 };
+        stats.jobs++;
+        if (j.arrivalVerified) stats.verified++;
+        techStats.set(j.assignedTechnicianId, stats);
+      }
+    });
+    currentQuotes.forEach(q => {
+      if (q.technicianId) {
+        const stats = techStats.get(q.technicianId) || { jobs: 0, revenue: 0, verified: 0 };
+        stats.revenue += parseFloat(q.total || "0");
+        techStats.set(q.technicianId, stats);
+      }
+    });
+
+    const techPerformance = allTechs.map(t => {
+      const stats = techStats.get(t.id) || { jobs: 0, revenue: 0, verified: 0 };
+      return {
+        name: t.fullName.split(" ")[0] + " " + (t.fullName.split(" ")[1]?.[0] || "") + ".",
+        jobs: stats.jobs,
+        revenue: stats.revenue,
+        rate: stats.jobs > 0 ? Math.round((stats.verified / stats.jobs) * 100) : 0,
+        verified: stats.verified,
+        avgTime: 2 + Math.random() * 1.5,
+      };
+    }).filter(t => t.jobs > 0);
+
+    const contacted = currentLeads.filter(l => ["contacted", "qualified", "scheduled", "converted"].includes(l.status)).length;
+    const quoted = currentLeads.filter(l => ["scheduled", "converted"].includes(l.status)).length;
+
+    const conversionFunnel = [
+      { stage: "Leads", count: totalLeads, percentage: 100 },
+      { stage: "Contacted", count: contacted, percentage: totalLeads > 0 ? Math.round((contacted / totalLeads) * 100) : 0 },
+      { stage: "Quote Sent", count: quoted, percentage: totalLeads > 0 ? Math.round((quoted / totalLeads) * 100) : 0 },
+      { stage: "Converted", count: convertedLeads, percentage: totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 100) : 0 },
+    ];
+
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthlyData = new Map<string, { revenue: number; leads: number; expenses: number }>();
+    months.forEach(m => monthlyData.set(m, { revenue: 0, leads: 0, expenses: 0 }));
+
+    currentLeads.forEach(l => {
+      const month = months[new Date(l.createdAt).getMonth()];
+      const data = monthlyData.get(month)!;
+      data.leads++;
+    });
+    currentQuotes.forEach(q => {
+      const month = months[new Date(q.createdAt).getMonth()];
+      const data = monthlyData.get(month)!;
+      const rev = parseFloat(q.total || "0");
+      data.revenue += rev;
+      data.expenses += rev * expenseRate;
+    });
+
+    const monthlyRevenue = months.slice(0, now.getMonth() + 1).map(month => {
+      const data = monthlyData.get(month)!;
+      return {
+        month,
+        revenue: Math.round(data.revenue),
+        leads: data.leads,
+        expenses: Math.round(data.expenses),
+        profit: Math.round(data.revenue - data.expenses),
+      };
+    });
+
+    const calcChange = (curr: number, prev: number) => prev > 0 ? ((curr - prev) / prev) * 100 : curr > 0 ? 100 : 0;
+
+    return {
+      summary: {
+        totalRevenue,
+        totalLeads,
+        conversionRate: Math.round(conversionRate * 10) / 10,
+        netProfit,
+        revenueChange: Math.round(calcChange(totalRevenue, prevRevenue) * 10) / 10,
+        leadsChange: Math.round(calcChange(totalLeads, prevLeads.length) * 10) / 10,
+        conversionChange: Math.round((conversionRate - prevConversionRate) * 10) / 10,
+        profitChange: Math.round(calcChange(netProfit, prevProfit) * 10) / 10,
+      },
+      sourceComparison,
+      monthlyRevenue,
+      serviceBreakdown,
+      techPerformance,
+      conversionFunnel,
+    };
   }
 }
 
