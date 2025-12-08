@@ -12,6 +12,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
 import JobTimeline from "@/components/JobTimeline";
 import {
   Select,
@@ -42,6 +46,8 @@ import {
   UserX,
   Bell,
   Shield,
+  FileText,
+  ClipboardList,
 } from "lucide-react";
 import type { Job, Lead, Call, Technician } from "@shared/schema";
 import { useState } from "react";
@@ -617,11 +623,555 @@ function CallTeamTab({ technicians }: { technicians: Technician[] }) {
   );
 }
 
+const serviceTypeOptions = [
+  "Sewer Main - Clear",
+  "Sewer Main - Repair",
+  "Sewer Main - Replace",
+  "Drain Cleaning",
+  "Water Heater - Repair",
+  "Water Heater - Replace",
+  "Toilet Repair",
+  "Faucet Repair",
+  "Leak Detection",
+  "Emergency Service",
+  "General Plumbing",
+];
+
+const leadSourceOptions = ["eLocal", "Networx", "Angi", "HomeAdvisor", "Direct", "Referral", "Website"];
+
+interface CustomerIntakeFormProps {
+  technicians: Technician[];
+  onJobCreated: () => void;
+}
+
+function CustomerIntakeForm({ technicians, onJobCreated }: CustomerIntakeFormProps) {
+  const { toast } = useToast();
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [zipCode, setZipCode] = useState("");
+  const [serviceType, setServiceType] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState("normal");
+  const [leadSource, setLeadSource] = useState("");
+  const [wantsLiveQuote, setWantsLiveQuote] = useState(false);
+  const [assignedTechnicianId, setAssignedTechnicianId] = useState("");
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [scheduledTime, setScheduledTime] = useState("");
+  const [intakeStep, setIntakeStep] = useState<"info" | "quote_decision" | "assign" | "complete">("info");
+
+  const availableTechs = technicians.filter(t => t.status === "available");
+
+  const createJobMutation = useMutation({
+    mutationFn: async (jobData: {
+      customerName: string;
+      customerPhone: string;
+      customerEmail?: string;
+      address: string;
+      city?: string;
+      zipCode?: string;
+      serviceType: string;
+      description?: string;
+      priority?: string;
+      assignedTechnicianId?: string;
+      scheduledDate?: string;
+      scheduledTimeStart?: string;
+    }) => {
+      return apiRequest("POST", "/api/jobs", jobData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/technicians"] });
+      toast({
+        title: "Job Created",
+        description: wantsLiveQuote && assignedTechnicianId 
+          ? "Job created and technician assigned for live quote." 
+          : "Job created successfully.",
+      });
+      resetForm();
+      onJobCreated();
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to create job. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const resetForm = () => {
+    setCustomerName("");
+    setCustomerPhone("");
+    setCustomerEmail("");
+    setAddress("");
+    setCity("");
+    setZipCode("");
+    setServiceType("");
+    setDescription("");
+    setPriority("normal");
+    setLeadSource("");
+    setWantsLiveQuote(false);
+    setAssignedTechnicianId("");
+    setScheduledDate("");
+    setScheduledTime("");
+    setIntakeStep("info");
+  };
+
+  const canProceedToQuoteDecision = customerName && customerPhone && address && serviceType;
+
+  const handleContinueToQuoteDecision = () => {
+    if (canProceedToQuoteDecision) {
+      setIntakeStep("quote_decision");
+    }
+  };
+
+  const handleQuoteDecision = (wantsQuote: boolean) => {
+    setWantsLiveQuote(wantsQuote);
+    if (wantsQuote) {
+      setIntakeStep("assign");
+    } else {
+      setIntakeStep("complete");
+    }
+  };
+
+  const handleAssignTech = () => {
+    if (assignedTechnicianId) {
+      setIntakeStep("complete");
+    }
+  };
+
+  const handleCreateJob = () => {
+    if (!canProceedToQuoteDecision) return;
+    
+    if (wantsLiveQuote && !assignedTechnicianId) {
+      toast({
+        title: "Technician Required",
+        description: "Please assign a technician for the live quote before completing.",
+        variant: "destructive",
+      });
+      setIntakeStep("assign");
+      return;
+    }
+
+    createJobMutation.mutate({
+      customerName,
+      customerPhone,
+      customerEmail: customerEmail || undefined,
+      address,
+      city: city || undefined,
+      zipCode: zipCode || undefined,
+      serviceType,
+      description: description || undefined,
+      priority,
+      assignedTechnicianId: assignedTechnicianId || undefined,
+      scheduledDate: scheduledDate || undefined,
+      scheduledTimeStart: scheduledTime || undefined,
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-4">
+        <CardTitle className="flex items-center gap-2">
+          <ClipboardList className="w-5 h-5" />
+          Customer Intake Form
+        </CardTitle>
+        <CardDescription>
+          {intakeStep === "info" && "Collect customer and service information"}
+          {intakeStep === "quote_decision" && "Does the customer want a live quote?"}
+          {intakeStep === "assign" && "Assign a technician for the live quote"}
+          {intakeStep === "complete" && "Review and create the job"}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="flex items-center gap-2 mb-4">
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${intakeStep === "info" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>1</div>
+          <div className={`flex-1 h-1 ${intakeStep !== "info" ? "bg-primary" : "bg-muted"}`} />
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${intakeStep === "quote_decision" ? "bg-primary text-primary-foreground" : intakeStep !== "info" ? "bg-primary/50 text-primary-foreground" : "bg-muted text-muted-foreground"}`}>2</div>
+          <div className={`flex-1 h-1 ${intakeStep === "assign" || intakeStep === "complete" ? "bg-primary" : "bg-muted"}`} />
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${intakeStep === "assign" ? "bg-primary text-primary-foreground" : intakeStep === "complete" ? "bg-primary/50 text-primary-foreground" : "bg-muted text-muted-foreground"}`}>3</div>
+          <div className={`flex-1 h-1 ${intakeStep === "complete" ? "bg-primary" : "bg-muted"}`} />
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${intakeStep === "complete" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>4</div>
+        </div>
+
+        {intakeStep === "info" && (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-sm font-semibold mb-3">Customer Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="customerName">Customer Name *</Label>
+                  <Input
+                    id="customerName"
+                    placeholder="John Smith"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    data-testid="input-customer-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="customerPhone">Phone Number *</Label>
+                  <Input
+                    id="customerPhone"
+                    placeholder="(312) 555-0123"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    data-testid="input-customer-phone"
+                  />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="customerEmail">Email (optional)</Label>
+                  <Input
+                    id="customerEmail"
+                    type="email"
+                    placeholder="john@example.com"
+                    value={customerEmail}
+                    onChange={(e) => setCustomerEmail(e.target.value)}
+                    data-testid="input-customer-email"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div>
+              <h3 className="text-sm font-semibold mb-3">Service Address</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="address">Street Address *</Label>
+                  <Input
+                    id="address"
+                    placeholder="123 Main Street"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    data-testid="input-address"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="city">City</Label>
+                  <Input
+                    id="city"
+                    placeholder="Chicago"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    data-testid="input-city"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="zipCode">ZIP Code</Label>
+                  <Input
+                    id="zipCode"
+                    placeholder="60601"
+                    value={zipCode}
+                    onChange={(e) => setZipCode(e.target.value)}
+                    data-testid="input-zip-code"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div>
+              <h3 className="text-sm font-semibold mb-3">Service Details</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Service Type *</Label>
+                  <Select value={serviceType} onValueChange={setServiceType}>
+                    <SelectTrigger data-testid="select-service-type">
+                      <SelectValue placeholder="Select service type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {serviceTypeOptions.map((type) => (
+                        <SelectItem key={type} value={type}>{type}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Lead Source</Label>
+                  <Select value={leadSource} onValueChange={setLeadSource}>
+                    <SelectTrigger data-testid="select-lead-source">
+                      <SelectValue placeholder="How did they find us?" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {leadSourceOptions.map((source) => (
+                        <SelectItem key={source} value={source}>{source}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Priority</Label>
+                  <Select value={priority} onValueChange={setPriority}>
+                    <SelectTrigger data-testid="select-priority">
+                      <SelectValue placeholder="Select priority" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="normal">Normal</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                      <SelectItem value="urgent">Urgent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="scheduledDate">Preferred Date</Label>
+                  <Input
+                    id="scheduledDate"
+                    type="date"
+                    value={scheduledDate}
+                    onChange={(e) => setScheduledDate(e.target.value)}
+                    data-testid="input-scheduled-date"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="scheduledTime">Preferred Time</Label>
+                  <Input
+                    id="scheduledTime"
+                    type="time"
+                    value={scheduledTime}
+                    onChange={(e) => setScheduledTime(e.target.value)}
+                    data-testid="input-scheduled-time"
+                  />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="description">Problem Description</Label>
+                  <Textarea
+                    id="description"
+                    placeholder="Describe the issue the customer is experiencing..."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    className="min-h-[80px]"
+                    data-testid="input-description"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={resetForm} data-testid="button-reset-form">
+                Clear Form
+              </Button>
+              <Button 
+                onClick={handleContinueToQuoteDecision}
+                disabled={!canProceedToQuoteDecision}
+                data-testid="button-continue-intake"
+              >
+                Continue
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {intakeStep === "quote_decision" && (
+          <div className="space-y-6">
+            <Card className="bg-muted/30">
+              <CardContent className="p-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Customer</p>
+                    <p className="font-medium">{customerName}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Phone</p>
+                    <p className="font-medium">{customerPhone}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-muted-foreground">Address</p>
+                    <p className="font-medium">{address}{city && `, ${city}`}{zipCode && ` ${zipCode}`}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Service</p>
+                    <p className="font-medium">{serviceType}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Priority</p>
+                    <Badge className={priorityConfig[priority]?.color}>{priorityConfig[priority]?.label}</Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="text-center space-y-4">
+              <h3 className="text-lg font-semibold">Does the customer want a live quote?</h3>
+              <p className="text-muted-foreground text-sm">
+                If yes, a technician will be assigned before the job can be closed.
+              </p>
+              <div className="flex justify-center gap-4">
+                <Button 
+                  size="lg" 
+                  variant="outline"
+                  onClick={() => handleQuoteDecision(false)}
+                  data-testid="button-no-quote"
+                >
+                  <AlertCircle className="w-4 h-4 mr-2" />
+                  No, Schedule Only
+                </Button>
+                <Button 
+                  size="lg"
+                  onClick={() => handleQuoteDecision(true)}
+                  data-testid="button-yes-quote"
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  Yes, Live Quote
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex justify-start">
+              <Button variant="ghost" onClick={() => setIntakeStep("info")} data-testid="button-back-info">
+                Back to Information
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {intakeStep === "assign" && (
+          <div className="space-y-6">
+            <div className="text-center space-y-2">
+              <h3 className="text-lg font-semibold">Assign Technician for Live Quote</h3>
+              <p className="text-muted-foreground text-sm">
+                A technician must be assigned before the job can be created.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <Label>Select Technician</Label>
+              <Select value={assignedTechnicianId} onValueChange={setAssignedTechnicianId}>
+                <SelectTrigger data-testid="select-assign-tech">
+                  <SelectValue placeholder="Choose a technician..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableTechs.length === 0 ? (
+                    <SelectItem value="_none" disabled>No technicians available</SelectItem>
+                  ) : (
+                    availableTechs.map((tech) => (
+                      <SelectItem key={tech.id} value={tech.id}>
+                        <div className="flex items-center gap-2">
+                          <Wrench className="w-4 h-4" />
+                          <span>{tech.fullName}</span>
+                          <Badge className="ml-2 text-xs bg-emerald-500/20 text-emerald-400">Available</Badge>
+                        </div>
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+
+              {availableTechs.length === 0 && (
+                <p className="text-sm text-amber-400">
+                  No technicians are currently available. You may need to wait or contact a technician directly.
+                </p>
+              )}
+            </div>
+
+            <div className="flex justify-between">
+              <Button variant="ghost" onClick={() => setIntakeStep("quote_decision")} data-testid="button-back-quote">
+                Back
+              </Button>
+              <Button 
+                onClick={handleAssignTech}
+                disabled={!assignedTechnicianId}
+                data-testid="button-confirm-assign"
+              >
+                Continue with Assignment
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {intakeStep === "complete" && (
+          <div className="space-y-6">
+            <div className="text-center space-y-2">
+              <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
+              <h3 className="text-lg font-semibold">Ready to Create Job</h3>
+            </div>
+
+            <Card className="bg-muted/30">
+              <CardContent className="p-4 space-y-3">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Customer</p>
+                    <p className="font-medium">{customerName}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Phone</p>
+                    <p className="font-medium">{customerPhone}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-muted-foreground">Address</p>
+                    <p className="font-medium">{address}{city && `, ${city}`}{zipCode && ` ${zipCode}`}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Service</p>
+                    <p className="font-medium">{serviceType}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Priority</p>
+                    <Badge className={priorityConfig[priority]?.color}>{priorityConfig[priority]?.label}</Badge>
+                  </div>
+                </div>
+                <Separator />
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Live Quote</p>
+                    <p className="font-medium">{wantsLiveQuote ? "Yes" : "No"}</p>
+                  </div>
+                  {wantsLiveQuote && assignedTechnicianId && (
+                    <div>
+                      <p className="text-muted-foreground">Assigned Tech</p>
+                      <p className="font-medium">
+                        {technicians.find(t => t.id === assignedTechnicianId)?.fullName || "Unknown"}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                {description && (
+                  <>
+                    <Separator />
+                    <div>
+                      <p className="text-muted-foreground text-sm">Description</p>
+                      <p className="text-sm">{description}</p>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="flex justify-between">
+              <Button 
+                variant="ghost" 
+                onClick={() => setIntakeStep(wantsLiveQuote ? "assign" : "quote_decision")}
+                data-testid="button-back-review"
+              >
+                Back
+              </Button>
+              <Button 
+                onClick={handleCreateJob}
+                disabled={createJobMutation.isPending}
+                data-testid="button-create-job"
+              >
+                {createJobMutation.isPending ? "Creating..." : "Create Job"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function DispatcherDashboard() {
   const { toast } = useToast();
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [activeTab, setActiveTab] = useState("dispatch");
 
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
     queryKey: ["/api/jobs"],
@@ -689,14 +1239,18 @@ export default function DispatcherDashboard() {
           <h1 className="text-2xl font-bold" data-testid="text-page-title">Dispatch Center</h1>
           <p className="text-muted-foreground">Manage jobs, calls, and technician assignments</p>
         </div>
-        <Button data-testid="button-new-job">
+        <Button onClick={() => setActiveTab("newjob")} data-testid="button-new-job">
           <Plus className="w-4 h-4 mr-2" />
           New Job
         </Button>
       </div>
 
-      <Tabs defaultValue="dispatch" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList>
+          <TabsTrigger value="newjob" data-testid="tab-newjob">
+            <ClipboardList className="w-4 h-4 mr-2" />
+            New Job
+          </TabsTrigger>
           <TabsTrigger value="dispatch" data-testid="tab-dispatch">
             <Truck className="w-4 h-4 mr-2" />
             Dispatch Board
@@ -706,6 +1260,13 @@ export default function DispatcherDashboard() {
             Call Team (7PM-7AM)
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="newjob">
+          <CustomerIntakeForm 
+            technicians={technicians} 
+            onJobCreated={() => setActiveTab("dispatch")} 
+          />
+        </TabsContent>
 
         <TabsContent value="dispatch" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
