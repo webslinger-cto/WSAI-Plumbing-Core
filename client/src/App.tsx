@@ -12,6 +12,7 @@ import LeadsPage from "@/pages/LeadsPage";
 import TechniciansPage from "@/pages/TechniciansPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import ImportPage from "@/pages/ImportPage";
+import OutreachPage from "@/pages/OutreachPage";
 import TechnicianDashboard from "@/pages/TechnicianDashboard";
 import QuotePage from "@/pages/QuotePage";
 import NotFound from "@/pages/not-found";
@@ -30,6 +31,7 @@ function AdminRouter() {
       <Route path="/technicians" component={TechniciansPage} />
       <Route path="/analytics" component={AnalyticsPage} />
       <Route path="/import" component={ImportPage} />
+      <Route path="/outreach" component={OutreachPage} />
       <Route path="/settings" component={() => (
         <div className="space-y-4">
           <h1 className="text-2xl font-bold">Settings</h1>

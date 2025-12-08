@@ -25,6 +25,7 @@ import {
   ClipboardList,
   DollarSign,
   Upload,
+  Megaphone,
 } from "lucide-react";
 
 interface AppSidebarProps {
@@ -36,6 +37,7 @@ interface AppSidebarProps {
 const adminMenuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Leads", url: "/leads", icon: Users },
+  { title: "Outreach", url: "/outreach", icon: Megaphone },
   { title: "Technicians", url: "/technicians", icon: Wrench },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Import Data", url: "/import", icon: Upload },
