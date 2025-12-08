@@ -87,15 +87,58 @@ export class MemStorage implements IStorage {
   }
 
   private seedData() {
-    // Seed technicians
-    const techData: InsertTechnician[] = [
-      { fullName: "Mike Johnson", phone: "(708) 555-0101", email: "mike@chicagosewerexperts.com", status: "available", skillLevel: "senior" },
-      { fullName: "Carlos Rodriguez", phone: "(708) 555-0102", email: "carlos@chicagosewerexperts.com", status: "available", skillLevel: "senior" },
-      { fullName: "James Williams", phone: "(708) 555-0103", email: "james@chicagosewerexperts.com", status: "busy", skillLevel: "standard" },
+    // Seed users first
+    const userData: InsertUser[] = [
+      { username: "admin", password: "demo123", role: "admin", fullName: "Admin User" },
+      { username: "dispatcher", password: "demo123", role: "dispatcher", fullName: "Dispatch Manager" },
+      { username: "mike", password: "demo123", role: "technician", fullName: "Mike Johnson" },
+      { username: "carlos", password: "demo123", role: "technician", fullName: "Carlos Rodriguez" },
+      { username: "james", password: "demo123", role: "technician", fullName: "James Williams" },
+    ];
+    
+    const userIds = ["user-admin", "user-dispatcher", "user-tech-1", "user-tech-2", "user-tech-3"];
+    userData.forEach((u, i) => {
+      const id = userIds[i];
+      this.users.set(id, {
+        id,
+        username: u.username,
+        password: u.password,
+        role: u.role || "technician",
+        fullName: u.fullName || null,
+        phone: u.phone || null,
+        email: u.email || null,
+        isActive: true,
+      });
+    });
+
+    // Seed technicians with consistent IDs
+    const techIds = ["tech-1", "tech-2", "tech-3", "tech-4", "tech-5"];
+    const techData: (InsertTechnician & { id?: string })[] = [
+      { fullName: "Mike Johnson", phone: "(708) 555-0101", email: "mike@chicagosewerexperts.com", status: "available", skillLevel: "senior", userId: "user-tech-1" },
+      { fullName: "Carlos Rodriguez", phone: "(708) 555-0102", email: "carlos@chicagosewerexperts.com", status: "available", skillLevel: "senior", userId: "user-tech-2" },
+      { fullName: "James Williams", phone: "(708) 555-0103", email: "james@chicagosewerexperts.com", status: "busy", skillLevel: "standard", userId: "user-tech-3" },
       { fullName: "David Martinez", phone: "(708) 555-0104", email: "david@chicagosewerexperts.com", status: "available", skillLevel: "standard" },
       { fullName: "Robert Taylor", phone: "(708) 555-0105", email: "robert@chicagosewerexperts.com", status: "off_duty", skillLevel: "junior" },
     ];
-    techData.forEach(t => this.createTechnician(t));
+    
+    techData.forEach((t, i) => {
+      const id = techIds[i];
+      this.technicians.set(id, {
+        id,
+        fullName: t.fullName,
+        phone: t.phone,
+        email: t.email || null,
+        status: t.status || "available",
+        skillLevel: t.skillLevel || "standard",
+        userId: t.userId || null,
+        currentJobId: null,
+        maxDailyJobs: 8,
+        completedJobsToday: 0,
+        lastLocationLat: null,
+        lastLocationLng: null,
+        lastLocationUpdate: null,
+      });
+    });
 
     // Seed leads
     const leadData: InsertLead[] = [
@@ -116,7 +159,7 @@ export class MemStorage implements IStorage {
     ];
     callData.forEach(c => this.createCall(c));
 
-    // Seed jobs
+    // Seed jobs with consistent technician IDs
     const now = new Date();
     const jobData: InsertJob[] = [
       {
@@ -131,7 +174,7 @@ export class MemStorage implements IStorage {
         scheduledDate: now,
         scheduledTimeStart: "09:00",
         scheduledTimeEnd: "11:00",
-        assignedTechnicianId: Array.from(this.technicians.keys())[2], // James
+        assignedTechnicianId: "tech-1", // Mike Johnson
       },
       {
         customerName: "Thomas Brown",
@@ -145,7 +188,7 @@ export class MemStorage implements IStorage {
         scheduledDate: now,
         scheduledTimeStart: "13:00",
         scheduledTimeEnd: "15:00",
-        assignedTechnicianId: Array.from(this.technicians.keys())[0], // Mike
+        assignedTechnicianId: "tech-1", // Mike Johnson
       },
       {
         customerName: "Sarah Johnson",
@@ -162,6 +205,15 @@ export class MemStorage implements IStorage {
       },
     ];
     jobData.forEach(j => this.createJob(j));
+
+    // Seed demo notification for technician
+    this.createNotification({
+      userId: "user-tech-1",
+      type: "job_assigned",
+      title: "New Job Assigned",
+      message: "You have been assigned to Drain Cleaning at 456 Oak Ave",
+      actionUrl: "/technician",
+    });
   }
 
   // Users
