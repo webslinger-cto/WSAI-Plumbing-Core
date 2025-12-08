@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +12,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import JobTimeline from "@/components/JobTimeline";
 import {
   Select,
   SelectContent,
@@ -56,13 +58,17 @@ const priorityConfig: Record<string, { label: string; color: string }> = {
   urgent: { label: "Urgent", color: "bg-destructive/20 text-destructive" },
 };
 
-function JobCard({ job, onAssign }: { job: Job; onAssign: (job: Job) => void }) {
+function JobCard({ job, onAssign, onViewDetails }: { job: Job; onAssign: (job: Job) => void; onViewDetails?: (job: Job) => void }) {
   const status = jobStatusConfig[job.status] || jobStatusConfig.pending;
   const priority = priorityConfig[job.priority || "normal"] || priorityConfig.normal;
   const StatusIcon = status.icon;
 
   return (
-    <Card className="mb-2">
+    <Card 
+      className="mb-2 cursor-pointer hover-elevate" 
+      onClick={() => onViewDetails?.(job)}
+      data-testid={`job-card-${job.id}`}
+    >
       <CardContent className="p-3">
         <div className="flex items-start justify-between gap-2 mb-2">
           <div className="flex-1 min-w-0">
@@ -100,7 +106,7 @@ function JobCard({ job, onAssign }: { job: Job; onAssign: (job: Job) => void }) 
             <Button
               size="sm"
               variant="outline"
-              onClick={() => onAssign(job)}
+              onClick={(e) => { e.stopPropagation(); onAssign(job); }}
               data-testid={`button-assign-job-${job.id}`}
             >
               <User className="w-3 h-3 mr-1" />
@@ -257,6 +263,7 @@ function AssignJobDialog({
 export default function DispatcherDashboard() {
   const { toast } = useToast();
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
 
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
@@ -301,6 +308,11 @@ export default function DispatcherDashboard() {
   const handleAssign = (job: Job) => {
     setSelectedJob(job);
     setAssignDialogOpen(true);
+  };
+
+  const handleViewDetails = (job: Job) => {
+    setSelectedJob(job);
+    setDetailsDialogOpen(true);
   };
 
   const activeJobs = jobs.filter(j => !["completed", "cancelled"].includes(j.status));
@@ -399,7 +411,7 @@ export default function DispatcherDashboard() {
                   </h3>
                   <ScrollArea className="h-[400px]">
                     {pendingJobs.map((job) => (
-                      <JobCard key={job.id} job={job} onAssign={handleAssign} />
+                      <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
                     ))}
                     {pendingJobs.length === 0 && (
                       <p className="text-sm text-muted-foreground text-center py-4">
@@ -416,7 +428,7 @@ export default function DispatcherDashboard() {
                   </h3>
                   <ScrollArea className="h-[400px]">
                     {assignedJobs.map((job) => (
-                      <JobCard key={job.id} job={job} onAssign={handleAssign} />
+                      <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
                     ))}
                     {assignedJobs.length === 0 && (
                       <p className="text-sm text-muted-foreground text-center py-4">
@@ -433,7 +445,7 @@ export default function DispatcherDashboard() {
                   </h3>
                   <ScrollArea className="h-[400px]">
                     {confirmedJobs.map((job) => (
-                      <JobCard key={job.id} job={job} onAssign={handleAssign} />
+                      <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
                     ))}
                     {confirmedJobs.length === 0 && (
                       <p className="text-sm text-muted-foreground text-center py-4">
@@ -450,7 +462,7 @@ export default function DispatcherDashboard() {
                   </h3>
                   <ScrollArea className="h-[400px]">
                     {enRouteJobs.map((job) => (
-                      <JobCard key={job.id} job={job} onAssign={handleAssign} />
+                      <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
                     ))}
                     {enRouteJobs.length === 0 && (
                       <p className="text-sm text-muted-foreground text-center py-4">
@@ -467,7 +479,7 @@ export default function DispatcherDashboard() {
                   </h3>
                   <ScrollArea className="h-[400px]">
                     {onSiteJobs.map((job) => (
-                      <JobCard key={job.id} job={job} onAssign={handleAssign} />
+                      <JobCard key={job.id} job={job} onAssign={handleAssign} onViewDetails={handleViewDetails} />
                     ))}
                     {onSiteJobs.length === 0 && (
                       <p className="text-sm text-muted-foreground text-center py-4">
@@ -536,6 +548,79 @@ export default function DispatcherDashboard() {
         onAssign={(jobId, technicianId) => assignMutation.mutate({ jobId, technicianId })}
         isPending={assignMutation.isPending}
       />
+
+      <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Job Details - {selectedJob?.customerName}</DialogTitle>
+          </DialogHeader>
+          {selectedJob && (
+            <Tabs defaultValue="details" className="mt-4">
+              <TabsList>
+                <TabsTrigger value="details" data-testid="tab-job-details">Details</TabsTrigger>
+                <TabsTrigger value="timeline" data-testid="tab-job-timeline">Timeline</TabsTrigger>
+              </TabsList>
+              <TabsContent value="details" className="space-y-4 mt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Customer</p>
+                    <p className="font-medium">{selectedJob.customerName}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Phone</p>
+                    <p className="font-medium">{selectedJob.customerPhone}</p>
+                  </div>
+                  <div className="space-y-1 col-span-2">
+                    <p className="text-sm text-muted-foreground">Address</p>
+                    <p className="font-medium">{selectedJob.address}, {selectedJob.city}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Service</p>
+                    <p className="font-medium">{selectedJob.serviceType}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Status</p>
+                    <Badge className={jobStatusConfig[selectedJob.status]?.color}>
+                      {jobStatusConfig[selectedJob.status]?.label || selectedJob.status}
+                    </Badge>
+                  </div>
+                  {selectedJob.scheduledDate && (
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">Scheduled</p>
+                      <p className="font-medium">
+                        {format(new Date(selectedJob.scheduledDate), "MMM d, yyyy")} {selectedJob.scheduledTimeStart && `at ${selectedJob.scheduledTimeStart}`}
+                      </p>
+                    </div>
+                  )}
+                  {selectedJob.description && (
+                    <div className="space-y-1 col-span-2">
+                      <p className="text-sm text-muted-foreground">Description</p>
+                      <p className="font-medium">{selectedJob.description}</p>
+                    </div>
+                  )}
+                </div>
+                {selectedJob.status === "pending" && (
+                  <div className="flex gap-2 pt-4">
+                    <Button 
+                      onClick={() => {
+                        setDetailsDialogOpen(false);
+                        setAssignDialogOpen(true);
+                      }}
+                      data-testid="button-assign-from-details"
+                    >
+                      <User className="w-4 h-4 mr-2" />
+                      Assign Technician
+                    </Button>
+                  </div>
+                )}
+              </TabsContent>
+              <TabsContent value="timeline" className="mt-4">
+                <JobTimeline job={selectedJob} />
+              </TabsContent>
+            </Tabs>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

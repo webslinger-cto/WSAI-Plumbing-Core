@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import KPICard from "@/components/KPICard";
 import QuoteBuilder from "@/components/QuoteBuilder";
+import JobTimeline from "@/components/JobTimeline";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -460,6 +461,7 @@ export default function TechnicianDashboard() {
             <Tabs defaultValue="details" className="mt-4">
               <TabsList>
                 <TabsTrigger value="details" data-testid="tab-details">Details</TabsTrigger>
+                <TabsTrigger value="timeline" data-testid="tab-timeline">Timeline</TabsTrigger>
                 <TabsTrigger value="quote" data-testid="tab-quote">Quote</TabsTrigger>
               </TabsList>
               <TabsContent value="details" className="space-y-4 mt-4">
@@ -508,6 +510,9 @@ export default function TechnicianDashboard() {
                     Call Customer
                   </Button>
                 </div>
+              </TabsContent>
+              <TabsContent value="timeline" className="mt-4">
+                <JobTimeline job={selectedJob} />
               </TabsContent>
               <TabsContent value="quote" className="mt-4">
                 <QuoteBuilder
