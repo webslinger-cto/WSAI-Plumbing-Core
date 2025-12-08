@@ -1,22 +1,170 @@
-import { type User, type InsertUser } from "@shared/schema";
+import {
+  type User, type InsertUser,
+  type Technician, type InsertTechnician,
+  type Lead, type InsertLead,
+  type Call, type InsertCall,
+  type Job, type InsertJob,
+  type JobTimelineEvent, type InsertJobTimelineEvent,
+  type Quote, type InsertQuote,
+  type Notification, type InsertNotification,
+} from "@shared/schema";
 import { randomUUID } from "crypto";
 
-// modify the interface with any CRUD methods
-// you might need
-
 export interface IStorage {
+  // Users
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  getUsers(): Promise<User[]>;
+
+  // Technicians
+  getTechnician(id: string): Promise<Technician | undefined>;
+  getTechnicians(): Promise<Technician[]>;
+  getAvailableTechnicians(): Promise<Technician[]>;
+  createTechnician(tech: InsertTechnician): Promise<Technician>;
+  updateTechnician(id: string, updates: Partial<Technician>): Promise<Technician | undefined>;
+
+  // Leads
+  getLead(id: string): Promise<Lead | undefined>;
+  getLeads(): Promise<Lead[]>;
+  getLeadsByStatus(status: string): Promise<Lead[]>;
+  createLead(lead: InsertLead): Promise<Lead>;
+  updateLead(id: string, updates: Partial<Lead>): Promise<Lead | undefined>;
+
+  // Calls
+  getCall(id: string): Promise<Call | undefined>;
+  getCalls(): Promise<Call[]>;
+  getRecentCalls(limit: number): Promise<Call[]>;
+  createCall(call: InsertCall): Promise<Call>;
+
+  // Jobs
+  getJob(id: string): Promise<Job | undefined>;
+  getJobs(): Promise<Job[]>;
+  getJobsByStatus(status: string): Promise<Job[]>;
+  getJobsByTechnician(technicianId: string): Promise<Job[]>;
+  createJob(job: InsertJob): Promise<Job>;
+  updateJob(id: string, updates: Partial<Job>): Promise<Job | undefined>;
+
+  // Job Timeline Events
+  getJobTimelineEvents(jobId: string): Promise<JobTimelineEvent[]>;
+  createJobTimelineEvent(event: InsertJobTimelineEvent): Promise<JobTimelineEvent>;
+
+  // Quotes
+  getQuote(id: string): Promise<Quote | undefined>;
+  getQuotesByJob(jobId: string): Promise<Quote[]>;
+  createQuote(quote: InsertQuote): Promise<Quote>;
+  updateQuote(id: string, updates: Partial<Quote>): Promise<Quote | undefined>;
+
+  // Notifications
+  getNotification(id: string): Promise<Notification | undefined>;
+  getNotificationsByUser(userId: string): Promise<Notification[]>;
+  getUnreadNotifications(userId: string): Promise<Notification[]>;
+  createNotification(notification: InsertNotification): Promise<Notification>;
+  markNotificationRead(id: string): Promise<Notification | undefined>;
+  markAllNotificationsRead(userId: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
+  private technicians: Map<string, Technician>;
+  private leads: Map<string, Lead>;
+  private calls: Map<string, Call>;
+  private jobs: Map<string, Job>;
+  private jobTimelineEvents: Map<string, JobTimelineEvent>;
+  private quotes: Map<string, Quote>;
+  private notifications: Map<string, Notification>;
 
   constructor() {
     this.users = new Map();
+    this.technicians = new Map();
+    this.leads = new Map();
+    this.calls = new Map();
+    this.jobs = new Map();
+    this.jobTimelineEvents = new Map();
+    this.quotes = new Map();
+    this.notifications = new Map();
+    this.seedData();
   }
 
+  private seedData() {
+    // Seed technicians
+    const techData: InsertTechnician[] = [
+      { fullName: "Mike Johnson", phone: "(708) 555-0101", email: "mike@chicagosewerexperts.com", status: "available", skillLevel: "senior" },
+      { fullName: "Carlos Rodriguez", phone: "(708) 555-0102", email: "carlos@chicagosewerexperts.com", status: "available", skillLevel: "senior" },
+      { fullName: "James Williams", phone: "(708) 555-0103", email: "james@chicagosewerexperts.com", status: "busy", skillLevel: "standard" },
+      { fullName: "David Martinez", phone: "(708) 555-0104", email: "david@chicagosewerexperts.com", status: "available", skillLevel: "standard" },
+      { fullName: "Robert Taylor", phone: "(708) 555-0105", email: "robert@chicagosewerexperts.com", status: "off_duty", skillLevel: "junior" },
+    ];
+    techData.forEach(t => this.createTechnician(t));
+
+    // Seed leads
+    const leadData: InsertLead[] = [
+      { source: "eLocal", customerName: "Leonard Willis", customerPhone: "(312) 555-1234", address: "123 Main St", city: "Chicago", zipCode: "60601", serviceType: "Sewer Main - Clear", status: "new", priority: "high" },
+      { source: "Networx", customerName: "Maria Garcia", customerPhone: "(312) 555-2345", address: "456 Oak Ave", city: "Chicago", zipCode: "60602", serviceType: "Drain Cleaning", status: "qualified", priority: "normal" },
+      { source: "Direct", customerName: "Thomas Brown", customerPhone: "(312) 555-3456", address: "789 Elm St", city: "Evanston", zipCode: "60201", serviceType: "Water Heater - Repair", status: "scheduled", priority: "normal" },
+      { source: "eLocal", customerName: "Sarah Johnson", customerPhone: "(312) 555-4567", address: "321 Pine Rd", city: "Chicago", zipCode: "60603", serviceType: "Pipe Repair", status: "new", priority: "urgent" },
+      { source: "Angi", customerName: "Michael Davis", customerPhone: "(312) 555-5678", address: "654 Cedar Ln", city: "Oak Park", zipCode: "60301", serviceType: "Toilet Repair", status: "contacted", priority: "low" },
+    ];
+    leadData.forEach(l => this.createLead(l));
+
+    // Seed calls
+    const callData: InsertCall[] = [
+      { callerPhone: "(312) 555-1234", callerName: "Leonard Willis", direction: "inbound", status: "completed", duration: 180 },
+      { callerPhone: "(312) 555-2345", callerName: "Maria Garcia", direction: "inbound", status: "completed", duration: 240 },
+      { callerPhone: "(312) 555-9999", direction: "inbound", status: "missed", duration: 0 },
+      { callerPhone: "(312) 555-3456", callerName: "Thomas Brown", direction: "outbound", status: "completed", duration: 120 },
+    ];
+    callData.forEach(c => this.createCall(c));
+
+    // Seed jobs
+    const now = new Date();
+    const jobData: InsertJob[] = [
+      {
+        customerName: "Maria Garcia",
+        customerPhone: "(312) 555-2345",
+        address: "456 Oak Ave",
+        city: "Chicago",
+        zipCode: "60602",
+        serviceType: "Drain Cleaning",
+        status: "assigned",
+        priority: "normal",
+        scheduledDate: now,
+        scheduledTimeStart: "09:00",
+        scheduledTimeEnd: "11:00",
+        assignedTechnicianId: Array.from(this.technicians.keys())[2], // James
+      },
+      {
+        customerName: "Thomas Brown",
+        customerPhone: "(312) 555-3456",
+        address: "789 Elm St",
+        city: "Evanston",
+        zipCode: "60201",
+        serviceType: "Water Heater - Repair",
+        status: "confirmed",
+        priority: "normal",
+        scheduledDate: now,
+        scheduledTimeStart: "13:00",
+        scheduledTimeEnd: "15:00",
+        assignedTechnicianId: Array.from(this.technicians.keys())[0], // Mike
+      },
+      {
+        customerName: "Sarah Johnson",
+        customerPhone: "(312) 555-4567",
+        address: "321 Pine Rd",
+        city: "Chicago",
+        zipCode: "60603",
+        serviceType: "Pipe Repair",
+        status: "pending",
+        priority: "urgent",
+        scheduledDate: now,
+        scheduledTimeStart: "14:00",
+        scheduledTimeEnd: "16:00",
+      },
+    ];
+    jobData.forEach(j => this.createJob(j));
+  }
+
+  // Users
   async getUser(id: string): Promise<User | undefined> {
     return this.users.get(id);
   }
@@ -29,9 +177,334 @@ export class MemStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
-    const user: User = { ...insertUser, id };
+    const user: User = { 
+      id,
+      username: insertUser.username,
+      password: insertUser.password,
+      role: insertUser.role || "technician",
+      fullName: insertUser.fullName || null,
+      phone: insertUser.phone || null,
+      email: insertUser.email || null,
+      isActive: true,
+    };
     this.users.set(id, user);
     return user;
+  }
+
+  async getUsers(): Promise<User[]> {
+    return Array.from(this.users.values());
+  }
+
+  // Technicians
+  async getTechnician(id: string): Promise<Technician | undefined> {
+    return this.technicians.get(id);
+  }
+
+  async getTechnicians(): Promise<Technician[]> {
+    return Array.from(this.technicians.values());
+  }
+
+  async getAvailableTechnicians(): Promise<Technician[]> {
+    return Array.from(this.technicians.values()).filter(t => t.status === "available");
+  }
+
+  async createTechnician(insertTech: InsertTechnician): Promise<Technician> {
+    const id = randomUUID();
+    const tech: Technician = {
+      id,
+      userId: insertTech.userId || null,
+      fullName: insertTech.fullName,
+      phone: insertTech.phone,
+      email: insertTech.email || null,
+      status: insertTech.status || "available",
+      currentJobId: insertTech.currentJobId || null,
+      skillLevel: insertTech.skillLevel || "standard",
+      maxDailyJobs: insertTech.maxDailyJobs || 8,
+      completedJobsToday: insertTech.completedJobsToday || 0,
+      lastLocationLat: insertTech.lastLocationLat || null,
+      lastLocationLng: insertTech.lastLocationLng || null,
+      lastLocationUpdate: insertTech.lastLocationUpdate || null,
+    };
+    this.technicians.set(id, tech);
+    return tech;
+  }
+
+  async updateTechnician(id: string, updates: Partial<Technician>): Promise<Technician | undefined> {
+    const tech = this.technicians.get(id);
+    if (!tech) return undefined;
+    const updated = { ...tech, ...updates };
+    this.technicians.set(id, updated);
+    return updated;
+  }
+
+  // Leads
+  async getLead(id: string): Promise<Lead | undefined> {
+    return this.leads.get(id);
+  }
+
+  async getLeads(): Promise<Lead[]> {
+    return Array.from(this.leads.values()).sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }
+
+  async getLeadsByStatus(status: string): Promise<Lead[]> {
+    return Array.from(this.leads.values()).filter(l => l.status === status);
+  }
+
+  async createLead(insertLead: InsertLead): Promise<Lead> {
+    const id = randomUUID();
+    const now = new Date();
+    const lead: Lead = {
+      id,
+      source: insertLead.source,
+      customerName: insertLead.customerName,
+      customerPhone: insertLead.customerPhone,
+      customerEmail: insertLead.customerEmail || null,
+      address: insertLead.address || null,
+      city: insertLead.city || null,
+      zipCode: insertLead.zipCode || null,
+      serviceType: insertLead.serviceType || null,
+      description: insertLead.description || null,
+      status: insertLead.status || "new",
+      priority: insertLead.priority || "normal",
+      cost: insertLead.cost || null,
+      createdAt: now,
+      updatedAt: now,
+      convertedAt: insertLead.convertedAt || null,
+      assignedTo: insertLead.assignedTo || null,
+    };
+    this.leads.set(id, lead);
+    return lead;
+  }
+
+  async updateLead(id: string, updates: Partial<Lead>): Promise<Lead | undefined> {
+    const lead = this.leads.get(id);
+    if (!lead) return undefined;
+    const updated = { ...lead, ...updates, updatedAt: new Date() };
+    this.leads.set(id, updated);
+    return updated;
+  }
+
+  // Calls
+  async getCall(id: string): Promise<Call | undefined> {
+    return this.calls.get(id);
+  }
+
+  async getCalls(): Promise<Call[]> {
+    return Array.from(this.calls.values()).sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }
+
+  async getRecentCalls(limit: number): Promise<Call[]> {
+    return (await this.getCalls()).slice(0, limit);
+  }
+
+  async createCall(insertCall: InsertCall): Promise<Call> {
+    const id = randomUUID();
+    const call: Call = {
+      id,
+      leadId: insertCall.leadId || null,
+      jobId: insertCall.jobId || null,
+      callerPhone: insertCall.callerPhone,
+      callerName: insertCall.callerName || null,
+      direction: insertCall.direction || "inbound",
+      status: insertCall.status || "completed",
+      duration: insertCall.duration || null,
+      recordingUrl: insertCall.recordingUrl || null,
+      notes: insertCall.notes || null,
+      handledBy: insertCall.handledBy || null,
+      createdAt: new Date(),
+    };
+    this.calls.set(id, call);
+    return call;
+  }
+
+  // Jobs
+  async getJob(id: string): Promise<Job | undefined> {
+    return this.jobs.get(id);
+  }
+
+  async getJobs(): Promise<Job[]> {
+    return Array.from(this.jobs.values()).sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }
+
+  async getJobsByStatus(status: string): Promise<Job[]> {
+    return Array.from(this.jobs.values()).filter(j => j.status === status);
+  }
+
+  async getJobsByTechnician(technicianId: string): Promise<Job[]> {
+    return Array.from(this.jobs.values()).filter(j => j.assignedTechnicianId === technicianId);
+  }
+
+  async createJob(insertJob: InsertJob): Promise<Job> {
+    const id = randomUUID();
+    const now = new Date();
+    const job: Job = {
+      id,
+      leadId: insertJob.leadId || null,
+      customerName: insertJob.customerName,
+      customerPhone: insertJob.customerPhone,
+      customerEmail: insertJob.customerEmail || null,
+      address: insertJob.address,
+      city: insertJob.city || null,
+      zipCode: insertJob.zipCode || null,
+      serviceType: insertJob.serviceType,
+      description: insertJob.description || null,
+      status: insertJob.status || "pending",
+      priority: insertJob.priority || "normal",
+      scheduledDate: insertJob.scheduledDate || null,
+      scheduledTimeStart: insertJob.scheduledTimeStart || null,
+      scheduledTimeEnd: insertJob.scheduledTimeEnd || null,
+      estimatedDuration: insertJob.estimatedDuration || null,
+      assignedTechnicianId: insertJob.assignedTechnicianId || null,
+      dispatcherId: insertJob.dispatcherId || null,
+      createdAt: now,
+      updatedAt: now,
+      assignedAt: insertJob.assignedAt || null,
+      confirmedAt: insertJob.confirmedAt || null,
+      enRouteAt: insertJob.enRouteAt || null,
+      arrivedAt: insertJob.arrivedAt || null,
+      startedAt: insertJob.startedAt || null,
+      completedAt: insertJob.completedAt || null,
+    };
+    this.jobs.set(id, job);
+    
+    // Create initial timeline event
+    this.createJobTimelineEvent({
+      jobId: id,
+      eventType: "created",
+      description: "Job created",
+    });
+    
+    return job;
+  }
+
+  async updateJob(id: string, updates: Partial<Job>): Promise<Job | undefined> {
+    const job = this.jobs.get(id);
+    if (!job) return undefined;
+    const updated = { ...job, ...updates, updatedAt: new Date() };
+    this.jobs.set(id, updated);
+    return updated;
+  }
+
+  // Job Timeline Events
+  async getJobTimelineEvents(jobId: string): Promise<JobTimelineEvent[]> {
+    return Array.from(this.jobTimelineEvents.values())
+      .filter(e => e.jobId === jobId)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+
+  async createJobTimelineEvent(insertEvent: InsertJobTimelineEvent): Promise<JobTimelineEvent> {
+    const id = randomUUID();
+    const event: JobTimelineEvent = {
+      id,
+      jobId: insertEvent.jobId,
+      eventType: insertEvent.eventType,
+      description: insertEvent.description || null,
+      createdBy: insertEvent.createdBy || null,
+      createdAt: new Date(),
+      metadata: insertEvent.metadata || null,
+    };
+    this.jobTimelineEvents.set(id, event);
+    return event;
+  }
+
+  // Quotes
+  async getQuote(id: string): Promise<Quote | undefined> {
+    return this.quotes.get(id);
+  }
+
+  async getQuotesByJob(jobId: string): Promise<Quote[]> {
+    return Array.from(this.quotes.values()).filter(q => q.jobId === jobId);
+  }
+
+  async createQuote(insertQuote: InsertQuote): Promise<Quote> {
+    const id = randomUUID();
+    const quote: Quote = {
+      id,
+      jobId: insertQuote.jobId,
+      technicianId: insertQuote.technicianId || null,
+      customerName: insertQuote.customerName,
+      customerPhone: insertQuote.customerPhone || null,
+      customerEmail: insertQuote.customerEmail || null,
+      address: insertQuote.address || null,
+      lineItems: insertQuote.lineItems || null,
+      subtotal: insertQuote.subtotal || null,
+      taxRate: insertQuote.taxRate || "0",
+      taxAmount: insertQuote.taxAmount || "0",
+      total: insertQuote.total || null,
+      status: insertQuote.status || "draft",
+      notes: insertQuote.notes || null,
+      createdAt: new Date(),
+      sentAt: insertQuote.sentAt || null,
+      viewedAt: insertQuote.viewedAt || null,
+      acceptedAt: insertQuote.acceptedAt || null,
+      declinedAt: insertQuote.declinedAt || null,
+      expiresAt: insertQuote.expiresAt || null,
+    };
+    this.quotes.set(id, quote);
+    return quote;
+  }
+
+  async updateQuote(id: string, updates: Partial<Quote>): Promise<Quote | undefined> {
+    const quote = this.quotes.get(id);
+    if (!quote) return undefined;
+    const updated = { ...quote, ...updates };
+    this.quotes.set(id, updated);
+    return updated;
+  }
+
+  // Notifications
+  async getNotification(id: string): Promise<Notification | undefined> {
+    return this.notifications.get(id);
+  }
+
+  async getNotificationsByUser(userId: string): Promise<Notification[]> {
+    return Array.from(this.notifications.values())
+      .filter(n => n.userId === userId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async getUnreadNotifications(userId: string): Promise<Notification[]> {
+    return (await this.getNotificationsByUser(userId)).filter(n => !n.isRead);
+  }
+
+  async createNotification(insertNotification: InsertNotification): Promise<Notification> {
+    const id = randomUUID();
+    const notification: Notification = {
+      id,
+      userId: insertNotification.userId,
+      type: insertNotification.type,
+      title: insertNotification.title,
+      message: insertNotification.message,
+      jobId: insertNotification.jobId || null,
+      isRead: false,
+      actionUrl: insertNotification.actionUrl || null,
+      createdAt: new Date(),
+      readAt: null,
+    };
+    this.notifications.set(id, notification);
+    return notification;
+  }
+
+  async markNotificationRead(id: string): Promise<Notification | undefined> {
+    const notification = this.notifications.get(id);
+    if (!notification) return undefined;
+    const updated = { ...notification, isRead: true, readAt: new Date() };
+    this.notifications.set(id, updated);
+    return updated;
+  }
+
+  async markAllNotificationsRead(userId: string): Promise<void> {
+    const userNotifications = await this.getNotificationsByUser(userId);
+    const now = new Date();
+    userNotifications.forEach(n => {
+      this.notifications.set(n.id, { ...n, isRead: true, readAt: now });
+    });
   }
 }
 
