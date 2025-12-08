@@ -12,7 +12,6 @@ export const YELP_REVIEW_URL = "https://www.yelp.com/biz/chicago-sewer-experts-l
 import AdminDashboard from "@/pages/AdminDashboard";
 import LeadsPage from "@/pages/LeadsPage";
 import TechniciansPage from "@/pages/TechniciansPage";
-import AnalyticsPage from "@/pages/AnalyticsPage";
 import ImportPage from "@/pages/ImportPage";
 import OutreachPage from "@/pages/OutreachPage";
 import TechnicianDashboard from "@/pages/TechnicianDashboard";
@@ -33,7 +32,6 @@ function AdminRouter() {
       <Route path="/" component={AdminDashboard} />
       <Route path="/leads" component={LeadsPage} />
       <Route path="/technicians" component={TechniciansPage} />
-      <Route path="/analytics" component={AnalyticsPage} />
       <Route path="/import" component={ImportPage} />
       <Route path="/outreach" component={OutreachPage} />
       <Route path="/settings" component={() => (

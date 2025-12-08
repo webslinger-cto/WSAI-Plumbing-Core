@@ -18,7 +18,6 @@ import {
   LayoutDashboard,
   Users,
   FileText,
-  BarChart3,
   Settings,
   LogOut,
   Wrench,
@@ -42,7 +41,6 @@ const adminMenuItems = [
   { title: "Leads", url: "/leads", icon: Users },
   { title: "Outreach", url: "/outreach", icon: Megaphone },
   { title: "Technicians", url: "/technicians", icon: Wrench },
-  { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Import Data", url: "/import", icon: Upload },
 ];
 
