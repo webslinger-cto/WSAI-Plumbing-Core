@@ -9,8 +9,7 @@ import { QRCodeSVG } from "qrcode.react";
 import AppSidebar from "@/components/AppSidebar";
 import LoginPage from "@/components/LoginPage";
 
-const GOOGLE_REVIEW_PLACE_ID = "ChIJSTKCCzZwBYgRPN0F2TRRuoA";
-const GOOGLE_REVIEW_URL = `https://search.google.com/local/writereview?placeid=${GOOGLE_REVIEW_PLACE_ID}`;
+export const YELP_REVIEW_URL = "https://www.yelp.com/biz/chicago-sewer-experts-lyons-3?adjust_creative=microsoft&utm_campaign=yelp_feed&utm_medium=feed_v2&utm_source=microsoft";
 import AdminDashboard from "@/pages/AdminDashboard";
 import LeadsPage from "@/pages/LeadsPage";
 import TechniciansPage from "@/pages/TechniciansPage";
@@ -144,11 +143,11 @@ function App() {
                 <div className="flex-1" />
                 <div className="bg-white p-1.5 rounded-md flex-shrink-0">
                   <QRCodeSVG
-                    value={GOOGLE_REVIEW_URL}
+                    value={YELP_REVIEW_URL}
                     size={64}
                     level="H"
                     includeMargin={false}
-                    data-testid="qr-header-google-review"
+                    data-testid="qr-header-yelp-review"
                   />
                 </div>
               </header>
