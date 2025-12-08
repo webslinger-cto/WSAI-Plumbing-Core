@@ -7,11 +7,11 @@ import { Eye, EyeOff, Phone } from "lucide-react";
 import cseLogo from "@assets/cse-logo.png";
 
 interface LoginPageProps {
-  onLogin: (role: "admin" | "technician", username: string) => void;
+  onLogin: (role: "admin" | "dispatcher" | "technician", username: string) => void;
 }
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
-  const [role, setRole] = useState<"admin" | "technician">("admin");
+  const [role, setRole] = useState<"admin" | "dispatcher" | "technician">("admin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -76,12 +76,21 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             </Button>
             <Button
               type="button"
+              variant={role === "dispatcher" ? "default" : "ghost"}
+              className="flex-1"
+              onClick={() => setRole("dispatcher")}
+              data-testid="button-role-dispatcher"
+            >
+              Dispatch
+            </Button>
+            <Button
+              type="button"
               variant={role === "technician" ? "default" : "ghost"}
               className="flex-1"
               onClick={() => setRole("technician")}
               data-testid="button-role-technician"
             >
-              Technician
+              Tech
             </Button>
           </div>
 
@@ -91,7 +100,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               <Input
                 id="username"
                 type="text"
-                placeholder={role === "admin" ? "admin" : "tech_name"}
+                placeholder={role === "admin" ? "admin" : role === "dispatcher" ? "dispatcher" : "tech_name"}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 data-testid="input-username"
@@ -139,7 +148,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               disabled={isLoading}
               data-testid="button-login"
             >
-              {isLoading ? "Signing in..." : `Sign in as ${role === "admin" ? "Admin" : "Technician"}`}
+              {isLoading ? "Signing in..." : `Sign in as ${role === "admin" ? "Admin" : role === "dispatcher" ? "Dispatcher" : "Technician"}`}
             </Button>
           </form>
 

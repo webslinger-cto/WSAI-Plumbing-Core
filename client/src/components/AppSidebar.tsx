@@ -26,11 +26,13 @@ import {
   DollarSign,
   Upload,
   Megaphone,
+  Phone,
+  UserCog,
 } from "lucide-react";
 import cseMascot from "@assets/cse-mascot.png";
 
 interface AppSidebarProps {
-  role: "admin" | "technician";
+  role: "admin" | "dispatcher" | "technician";
   username: string;
   onLogout: () => void;
 }
@@ -44,6 +46,13 @@ const adminMenuItems = [
   { title: "Import Data", url: "/import", icon: Upload },
 ];
 
+const dispatcherMenuItems = [
+  { title: "Dispatch Center", url: "/", icon: LayoutDashboard },
+  { title: "Staffing Pool", url: "/staffing", icon: UserCog },
+  { title: "Calls", url: "/calls", icon: Phone },
+  { title: "Leads", url: "/leads", icon: Users },
+];
+
 const techMenuItems = [
   { title: "My Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Quote Tool", url: "/quote", icon: FileText },
@@ -53,7 +62,11 @@ const techMenuItems = [
 
 export default function AppSidebar({ role, username, onLogout }: AppSidebarProps) {
   const [location] = useLocation();
-  const menuItems = role === "admin" ? adminMenuItems : techMenuItems;
+  const menuItems = role === "admin" 
+    ? adminMenuItems 
+    : role === "dispatcher" 
+      ? dispatcherMenuItems 
+      : techMenuItems;
 
   const getInitials = (name: string) => {
     return name
@@ -84,7 +97,7 @@ export default function AppSidebar({ role, username, onLogout }: AppSidebarProps
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel className="uppercase text-xs tracking-wider">
-            {role === "admin" ? "Administration" : "Technician Portal"}
+            {role === "admin" ? "Administration" : role === "dispatcher" ? "Dispatch Operations" : "Technician Portal"}
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>

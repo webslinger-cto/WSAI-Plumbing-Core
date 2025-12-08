@@ -15,11 +15,13 @@ import ImportPage from "@/pages/ImportPage";
 import OutreachPage from "@/pages/OutreachPage";
 import TechnicianDashboard from "@/pages/TechnicianDashboard";
 import QuotePage from "@/pages/QuotePage";
+import DispatcherDashboard from "@/pages/DispatcherDashboard";
+import StaffingPool from "@/pages/StaffingPool";
 import NotFound from "@/pages/not-found";
 
 interface AuthState {
   isAuthenticated: boolean;
-  role: "admin" | "technician" | null;
+  role: "admin" | "dispatcher" | "technician" | null;
   username: string;
 }
 
@@ -38,6 +40,23 @@ function AdminRouter() {
           <p className="text-muted-foreground">Settings page coming soon.</p>
         </div>
       )} />
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
+
+function DispatcherRouter() {
+  return (
+    <Switch>
+      <Route path="/" component={DispatcherDashboard} />
+      <Route path="/staffing" component={StaffingPool} />
+      <Route path="/calls" component={() => (
+        <div className="space-y-4">
+          <h1 className="text-2xl font-bold">Call Log</h1>
+          <p className="text-muted-foreground">Call log page coming soon.</p>
+        </div>
+      )} />
+      <Route path="/leads" component={LeadsPage} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -73,7 +92,7 @@ function App() {
     username: "",
   });
 
-  const handleLogin = (role: "admin" | "technician", username: string) => {
+  const handleLogin = (role: "admin" | "dispatcher" | "technician", username: string) => {
     setAuth({
       isAuthenticated: true,
       role,
@@ -121,7 +140,13 @@ function App() {
                 <div className="flex-1" />
               </header>
               <main className="flex-1 overflow-auto p-6">
-                {auth.role === "admin" ? <AdminRouter /> : <TechnicianRouter />}
+                {auth.role === "admin" ? (
+                  <AdminRouter />
+                ) : auth.role === "dispatcher" ? (
+                  <DispatcherRouter />
+                ) : (
+                  <TechnicianRouter />
+                )}
               </main>
             </div>
           </div>
