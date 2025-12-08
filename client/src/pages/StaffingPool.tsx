@@ -281,7 +281,7 @@ export default function StaffingPool() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <Progress value={(usedCapacity / totalCapacity) * 100} className="h-3" />
+          <Progress value={totalCapacity > 0 ? (usedCapacity / totalCapacity) * 100 : 0} className="h-3" />
         </CardContent>
       </Card>
 

@@ -233,7 +233,7 @@ function AssignJobDialog({
           </div>
 
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="button-cancel-assign">
               Cancel
             </Button>
             <Button
@@ -268,7 +268,7 @@ export default function DispatcherDashboard() {
   });
 
   const { data: calls = [], isLoading: callsLoading } = useQuery<Call[]>({
-    queryKey: ["/api/calls/recent"],
+    queryKey: ["/api/calls?limit=10"],
   });
 
   const { data: technicians = [] } = useQuery<Technician[]>({
