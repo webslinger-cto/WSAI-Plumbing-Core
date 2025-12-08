@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Eye, EyeOff, Wrench } from "lucide-react";
+import { Eye, EyeOff, Phone } from "lucide-react";
+import cseLogo from "@assets/cse-logo.png";
 
 interface LoginPageProps {
   onLogin: (role: "admin" | "technician", username: string) => void;
@@ -43,14 +44,22 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background via-background to-muted/30">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center space-y-4 pb-2">
-          <div className="mx-auto w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-lg shadow-primary/25">
-            <Wrench className="w-8 h-8 text-primary-foreground" />
+          <div className="mx-auto">
+            <img 
+              src={cseLogo} 
+              alt="Chicago Sewer Experts" 
+              className="h-24 w-auto mx-auto"
+              data-testid="img-cse-logo"
+            />
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-wide uppercase" data-testid="text-brand-title">
-              Chicago Sewer Experts
+              CRM Dashboard
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">CRM Dashboard</p>
+            <p className="text-sm text-muted-foreground mt-1 flex items-center justify-center gap-1">
+              <Phone className="w-3 h-3" />
+              <span>(708) 398-7600</span>
+            </p>
           </div>
         </CardHeader>
         

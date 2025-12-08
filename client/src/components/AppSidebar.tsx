@@ -27,6 +27,7 @@ import {
   Upload,
   Megaphone,
 } from "lucide-react";
+import cseMascot from "@assets/cse-mascot.png";
 
 interface AppSidebarProps {
   role: "admin" | "technician";
@@ -67,9 +68,12 @@ export default function AppSidebar({ role, username, onLogout }: AppSidebarProps
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border p-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-lg shadow-primary/25">
-            <Wrench className="w-5 h-5 text-primary-foreground" />
-          </div>
+          <img 
+            src={cseMascot} 
+            alt="CSE Mascot" 
+            className="w-12 h-12 object-contain"
+            data-testid="img-cse-mascot"
+          />
           <div className="flex-1 min-w-0">
             <h2 className="font-bold text-sm tracking-wide truncate">Chicago Sewer</h2>
             <p className="text-xs text-muted-foreground">Experts CRM</p>
