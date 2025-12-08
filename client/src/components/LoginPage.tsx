@@ -46,23 +46,29 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background via-background to-muted/30 relative">
-      <div className="absolute top-4 left-4 bg-white p-1.5 rounded-md">
-        <QRCodeSVG
-          value={HOMEADVISOR_REVIEW_URL}
-          size={64}
-          level="H"
-          includeMargin={false}
-          data-testid="qr-login-homeadvisor-review"
-        />
+      <div className="absolute top-4 left-4 flex flex-col items-center gap-1">
+        <span className="text-xs font-bold text-primary">HomeAdvisor</span>
+        <div className="bg-white p-1.5 rounded-md">
+          <QRCodeSVG
+            value={HOMEADVISOR_REVIEW_URL}
+            size={64}
+            level="H"
+            includeMargin={false}
+            data-testid="qr-login-homeadvisor-review"
+          />
+        </div>
       </div>
-      <div className="absolute top-4 right-4 bg-white p-1.5 rounded-md">
-        <QRCodeSVG
-          value={YELP_REVIEW_URL}
-          size={64}
-          level="H"
-          includeMargin={false}
-          data-testid="qr-login-yelp-review"
-        />
+      <div className="absolute top-4 right-4 flex flex-col items-center gap-1">
+        <span className="text-xs font-bold text-primary">Yelp</span>
+        <div className="bg-white p-1.5 rounded-md">
+          <QRCodeSVG
+            value={YELP_REVIEW_URL}
+            size={64}
+            level="H"
+            includeMargin={false}
+            data-testid="qr-login-yelp-review"
+          />
+        </div>
       </div>
       <Card className="w-full max-w-md">
         <CardHeader className="text-center space-y-4 pb-2">

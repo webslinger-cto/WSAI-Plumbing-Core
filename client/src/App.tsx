@@ -141,14 +141,17 @@ function App() {
               <header className="flex items-center gap-4 px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
                 <div className="flex-1" />
-                <div className="bg-white p-1.5 rounded-md flex-shrink-0">
-                  <QRCodeSVG
-                    value={YELP_REVIEW_URL}
-                    size={64}
-                    level="H"
-                    includeMargin={false}
-                    data-testid="qr-header-yelp-review"
-                  />
+                <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                  <span className="text-xs font-bold text-primary">Yelp</span>
+                  <div className="bg-white p-1.5 rounded-md">
+                    <QRCodeSVG
+                      value={YELP_REVIEW_URL}
+                      size={64}
+                      level="H"
+                      includeMargin={false}
+                      data-testid="qr-header-yelp-review"
+                    />
+                  </div>
                 </div>
               </header>
               <main className="flex-1 overflow-auto p-6">
