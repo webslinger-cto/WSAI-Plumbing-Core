@@ -5,8 +5,12 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { QRCodeSVG } from "qrcode.react";
 import AppSidebar from "@/components/AppSidebar";
 import LoginPage from "@/components/LoginPage";
+
+const GOOGLE_REVIEW_PLACE_ID = "ChIJSTKCCzZwBYgRPN0F2TRRuoA";
+const GOOGLE_REVIEW_URL = `https://search.google.com/local/writereview?placeid=${GOOGLE_REVIEW_PLACE_ID}`;
 import AdminDashboard from "@/pages/AdminDashboard";
 import LeadsPage from "@/pages/LeadsPage";
 import TechniciansPage from "@/pages/TechniciansPage";
@@ -135,7 +139,16 @@ function App() {
               onLogout={handleLogout}
             />
             <div className="flex flex-col flex-1 min-w-0">
-              <header className="flex items-center gap-4 px-4 py-3 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+              <header className="flex items-center gap-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                <div className="bg-white p-1.5 flex-shrink-0">
+                  <QRCodeSVG
+                    value={GOOGLE_REVIEW_URL}
+                    size={80}
+                    level="H"
+                    includeMargin={false}
+                    data-testid="qr-header-google-review"
+                  />
+                </div>
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
                 <div className="flex-1" />
               </header>
