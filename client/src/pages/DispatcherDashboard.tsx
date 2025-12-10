@@ -203,8 +203,8 @@ function QuoteReviewCard({ quote, jobs, technicians }: { quote: Quote; jobs: Job
                   <tr key={index} className="border-t">
                     <td className="p-2">{item.description}</td>
                     <td className="p-2 text-right">{item.quantity}</td>
-                    <td className="p-2 text-right">${item.unitPrice.toFixed(2)}</td>
-                    <td className="p-2 text-right">${item.total.toFixed(2)}</td>
+                    <td className="p-2 text-right">${parseFloat(String(item.unitPrice || 0)).toFixed(2)}</td>
+                    <td className="p-2 text-right">${parseFloat(String(item.total || 0)).toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
