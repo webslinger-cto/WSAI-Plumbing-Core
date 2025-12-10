@@ -103,6 +103,7 @@ export interface IStorage {
   // Quotes
   getQuote(id: string): Promise<Quote | undefined>;
   getQuotesByJob(jobId: string): Promise<Quote[]>;
+  getQuotesByStatus(status: string): Promise<Quote[]>;
   getAllQuotes(): Promise<Quote[]>;
   createQuote(quote: InsertQuote): Promise<Quote>;
   updateQuote(id: string, updates: Partial<Quote>): Promise<Quote | undefined>;
@@ -459,6 +460,8 @@ export class MemStorage implements IStorage {
       address: insertJob.address,
       city: insertJob.city || null,
       zipCode: insertJob.zipCode || null,
+      latitude: insertJob.latitude || null,
+      longitude: insertJob.longitude || null,
       serviceType: insertJob.serviceType,
       description: insertJob.description || null,
       status: insertJob.status || "pending",
@@ -475,6 +478,10 @@ export class MemStorage implements IStorage {
       confirmedAt: insertJob.confirmedAt || null,
       enRouteAt: insertJob.enRouteAt || null,
       arrivedAt: insertJob.arrivedAt || null,
+      arrivalLat: insertJob.arrivalLat || null,
+      arrivalLng: insertJob.arrivalLng || null,
+      arrivalVerified: insertJob.arrivalVerified || null,
+      arrivalDistance: insertJob.arrivalDistance || null,
       startedAt: insertJob.startedAt || null,
       completedAt: insertJob.completedAt || null,
     };
@@ -616,6 +623,10 @@ export class MemStorage implements IStorage {
 
   async getAllQuotes(): Promise<Quote[]> {
     return Array.from(this.quotes.values());
+  }
+
+  async getQuotesByStatus(status: string): Promise<Quote[]> {
+    return Array.from(this.quotes.values()).filter(q => q.status === status);
   }
 
   async getAnalytics(timeRange: string): Promise<AnalyticsData> {
@@ -949,6 +960,10 @@ export class DatabaseStorage implements IStorage {
 
   async getAllQuotes(): Promise<Quote[]> {
     return await db.select().from(quotes);
+  }
+
+  async getQuotesByStatus(status: string): Promise<Quote[]> {
+    return await db.select().from(quotes).where(eq(quotes.status, status));
   }
 
   async createQuote(insertQuote: InsertQuote): Promise<Quote> {

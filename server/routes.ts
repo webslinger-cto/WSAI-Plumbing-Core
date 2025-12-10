@@ -375,12 +375,21 @@ export async function registerRoutes(
 
   // Quotes
   app.get("/api/quotes", async (req, res) => {
-    const { jobId } = req.query;
-    if (jobId) {
-      const quotes = await storage.getQuotesByJob(jobId as string);
-      res.json(quotes);
-    } else {
-      res.status(400).json({ error: "jobId query parameter required" });
+    try {
+      const { jobId, status } = req.query;
+      if (jobId) {
+        const quotes = await storage.getQuotesByJob(jobId as string);
+        res.json(quotes);
+      } else if (status) {
+        const quotes = await storage.getQuotesByStatus(status as string);
+        res.json(quotes);
+      } else {
+        const quotes = await storage.getAllQuotes();
+        res.json(quotes);
+      }
+    } catch (error) {
+      console.error("Error fetching quotes:", error);
+      res.status(500).json({ error: "Failed to fetch quotes" });
     }
   });
 

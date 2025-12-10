@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Send, Save, CreditCard, Star, QrCode } from "lucide-react";
+import { Plus, Trash2, Send, Save, CreditCard, Star, QrCode, Download } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
 interface LineItem {
@@ -113,6 +113,113 @@ export default function QuoteBuilder({
     labor: "bg-blue-500/10 text-blue-400 border-blue-500/30",
     material: "bg-orange-500/10 text-orange-400 border-orange-500/30",
     service: "bg-green-500/10 text-green-400 border-green-500/30",
+  };
+
+  const handleDownloadPDF = () => {
+    const quoteData = getQuoteData();
+    const today = new Date().toLocaleDateString("en-US", { 
+      year: "numeric", 
+      month: "long", 
+      day: "numeric" 
+    });
+    
+    const lineItemsHtml = quoteData.lineItems.map(item => `
+      <tr>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd;">${item.description}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: center;">${item.quantity}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">$${item.unitPrice.toFixed(2)}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">$${(item.quantity * item.unitPrice).toFixed(2)}</td>
+      </tr>
+    `).join("");
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Quote - Chicago Sewer Experts</title>
+        <style>
+          body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .header h1 { color: #b22222; margin: 0; }
+          .header p { color: #666; margin: 5px 0; }
+          .customer-info { background: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+          th { background: #b22222; color: white; padding: 10px; text-align: left; }
+          .totals { text-align: right; margin-top: 20px; }
+          .totals p { margin: 5px 0; }
+          .total-line { font-size: 18px; font-weight: bold; color: #b22222; }
+          .notes { background: #fff3cd; padding: 15px; border-radius: 5px; margin-top: 20px; }
+          .footer { margin-top: 40px; text-align: center; color: #666; font-size: 12px; }
+          @media print {
+            body { margin: 0; padding: 15px; }
+            .header h1 { font-size: 24px; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Chicago Sewer Experts</h1>
+          <p>Professional Sewer & Drain Services</p>
+          <p>Quote Date: ${today}</p>
+        </div>
+        
+        <div class="customer-info">
+          <p><strong>Customer:</strong> ${quoteData.customerName}</p>
+          <p><strong>Phone:</strong> ${quoteData.customerPhone}</p>
+          <p><strong>Address:</strong> ${quoteData.customerAddress}</p>
+        </div>
+        
+        <table>
+          <thead>
+            <tr>
+              <th>Description</th>
+              <th style="text-align: center;">Qty</th>
+              <th style="text-align: right;">Unit Price</th>
+              <th style="text-align: right;">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lineItemsHtml}
+          </tbody>
+        </table>
+        
+        <div class="totals">
+          <p>Subtotal: $${quoteData.subtotal.toFixed(2)}</p>
+          <p>Tax (6.25%): $${quoteData.tax.toFixed(2)}</p>
+          <p class="total-line">Total: $${quoteData.total.toFixed(2)}</p>
+        </div>
+        
+        ${quoteData.notes ? `<div class="notes"><strong>Notes:</strong> ${quoteData.notes}</div>` : ""}
+        
+        <div class="footer">
+          <p>Thank you for choosing Chicago Sewer Experts!</p>
+          <p>This quote is valid for 30 days from the date above.</p>
+        </div>
+      </body>
+      </html>
+    `;
+    
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "absolute";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+    
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (iframeDoc) {
+      iframeDoc.open();
+      iframeDoc.write(htmlContent);
+      iframeDoc.close();
+      
+      setTimeout(() => {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 1000);
+      }, 250);
+    }
   };
 
   return (
@@ -430,6 +537,15 @@ export default function QuoteBuilder({
         >
           <Save className="w-4 h-4 mr-2" />
           Save Draft
+        </Button>
+        <Button
+          variant="outline"
+          onClick={handleDownloadPDF}
+          disabled={lineItems.length === 0 || !name}
+          data-testid="button-download-pdf"
+        >
+          <Download className="w-4 h-4 mr-2" />
+          Download PDF
         </Button>
         <Button
           variant="outline"

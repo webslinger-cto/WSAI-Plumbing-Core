@@ -1530,16 +1530,16 @@ export default function DispatcherDashboard() {
                       </p>
                     </div>
                   )}
-                  {selectedJob.notes && (
+                  {selectedJob.description && (
                     <div className="space-y-1 col-span-2">
                       <p className="text-sm text-muted-foreground">Notes</p>
-                      <p className="text-sm">{selectedJob.notes}</p>
+                      <p className="text-sm">{selectedJob.description}</p>
                     </div>
                   )}
                 </div>
               </TabsContent>
               <TabsContent value="timeline" className="mt-4">
-                <JobTimeline jobId={selectedJob.id} />
+                <JobTimeline job={selectedJob} />
               </TabsContent>
             </Tabs>
           )}
