@@ -49,7 +49,7 @@ import {
   FileText,
   ClipboardList,
 } from "lucide-react";
-import type { Job, Lead, Call, Technician } from "@shared/schema";
+import type { Job, Lead, Call, Technician, Quote } from "@shared/schema";
 import { useState } from "react";
 import { formatDistanceToNow, format } from "date-fns";
 
@@ -87,6 +87,166 @@ const mockEmergencyTeam: EmergencyTeamMember[] = [
   { id: "2", technicianId: "2", technicianName: "Carlos Rodriguez", phone: "(312) 555-0102", isOnCall: true, isPrimary: false, callsHandled: 8 },
   { id: "3", technicianId: "3", technicianName: "David Smith", phone: "(312) 555-0103", isOnCall: false, isPrimary: false, callsHandled: 5 },
 ];
+
+const quoteStatusConfig: Record<string, { label: string; color: string }> = {
+  draft: { label: "Draft", color: "bg-muted text-muted-foreground" },
+  sent: { label: "Pending Review", color: "bg-amber-500/20 text-amber-400" },
+  viewed: { label: "Viewed", color: "bg-blue-500/20 text-blue-400" },
+  accepted: { label: "Accepted", color: "bg-green-500/20 text-green-400" },
+  declined: { label: "Declined", color: "bg-destructive/20 text-destructive" },
+  expired: { label: "Expired", color: "bg-muted text-muted-foreground" },
+};
+
+function QuoteReviewCard({ quote, jobs, technicians }: { quote: Quote; jobs: Job[]; technicians: Technician[] }) {
+  const { toast } = useToast();
+  const job = jobs.find(j => j.id === quote.jobId);
+  const technician = technicians.find(t => t.id === quote.technicianId);
+  const status = quoteStatusConfig[quote.status] || quoteStatusConfig.draft;
+  
+  let lineItems: Array<{ description: string; quantity: number; unitPrice: number; total: number }> = [];
+  try {
+    if (quote.lineItems) {
+      lineItems = JSON.parse(quote.lineItems);
+    }
+  } catch {
+    lineItems = [];
+  }
+
+  const approveMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("PATCH", `/api/quotes/${quote.id}`, { status: "sent" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      toast({
+        title: "Quote Approved",
+        description: "The quote has been approved and sent to the customer.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Approval Failed",
+        description: "Could not approve the quote. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("PATCH", `/api/quotes/${quote.id}`, { status: "declined" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      toast({
+        title: "Quote Rejected",
+        description: "The quote has been rejected.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Rejection Failed",
+        description: "Could not reject the quote. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  return (
+    <Card data-testid={`quote-card-${quote.id}`}>
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <p className="font-medium" data-testid={`text-quote-customer-${quote.id}`}>
+                {quote.customerName}
+              </p>
+              <Badge className={status.color}>{status.label}</Badge>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {quote.address}
+            </p>
+            {technician && (
+              <p className="text-sm text-muted-foreground">
+                Created by: {technician.fullName}
+              </p>
+            )}
+            {job && (
+              <p className="text-sm text-muted-foreground">
+                Job: {job.serviceType}
+              </p>
+            )}
+          </div>
+          <div className="text-right">
+            <p className="text-2xl font-bold text-primary" data-testid={`text-quote-total-${quote.id}`}>
+              ${parseFloat(String(quote.total || 0)).toFixed(2)}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Created {quote.createdAt && formatDistanceToNow(new Date(quote.createdAt), { addSuffix: true })}
+            </p>
+          </div>
+        </div>
+
+        {lineItems.length > 0 && (
+          <div className="border rounded-lg overflow-hidden mb-4">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-left p-2 font-medium">Description</th>
+                  <th className="text-right p-2 font-medium">Qty</th>
+                  <th className="text-right p-2 font-medium">Price</th>
+                  <th className="text-right p-2 font-medium">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lineItems.map((item, index) => (
+                  <tr key={index} className="border-t">
+                    <td className="p-2">{item.description}</td>
+                    <td className="p-2 text-right">{item.quantity}</td>
+                    <td className="p-2 text-right">${item.unitPrice.toFixed(2)}</td>
+                    <td className="p-2 text-right">${item.total.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+          <span>Subtotal: ${parseFloat(String(quote.subtotal || 0)).toFixed(2)}</span>
+          <Separator orientation="vertical" className="h-4" />
+          <span>Tax: ${parseFloat(String(quote.taxAmount || 0)).toFixed(2)}</span>
+        </div>
+
+        {quote.notes && (
+          <div className="bg-muted/30 rounded-lg p-3 mb-4">
+            <p className="text-sm">{quote.notes}</p>
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => rejectMutation.mutate()}
+            disabled={rejectMutation.isPending}
+            data-testid={`button-reject-quote-${quote.id}`}
+          >
+            Reject
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => approveMutation.mutate()}
+            disabled={approveMutation.isPending}
+            data-testid={`button-approve-quote-${quote.id}`}
+          >
+            {approveMutation.isPending ? "Approving..." : "Approve & Send"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function JobCard({ job, onAssign, onViewDetails }: { job: Job; onAssign: (job: Job) => void; onViewDetails?: (job: Job) => void }) {
   const status = jobStatusConfig[job.status] || jobStatusConfig.pending;
@@ -1189,6 +1349,12 @@ export default function DispatcherDashboard() {
     queryKey: ["/api/technicians"],
   });
 
+  const { data: quotes = [], isLoading: quotesLoading, isError: quotesError } = useQuery<Quote[]>({
+    queryKey: ["/api/quotes"],
+  });
+
+  const pendingQuotes = quotes.filter(q => q.status === "draft" || q.status === "sent");
+
   const assignMutation = useMutation({
     mutationFn: async ({ jobId, technicianId }: { jobId: string; technicianId: string }) => {
       return apiRequest("POST", `/api/jobs/${jobId}/assign`, { technicianId });
@@ -1258,6 +1424,10 @@ export default function DispatcherDashboard() {
           <TabsTrigger value="callteam" data-testid="tab-callteam">
             <Moon className="w-4 h-4 mr-2" />
             Call Team (7PM-7AM)
+          </TabsTrigger>
+          <TabsTrigger value="quotes" data-testid="tab-quotes">
+            <FileText className="w-4 h-4 mr-2" />
+            Quotes ({pendingQuotes.length})
           </TabsTrigger>
         </TabsList>
 
@@ -1474,6 +1644,35 @@ export default function DispatcherDashboard() {
 
         <TabsContent value="callteam">
           <CallTeamTab technicians={technicians} />
+        </TabsContent>
+
+        <TabsContent value="quotes" className="space-y-6">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Pending Quotes for Review
+              </CardTitle>
+              <CardDescription>
+                Review and approve quotes submitted by technicians
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {quotesLoading ? (
+                <div className="text-center py-8 text-muted-foreground">Loading quotes...</div>
+              ) : quotesError ? (
+                <div className="text-center py-8 text-destructive">Failed to load quotes. Please try again.</div>
+              ) : pendingQuotes.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">No pending quotes to review</div>
+              ) : (
+                <div className="space-y-4">
+                  {pendingQuotes.map((quote) => (
+                    <QuoteReviewCard key={quote.id} quote={quote} jobs={jobs} technicians={technicians} />
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

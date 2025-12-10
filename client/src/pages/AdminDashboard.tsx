@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import KPICard from "@/components/KPICard";
 import LeadSourceChart from "@/components/LeadSourceChart";
 import LeadTrendsChart from "@/components/LeadTrendsChart";
@@ -11,7 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Users, DollarSign, Phone, TrendingUp, Percent } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Users, DollarSign, Phone, TrendingUp, Percent, FileText, CheckCircle2, Clock, XCircle } from "lucide-react";
+import type { Quote, Technician } from "@shared/schema";
+import { formatDistanceToNow } from "date-fns";
 
 // todo: remove mock functionality
 // Data organized by time range
@@ -176,8 +182,35 @@ const mockActivities: ActivityItem[] = [
   },
 ];
 
+const quoteStatusConfig: Record<string, { label: string; color: string; icon: typeof Clock }> = {
+  draft: { label: "Draft", color: "bg-muted text-muted-foreground", icon: Clock },
+  sent: { label: "Pending", color: "bg-amber-500/20 text-amber-400", icon: Clock },
+  viewed: { label: "Viewed", color: "bg-blue-500/20 text-blue-400", icon: FileText },
+  accepted: { label: "Accepted", color: "bg-green-500/20 text-green-400", icon: CheckCircle2 },
+  declined: { label: "Declined", color: "bg-destructive/20 text-destructive", icon: XCircle },
+  expired: { label: "Expired", color: "bg-muted text-muted-foreground", icon: Clock },
+};
+
 export default function AdminDashboard() {
   const [timeRange, setTimeRange] = useState("month");
+
+  const { data: quotes = [], isLoading: quotesLoading, isError: quotesError } = useQuery<Quote[]>({
+    queryKey: ["/api/quotes"],
+  });
+
+  const { data: technicians = [] } = useQuery<Technician[]>({
+    queryKey: ["/api/technicians"],
+  });
+
+  // Quote statistics
+  const quoteStats = useMemo(() => {
+    const pending = quotes.filter(q => q.status === "draft" || q.status === "sent").length;
+    const accepted = quotes.filter(q => q.status === "accepted").length;
+    const declined = quotes.filter(q => q.status === "declined").length;
+    const totalValue = quotes.reduce((sum, q) => sum + parseFloat(String(q.total || 0)), 0);
+    const acceptedValue = quotes.filter(q => q.status === "accepted").reduce((sum, q) => sum + parseFloat(String(q.total || 0)), 0);
+    return { pending, accepted, declined, totalValue, acceptedValue };
+  }, [quotes]);
 
   // Get data for the selected time range
   const currentData = useMemo(() => {
@@ -259,6 +292,134 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <LeadQualityChart data={qualityData} />
         <RecentActivity activities={mockActivities} />
+      </div>
+
+      <div className="space-y-4">
+        <h2 className="text-xl font-bold">Quote Tracking</h2>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-md bg-amber-500/20">
+                  <Clock className="w-5 h-5 text-amber-400" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold" data-testid="text-pending-quotes">{quoteStats.pending}</p>
+                  <p className="text-sm text-muted-foreground">Pending Quotes</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-md bg-green-500/20">
+                  <CheckCircle2 className="w-5 h-5 text-green-400" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold" data-testid="text-accepted-quotes">{quoteStats.accepted}</p>
+                  <p className="text-sm text-muted-foreground">Accepted Quotes</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-md bg-destructive/20">
+                  <XCircle className="w-5 h-5 text-destructive" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold" data-testid="text-declined-quotes">{quoteStats.declined}</p>
+                  <p className="text-sm text-muted-foreground">Declined Quotes</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-md bg-primary/20">
+                  <DollarSign className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold" data-testid="text-quote-value">${quoteStats.acceptedValue.toFixed(0)}</p>
+                  <p className="text-sm text-muted-foreground">Accepted Value</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              Recent Quotes
+            </CardTitle>
+            <CardDescription>
+              Track all quotes across technicians
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {quotesLoading ? (
+              <div className="text-center py-8 text-muted-foreground">Loading quotes...</div>
+            ) : quotesError ? (
+              <div className="text-center py-8 text-destructive">Failed to load quotes. Please try again.</div>
+            ) : quotes.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">No quotes yet</div>
+            ) : (
+              <ScrollArea className="h-[300px]">
+                <div className="space-y-3">
+                  {quotes.slice(0, 20).map((quote) => {
+                    const tech = technicians.find(t => t.id === quote.technicianId);
+                    const status = quoteStatusConfig[quote.status] || quoteStatusConfig.draft;
+                    const StatusIcon = status.icon;
+                    return (
+                      <div 
+                        key={quote.id} 
+                        className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border"
+                        data-testid={`quote-row-${quote.id}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-medium truncate" data-testid={`text-quote-name-${quote.id}`}>
+                              {quote.customerName}
+                            </p>
+                            <Badge className={`${status.color} shrink-0`}>
+                              <StatusIcon className="w-3 h-3 mr-1" />
+                              {status.label}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground truncate">
+                            {quote.address}
+                          </p>
+                          {tech && (
+                            <p className="text-xs text-muted-foreground">
+                              By: {tech.fullName}
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-right shrink-0 ml-4">
+                          <p className="font-bold text-lg" data-testid={`text-quote-amount-${quote.id}`}>
+                            ${parseFloat(String(quote.total || 0)).toFixed(2)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {quote.createdAt && formatDistanceToNow(new Date(quote.createdAt), { addSuffix: true })}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
