@@ -153,6 +153,14 @@ function TimeMetrics({ job }: { job: Job }) {
 }
 
 export default function JobTimeline({ job, showCountdown = true }: JobTimelineProps) {
+  if (!job) {
+    return (
+      <div className="text-sm text-muted-foreground text-center py-4">
+        No job selected
+      </div>
+    );
+  }
+
   const { data: events = [], isLoading } = useQuery<JobTimelineEvent[]>({
     queryKey: ["/api/jobs", job.id, "timeline"],
     queryFn: async () => {
