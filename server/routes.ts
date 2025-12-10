@@ -27,6 +27,43 @@ export async function registerRoutes(
     }
   });
 
+  // Authentication
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      if (!username || !password) {
+        return res.status(400).json({ error: "Username and password required" });
+      }
+
+      const user = await storage.getUserByUsername(username);
+      if (!user || user.password !== password) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      // If technician, get the technician record and verify linkage
+      let technician = null;
+      if (user.role === "technician") {
+        technician = await storage.getTechnicianByUserId(user.id);
+        if (!technician) {
+          return res.status(400).json({ 
+            error: "Technician account not properly configured. Please contact an administrator." 
+          });
+        }
+      }
+
+      res.json({
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        fullName: user.fullName,
+        technicianId: technician?.id || null,
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ error: "Login failed" });
+    }
+  });
+
   // Technicians
   app.get("/api/technicians", async (req, res) => {
     try {

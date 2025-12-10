@@ -52,9 +52,11 @@ const jobStatusConfig: Record<string, { label: string; color: string; icon: type
   cancelled: { label: "Cancelled", color: "bg-destructive/20 text-destructive", icon: AlertCircle },
 };
 
-const DEMO_TECHNICIAN_ID = "tech-1";
-const DEMO_USER_ID = "user-tech-1";
-const DEMO_TECHNICIAN_NAME = "Marcus Rodriguez";
+interface TechnicianDashboardProps {
+  technicianId: string;
+  userId: string;
+  fullName: string;
+}
 
 function getCurrentPosition(): Promise<{ latitude: number; longitude: number } | null> {
   return new Promise((resolve) => {
@@ -96,33 +98,37 @@ function getCurrentPosition(): Promise<{ latitude: number; longitude: number } |
   });
 }
 
-export default function TechnicianDashboard() {
+export default function TechnicianDashboard({ technicianId, userId, fullName }: TechnicianDashboardProps) {
   const { toast } = useToast();
   const [showQuoteBuilder, setShowQuoteBuilder] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [arrivingJobId, setArrivingJobId] = useState<string | null>(null);
 
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
-    queryKey: ["/api/jobs", { technicianId: DEMO_TECHNICIAN_ID }],
+    queryKey: ["/api/jobs", { technicianId }],
     queryFn: async () => {
-      const res = await fetch(`/api/jobs?technicianId=${DEMO_TECHNICIAN_ID}`);
+      if (!technicianId) return [];
+      const res = await fetch(`/api/jobs?technicianId=${technicianId}`);
       if (!res.ok) throw new Error("Failed to fetch jobs");
       return res.json();
     },
+    enabled: !!technicianId,
   });
 
   const { data: notifications = [] } = useQuery<Notification[]>({
-    queryKey: ["/api/notifications", { userId: DEMO_USER_ID }],
+    queryKey: ["/api/notifications", { userId }],
     queryFn: async () => {
-      const res = await fetch(`/api/notifications?userId=${DEMO_USER_ID}`);
+      if (!userId) return [];
+      const res = await fetch(`/api/notifications?userId=${userId}`);
       if (!res.ok) throw new Error("Failed to fetch notifications");
       return res.json();
     },
+    enabled: !!userId,
   });
 
   const confirmMutation = useMutation({
     mutationFn: async (jobId: string) => {
-      return apiRequest("POST", `/api/jobs/${jobId}/confirm`, { technicianId: DEMO_TECHNICIAN_ID });
+      return apiRequest("POST", `/api/jobs/${jobId}/confirm`, { technicianId: technicianId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
@@ -135,7 +141,7 @@ export default function TechnicianDashboard() {
 
   const enRouteMutation = useMutation({
     mutationFn: async (jobId: string) => {
-      return apiRequest("POST", `/api/jobs/${jobId}/en-route`, { technicianId: DEMO_TECHNICIAN_ID });
+      return apiRequest("POST", `/api/jobs/${jobId}/en-route`, { technicianId: technicianId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
@@ -149,7 +155,7 @@ export default function TechnicianDashboard() {
   const arriveMutation = useMutation({
     mutationFn: async ({ jobId, latitude, longitude }: { jobId: string; latitude?: number; longitude?: number }) => {
       return apiRequest("POST", `/api/jobs/${jobId}/arrive`, { 
-        technicianId: DEMO_TECHNICIAN_ID,
+        technicianId: technicianId,
         latitude,
         longitude,
       });
@@ -208,7 +214,7 @@ export default function TechnicianDashboard() {
 
   const startMutation = useMutation({
     mutationFn: async (jobId: string) => {
-      return apiRequest("POST", `/api/jobs/${jobId}/start`, { technicianId: DEMO_TECHNICIAN_ID });
+      return apiRequest("POST", `/api/jobs/${jobId}/start`, { technicianId: technicianId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
@@ -221,7 +227,7 @@ export default function TechnicianDashboard() {
 
   const completeMutation = useMutation({
     mutationFn: async (jobId: string) => {
-      return apiRequest("POST", `/api/jobs/${jobId}/complete`, { technicianId: DEMO_TECHNICIAN_ID });
+      return apiRequest("POST", `/api/jobs/${jobId}/complete`, { technicianId: technicianId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
@@ -241,6 +247,19 @@ export default function TechnicianDashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
     },
   });
+
+  // Guard against missing technicianId - placed after all hooks
+  if (!technicianId) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center space-y-4">
+          <AlertCircle className="w-12 h-12 text-destructive mx-auto" />
+          <h2 className="text-xl font-semibold">Account Not Configured</h2>
+          <p className="text-muted-foreground">Your technician account is not properly set up. Please contact an administrator.</p>
+        </div>
+      </div>
+    );
+  }
 
   const unreadNotifications = notifications.filter(n => !n.isRead);
 
@@ -536,7 +555,7 @@ export default function TechnicianDashboard() {
             <DialogTitle>Create New Quote</DialogTitle>
           </DialogHeader>
           <QuoteBuilder
-            technicianName={DEMO_TECHNICIAN_NAME}
+            technicianName={fullName}
             onSave={(quote) => {
               console.log("Quote saved:", quote);
               setShowQuoteBuilder(false);
@@ -639,7 +658,7 @@ export default function TechnicianDashboard() {
                   customerName={selectedJob.customerName}
                   customerPhone={selectedJob.customerPhone}
                   customerAddress={`${selectedJob.address}, ${selectedJob.city}`}
-                  technicianName={DEMO_TECHNICIAN_NAME}
+                  technicianName={fullName}
                   onSave={(quote) => {
                     console.log("Quote saved:", quote);
                     setSelectedJob(null);

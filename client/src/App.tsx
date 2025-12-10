@@ -24,6 +24,9 @@ interface AuthState {
   isAuthenticated: boolean;
   role: "admin" | "dispatcher" | "technician" | null;
   username: string;
+  userId: string;
+  technicianId: string | null;
+  fullName: string;
 }
 
 function AdminRouter() {
@@ -62,10 +65,12 @@ function DispatcherRouter() {
   );
 }
 
-function TechnicianRouter() {
+function TechnicianRouter({ technicianId, userId, fullName }: { technicianId: string; userId: string; fullName: string }) {
   return (
     <Switch>
-      <Route path="/" component={TechnicianDashboard} />
+      <Route path="/">
+        {() => <TechnicianDashboard technicianId={technicianId} userId={userId} fullName={fullName} />}
+      </Route>
       <Route path="/quote" component={QuotePage} />
       <Route path="/jobs" component={() => (
         <div className="space-y-4">
@@ -84,20 +89,33 @@ function TechnicianRouter() {
   );
 }
 
+interface LoginResponse {
+  id: string;
+  username: string;
+  role: "admin" | "dispatcher" | "technician";
+  fullName: string | null;
+  technicianId: string | null;
+}
+
 function App() {
   const [, setLocation] = useLocation();
-  // todo: remove mock functionality - replace with actual auth
   const [auth, setAuth] = useState<AuthState>({
     isAuthenticated: false,
     role: null,
     username: "",
+    userId: "",
+    technicianId: null,
+    fullName: "",
   });
 
-  const handleLogin = (role: "admin" | "dispatcher" | "technician", username: string) => {
+  const handleLogin = (loginData: LoginResponse) => {
     setAuth({
       isAuthenticated: true,
-      role,
-      username,
+      role: loginData.role,
+      username: loginData.username,
+      userId: loginData.id,
+      technicianId: loginData.technicianId,
+      fullName: loginData.fullName || loginData.username,
     });
     setLocation("/");
   };
@@ -107,6 +125,9 @@ function App() {
       isAuthenticated: false,
       role: null,
       username: "",
+      userId: "",
+      technicianId: null,
+      fullName: "",
     });
   };
 
@@ -147,7 +168,11 @@ function App() {
                 ) : auth.role === "dispatcher" ? (
                   <DispatcherRouter />
                 ) : (
-                  <TechnicianRouter />
+                  <TechnicianRouter 
+                    technicianId={auth.technicianId || ""} 
+                    userId={auth.userId}
+                    fullName={auth.fullName}
+                  />
                 )}
               </main>
             </div>

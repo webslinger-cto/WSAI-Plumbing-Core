@@ -12,19 +12,26 @@ const HOMEADVISOR_REVIEW_URL = "https://www.homeadvisor.com/rated.ChicagoSewerEx
 const ANGI_REVIEW_URL = "https://www.angi.com/companylist/us/il/chicago/chicago-sewer-experts-reviews-1.htm?msockid=24bb858d5e4a60e506b093dc5f346117";
 const BIRDEYE_REVIEW_URL = "https://reviews.birdeye.com/chicago-sewer-experts-166536711725103";
 
+interface LoginResponse {
+  id: string;
+  username: string;
+  role: "admin" | "dispatcher" | "technician";
+  fullName: string | null;
+  technicianId: string | null;
+}
+
 interface LoginPageProps {
-  onLogin: (role: "admin" | "dispatcher" | "technician", username: string) => void;
+  onLogin: (loginData: LoginResponse) => void;
 }
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
-  const [role, setRole] = useState<"admin" | "dispatcher" | "technician">("admin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     
@@ -35,15 +42,26 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
     setIsLoading(true);
     
-    // todo: remove mock functionality - replace with actual auth
-    setTimeout(() => {
-      if (password === "demo123") {
-        onLogin(role, username);
-      } else {
-        setError("Invalid credentials. Try password: demo123");
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        setError(data.error || "Invalid credentials");
+        setIsLoading(false);
+        return;
       }
+
+      const loginData: LoginResponse = await response.json();
+      onLogin(loginData);
+    } catch (err) {
+      setError("Login failed. Please try again.");
       setIsLoading(false);
-    }, 800);
+    }
   };
 
   return (
@@ -118,43 +136,13 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         </CardHeader>
         
         <CardContent className="space-y-6">
-          <div className="flex gap-2 p-1 bg-muted rounded-lg">
-            <Button
-              type="button"
-              variant={role === "admin" ? "default" : "ghost"}
-              className="flex-1"
-              onClick={() => setRole("admin")}
-              data-testid="button-role-admin"
-            >
-              Admin
-            </Button>
-            <Button
-              type="button"
-              variant={role === "dispatcher" ? "default" : "ghost"}
-              className="flex-1"
-              onClick={() => setRole("dispatcher")}
-              data-testid="button-role-dispatcher"
-            >
-              Dispatch
-            </Button>
-            <Button
-              type="button"
-              variant={role === "technician" ? "default" : "ghost"}
-              className="flex-1"
-              onClick={() => setRole("technician")}
-              data-testid="button-role-technician"
-            >
-              Tech
-            </Button>
-          </div>
-
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="username">Username</Label>
               <Input
                 id="username"
                 type="text"
-                placeholder={role === "admin" ? "admin" : role === "dispatcher" ? "dispatcher" : "tech_name"}
+                placeholder="Enter your username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 data-testid="input-username"
@@ -200,14 +188,14 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               type="submit"
               className="w-full"
               disabled={isLoading}
-              data-testid="button-login"
+              data-testid="button-signin"
             >
-              {isLoading ? "Signing in..." : `Sign in as ${role === "admin" ? "Admin" : role === "dispatcher" ? "Dispatcher" : "Technician"}`}
+              {isLoading ? "Signing in..." : "Sign In"}
             </Button>
           </form>
 
           <p className="text-xs text-center text-muted-foreground">
-            Demo credentials: any username, password: demo123
+            Technicians: mike, carlos, or james (password: demo123)
           </p>
         </CardContent>
       </Card>

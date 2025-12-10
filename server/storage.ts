@@ -70,6 +70,7 @@ export interface IStorage {
 
   // Technicians
   getTechnician(id: string): Promise<Technician | undefined>;
+  getTechnicianByUserId(userId: string): Promise<Technician | undefined>;
   getTechnicians(): Promise<Technician[]>;
   getAvailableTechnicians(): Promise<Technician[]>;
   createTechnician(tech: InsertTechnician): Promise<Technician>;
@@ -306,6 +307,10 @@ export class MemStorage implements IStorage {
   // Technicians
   async getTechnician(id: string): Promise<Technician | undefined> {
     return this.technicians.get(id);
+  }
+
+  async getTechnicianByUserId(userId: string): Promise<Technician | undefined> {
+    return Array.from(this.technicians.values()).find(t => t.userId === userId);
   }
 
   async getTechnicians(): Promise<Technician[]> {
@@ -841,6 +846,11 @@ export class DatabaseStorage implements IStorage {
   // Technicians
   async getTechnician(id: string): Promise<Technician | undefined> {
     const [tech] = await db.select().from(technicians).where(eq(technicians.id, id));
+    return tech;
+  }
+
+  async getTechnicianByUserId(userId: string): Promise<Technician | undefined> {
+    const [tech] = await db.select().from(technicians).where(eq(technicians.userId, userId));
     return tech;
   }
 
