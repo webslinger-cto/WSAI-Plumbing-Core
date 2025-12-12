@@ -508,7 +508,7 @@ export default function OutreachPage() {
 
       {/* Campaign Builder Dialog */}
       <Dialog open={showCampaignBuilder} onOpenChange={setShowCampaignBuilder}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Megaphone className="w-5 h-5" />
@@ -669,9 +669,9 @@ export default function OutreachPage() {
                     </div>
                   </div>
                   
-                  <div className="border rounded-lg">
+                  <div className="border rounded-lg max-h-[250px] overflow-y-auto">
                     <Table>
-                      <TableHeader>
+                      <TableHeader className="sticky top-0 bg-background z-10">
                         <TableRow>
                           <TableHead className="w-12">
                             <Checkbox
@@ -688,12 +688,17 @@ export default function OutreachPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredLeads.slice(0, 5).map((lead) => (
-                          <TableRow key={lead.id}>
+                        {filteredLeads.map((lead) => (
+                          <TableRow 
+                            key={lead.id} 
+                            className="cursor-pointer hover-elevate"
+                            onClick={() => handleSelectLead(lead.id)}
+                          >
                             <TableCell>
                               <Checkbox
                                 checked={selectedLeads.includes(lead.id)}
                                 onCheckedChange={() => handleSelectLead(lead.id)}
+                                onClick={(e) => e.stopPropagation()}
                                 data-testid={`checkbox-lead-${lead.id}`}
                               />
                             </TableCell>
@@ -711,11 +716,6 @@ export default function OutreachPage() {
                         ))}
                       </TableBody>
                     </Table>
-                    {filteredLeads.length > 5 && (
-                      <div className="p-2 text-center text-sm text-muted-foreground border-t">
-                        +{filteredLeads.length - 5} more leads matching your criteria
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
