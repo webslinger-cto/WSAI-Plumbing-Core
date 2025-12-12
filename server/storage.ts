@@ -62,6 +62,9 @@ export interface AnalyticsData {
 }
 
 export interface IStorage {
+  // Initialization (optional - used by DatabaseStorage to seed data)
+  initialize?(): Promise<void>;
+
   // Users
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -823,6 +826,71 @@ export class MemStorage implements IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  // Initialize database with seed data if empty
+  async initialize(): Promise<void> {
+    // Check if admin user exists
+    const existingAdmin = await this.getUserByUsername("admin");
+    if (existingAdmin) {
+      console.log("Database already seeded, skipping initialization");
+      return;
+    }
+
+    console.log("Seeding database with initial users and technicians...");
+
+    // Seed users
+    const userData = [
+      { id: "user-admin", username: "admin", password: "demo123", role: "admin" as const, fullName: "Admin User" },
+      { id: "user-dispatcher", username: "dispatcher", password: "demo123", role: "dispatcher" as const, fullName: "Dispatch Manager" },
+      { id: "user-tech-1", username: "mike", password: "demo123", role: "technician" as const, fullName: "Mike Johnson" },
+      { id: "user-tech-2", username: "carlos", password: "demo123", role: "technician" as const, fullName: "Carlos Rodriguez" },
+      { id: "user-tech-3", username: "james", password: "demo123", role: "technician" as const, fullName: "James Williams" },
+    ];
+
+    for (const u of userData) {
+      try {
+        await db.insert(users).values({
+          id: u.id,
+          username: u.username,
+          password: u.password,
+          role: u.role,
+          fullName: u.fullName,
+          isActive: true,
+        }).onConflictDoNothing();
+      } catch (err) {
+        console.log(`User ${u.username} may already exist, skipping`);
+      }
+    }
+
+    // Seed technicians
+    const techData = [
+      { id: "tech-1", fullName: "Mike Johnson", phone: "(708) 555-0101", email: "mike@chicagosewerexperts.com", status: "available" as const, skillLevel: "senior" as const, userId: "user-tech-1" },
+      { id: "tech-2", fullName: "Carlos Rodriguez", phone: "(708) 555-0102", email: "carlos@chicagosewerexperts.com", status: "available" as const, skillLevel: "senior" as const, userId: "user-tech-2" },
+      { id: "tech-3", fullName: "James Williams", phone: "(708) 555-0103", email: "james@chicagosewerexperts.com", status: "busy" as const, skillLevel: "standard" as const, userId: "user-tech-3" },
+      { id: "tech-4", fullName: "David Martinez", phone: "(708) 555-0104", email: "david@chicagosewerexperts.com", status: "available" as const, skillLevel: "standard" as const, userId: null },
+      { id: "tech-5", fullName: "Robert Taylor", phone: "(708) 555-0105", email: "robert@chicagosewerexperts.com", status: "off_duty" as const, skillLevel: "junior" as const, userId: null },
+    ];
+
+    for (const t of techData) {
+      try {
+        await db.insert(technicians).values({
+          id: t.id,
+          fullName: t.fullName,
+          phone: t.phone,
+          email: t.email,
+          status: t.status,
+          skillLevel: t.skillLevel,
+          userId: t.userId,
+          maxDailyJobs: 8,
+          completedJobsToday: 0,
+        }).onConflictDoNothing();
+      } catch (err) {
+        console.log(`Technician ${t.fullName} may already exist, skipping`);
+      }
+    }
+
+    console.log("Database seeding complete");
+  }
+
   // Users
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
