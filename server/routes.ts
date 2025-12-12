@@ -501,6 +501,110 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
+  // Data Export
+  app.get("/api/export", async (req, res) => {
+    try {
+      const { format } = req.query;
+      
+      // Gather all data
+      const [leads, jobs, technicians, quotes] = await Promise.all([
+        storage.getLeads(),
+        storage.getJobs(),
+        storage.getTechnicians(),
+        storage.getAllQuotes(),
+      ]);
+
+      // Format data for export
+      const exportData = {
+        leads: leads.map(l => ({
+          id: l.id,
+          name: l.customerName,
+          phone: l.customerPhone,
+          email: l.customerEmail || '',
+          address: l.address || '',
+          city: l.city || '',
+          zip: l.zipCode || '',
+          source: l.source,
+          status: l.status,
+          service: l.serviceType || '',
+          leadCost: Number(l.cost) || 0,
+          createdAt: l.createdAt,
+        })),
+        jobs: jobs.map(j => ({
+          id: j.id,
+          leadId: j.leadId,
+          technicianId: j.assignedTechnicianId || '',
+          status: j.status,
+          scheduledDate: j.scheduledDate || '',
+          scheduledTime: j.scheduledTimeStart || '',
+          customerName: j.customerName,
+          serviceType: j.serviceType,
+          address: j.address,
+        })),
+        technicians: technicians.map(t => ({
+          id: t.id,
+          name: t.fullName,
+          phone: t.phone,
+          email: t.email || '',
+          status: t.status,
+          skillLevel: t.skillLevel,
+          completedJobsToday: t.completedJobsToday || 0,
+        })),
+        quotes: quotes.map(q => ({
+          id: q.id,
+          jobId: q.jobId,
+          customerName: q.customerName,
+          status: q.status,
+          subtotal: Number(q.subtotal) || 0,
+          tax: Number(q.taxAmount) || 0,
+          total: Number(q.total) || 0,
+          expiresAt: q.expiresAt || '',
+          createdAt: q.createdAt,
+        })),
+      };
+
+      if (format === 'csv') {
+        // Generate CSV content
+        let csv = '';
+        
+        // Leads section
+        csv += 'LEADS\n';
+        csv += 'ID,Name,Phone,Email,Address,City,Zip,Source,Status,Service,Lead Cost,Created\n';
+        exportData.leads.forEach(l => {
+          csv += `"${l.id}","${l.name}","${l.phone}","${l.email}","${l.address}","${l.city}","${l.zip}","${l.source}","${l.status}","${l.service}",${l.leadCost},"${l.createdAt}"\n`;
+        });
+        
+        csv += '\nJOBS\n';
+        csv += 'ID,Lead ID,Technician ID,Status,Customer,Service,Address,Scheduled Date,Scheduled Time\n';
+        exportData.jobs.forEach(j => {
+          csv += `"${j.id}","${j.leadId}","${j.technicianId}","${j.status}","${j.customerName}","${j.serviceType}","${j.address}","${j.scheduledDate}","${j.scheduledTime}"\n`;
+        });
+        
+        csv += '\nTECHNICIANS\n';
+        csv += 'ID,Name,Phone,Email,Status,Skill Level,Jobs Today\n';
+        exportData.technicians.forEach(t => {
+          csv += `"${t.id}","${t.name}","${t.phone}","${t.email}","${t.status}","${t.skillLevel}",${t.completedJobsToday}\n`;
+        });
+        
+        csv += '\nQUOTES\n';
+        csv += 'ID,Job ID,Customer Name,Status,Subtotal,Tax,Total,Expires,Created\n';
+        exportData.quotes.forEach(q => {
+          csv += `"${q.id}","${q.jobId}","${q.customerName}","${q.status}",${q.subtotal},${q.tax},${q.total},"${q.expiresAt}","${q.createdAt}"\n`;
+        });
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=crm-export-${new Date().toISOString().split('T')[0]}.csv`);
+        res.send(csv);
+      } else {
+        // Return JSON for PDF generation on frontend
+        res.json(exportData);
+      }
+    } catch (error) {
+      console.error("Export error:", error);
+      res.status(500).json({ error: "Failed to export data" });
+    }
+  });
+
   // Analytics
   app.get("/api/analytics", async (req, res) => {
     try {

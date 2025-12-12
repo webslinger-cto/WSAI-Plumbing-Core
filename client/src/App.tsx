@@ -18,6 +18,7 @@ import TechnicianDashboard from "@/pages/TechnicianDashboard";
 import QuotePage from "@/pages/QuotePage";
 import DispatcherDashboard from "@/pages/DispatcherDashboard";
 import StaffingPool from "@/pages/StaffingPool";
+import ExportPage from "@/pages/ExportPage";
 import NotFound from "@/pages/not-found";
 
 interface AuthState {
@@ -37,6 +38,7 @@ function AdminRouter() {
       <Route path="/technicians" component={TechniciansPage} />
       <Route path="/import" component={ImportPage} />
       <Route path="/outreach" component={OutreachPage} />
+      <Route path="/export" component={ExportPage} />
       <Route path="/settings" component={() => (
         <div className="space-y-4">
           <h1 className="text-2xl font-bold">Settings</h1>
