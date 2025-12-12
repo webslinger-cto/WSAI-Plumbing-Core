@@ -194,9 +194,6 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             </Button>
           </form>
 
-          <p className="text-xs text-center text-muted-foreground">
-            Technicians: mike, carlos, or james (password: demo123)
-          </p>
         </CardContent>
       </Card>
     </div>
