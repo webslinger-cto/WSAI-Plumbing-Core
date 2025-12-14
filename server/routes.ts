@@ -173,6 +173,20 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/jobs/pool", async (req, res) => {
+    try {
+      const { technicianId } = req.query;
+      if (!technicianId) {
+        return res.status(400).json({ error: "technicianId required" });
+      }
+      const jobs = await storage.getPoolJobs(technicianId as string);
+      res.json(jobs);
+    } catch (error) {
+      console.error("Error fetching pool jobs:", error);
+      res.status(500).json({ error: "Failed to fetch pool jobs" });
+    }
+  });
+
   app.get("/api/jobs/:id", async (req, res) => {
     const job = await storage.getJob(req.params.id);
     if (!job) return res.status(404).json({ error: "Job not found" });
@@ -190,6 +204,50 @@ export async function registerRoutes(
     const job = await storage.updateJob(req.params.id, req.body);
     if (!job) return res.status(404).json({ error: "Job not found" });
     res.json(job);
+  });
+
+  // Job claim (tech picks from pool)
+  app.post("/api/jobs/:id/claim", async (req, res) => {
+    try {
+      const { technicianId } = req.body;
+      if (!technicianId) {
+        return res.status(400).json({ error: "technicianId required" });
+      }
+      
+      const job = await storage.getJob(req.params.id);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      
+      if (job.status !== "pending" || job.assignedTechnicianId) {
+        return res.status(400).json({ error: "Job is no longer available" });
+      }
+      
+      const tech = await storage.getTechnician(technicianId);
+      if (!tech) return res.status(404).json({ error: "Technician not found" });
+      
+      const approvedTypes = tech.approvedJobTypes || [];
+      if (approvedTypes.length > 0 && !approvedTypes.includes(job.serviceType)) {
+        return res.status(403).json({ error: "You are not approved for this job type" });
+      }
+      
+      const now = new Date();
+      const updated = await storage.updateJob(req.params.id, {
+        assignedTechnicianId: technicianId,
+        status: "assigned",
+        assignedAt: now,
+      });
+      
+      await storage.createJobTimelineEvent({
+        jobId: req.params.id,
+        eventType: "assigned",
+        description: `Claimed by ${tech.fullName}`,
+        createdBy: technicianId,
+      });
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error claiming job:", error);
+      res.status(500).json({ error: "Failed to claim job" });
+    }
   });
 
   // Job assignment workflow

@@ -97,6 +97,7 @@ export interface IStorage {
   getJobs(): Promise<Job[]>;
   getJobsByStatus(status: string): Promise<Job[]>;
   getJobsByTechnician(technicianId: string): Promise<Job[]>;
+  getPoolJobs(technicianId: string): Promise<Job[]>;
   createJob(job: InsertJob): Promise<Job>;
   updateJob(id: string, updates: Partial<Job>): Promise<Job | undefined>;
 
@@ -467,6 +468,28 @@ export class MemStorage implements IStorage {
 
   async getJobsByTechnician(technicianId: string): Promise<Job[]> {
     return Array.from(this.jobs.values()).filter(j => j.assignedTechnicianId === technicianId);
+  }
+
+  async getPoolJobs(technicianId: string): Promise<Job[]> {
+    const tech = this.technicians.get(technicianId);
+    if (!tech) return [];
+    
+    const approvedTypes = tech.approvedJobTypes || [];
+    
+    return Array.from(this.jobs.values())
+      .filter(j => {
+        if (j.status !== "pending") return false;
+        if (j.assignedTechnicianId) return false;
+        if (approvedTypes.length === 0) return true;
+        return approvedTypes.includes(j.serviceType);
+      })
+      .sort((a, b) => {
+        const priorityOrder = { urgent: 0, high: 1, normal: 2, low: 3 };
+        const aPriority = priorityOrder[a.priority as keyof typeof priorityOrder] ?? 2;
+        const bPriority = priorityOrder[b.priority as keyof typeof priorityOrder] ?? 2;
+        if (aPriority !== bPriority) return aPriority - bPriority;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
   }
 
   async createJob(insertJob: InsertJob): Promise<Job> {
@@ -1012,6 +1035,28 @@ export class DatabaseStorage implements IStorage {
 
   async getJobsByTechnician(technicianId: string): Promise<Job[]> {
     return await db.select().from(jobs).where(eq(jobs.assignedTechnicianId, technicianId));
+  }
+
+  async getPoolJobs(technicianId: string): Promise<Job[]> {
+    const tech = await this.getTechnician(technicianId);
+    if (!tech) return [];
+    
+    const approvedTypes = tech.approvedJobTypes || [];
+    const allPendingJobs = await db.select().from(jobs).where(eq(jobs.status, "pending"));
+    
+    return allPendingJobs
+      .filter(j => {
+        if (j.assignedTechnicianId) return false;
+        if (approvedTypes.length === 0) return true;
+        return approvedTypes.includes(j.serviceType);
+      })
+      .sort((a, b) => {
+        const priorityOrder = { urgent: 0, high: 1, normal: 2, low: 3 };
+        const aPriority = priorityOrder[a.priority as keyof typeof priorityOrder] ?? 2;
+        const bPriority = priorityOrder[b.priority as keyof typeof priorityOrder] ?? 2;
+        if (aPriority !== bPriority) return aPriority - bPriority;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
   }
 
   async createJob(insertJob: InsertJob): Promise<Job> {

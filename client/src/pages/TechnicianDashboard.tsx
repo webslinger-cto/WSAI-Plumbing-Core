@@ -37,6 +37,8 @@ import {
   MapPinCheck,
   MapPinOff,
   Loader2,
+  Hand,
+  Briefcase,
 } from "lucide-react";
 import type { Job, Notification } from "@shared/schema";
 import { formatDistanceToNow, format } from "date-fns";
@@ -124,6 +126,37 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
       return res.json();
     },
     enabled: !!userId,
+  });
+
+  const { data: poolJobs = [], isLoading: poolLoading } = useQuery<Job[]>({
+    queryKey: ["/api/jobs/pool", { technicianId }],
+    queryFn: async () => {
+      if (!technicianId) return [];
+      const res = await fetch(`/api/jobs/pool?technicianId=${technicianId}`);
+      if (!res.ok) throw new Error("Failed to fetch pool jobs");
+      return res.json();
+    },
+    enabled: !!technicianId,
+  });
+
+  const claimMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const res = await apiRequest("POST", `/api/jobs/${jobId}/claim`, { technicianId: technicianId });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(data.error || "Failed to claim job");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/pool"] });
+      toast({ title: "Job Claimed", description: "You have claimed this job. Please confirm when ready." });
+    },
+    onError: (error: Error) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/pool"] });
+      toast({ title: "Error", description: error.message || "Could not claim the job. It may have been taken.", variant: "destructive" });
+    },
   });
 
   const confirmMutation = useMutation({
@@ -447,7 +480,13 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <KPICard
+          title="Available Jobs"
+          value={String(poolJobs.length)}
+          icon={<Briefcase className="w-5 h-5 text-muted-foreground" />}
+          variant={poolJobs.length > 0 ? "success" : "default"}
+        />
         <KPICard
           title="Active Jobs"
           value={String(activeJobs.length)}
@@ -467,7 +506,7 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
           variant="success"
         />
         <KPICard
-          title="Unread Notifications"
+          title="Notifications"
           value={String(unreadNotifications.length)}
           icon={<Bell className="w-5 h-5 text-muted-foreground" />}
           variant={unreadNotifications.length > 0 ? "warning" : "default"}
@@ -489,6 +528,74 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
           </CardContent>
         </Card>
       )}
+
+      <Card className="border-emerald-500/50">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Briefcase className="w-5 h-5 text-emerald-400" />
+            Available Jobs
+            {poolJobs.length > 0 && (
+              <Badge className="ml-2 bg-emerald-500/20 text-emerald-400">
+                {poolJobs.length}
+              </Badge>
+            )}
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">Jobs matching your approved service types</p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {poolLoading ? (
+            <p className="text-muted-foreground text-center py-4">Loading available jobs...</p>
+          ) : poolJobs.length === 0 ? (
+            <p className="text-muted-foreground text-center py-4">No jobs available to claim right now</p>
+          ) : (
+            poolJobs.map((job) => (
+              <div
+                key={job.id}
+                className="p-4 rounded-lg bg-muted/30 border hover-elevate transition-all"
+                data-testid={`pool-job-card-${job.id}`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <h3 className="font-semibold">{job.customerName}</h3>
+                      <Badge className={job.priority === "urgent" ? "bg-destructive/20 text-destructive" : job.priority === "high" ? "bg-amber-500/20 text-amber-400" : "bg-muted text-muted-foreground"}>
+                        {job.priority}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground mb-2">{job.serviceType}</p>
+                    <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+                      {job.scheduledDate && (
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5" />
+                          {format(new Date(job.scheduledDate), "MMM d")} {job.scheduledTimeStart && `at ${job.scheduledTimeStart}`}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1">
+                        <Phone className="w-3.5 h-3.5" />
+                        {job.customerPhone}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                      <MapPin className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{job.address}, {job.city}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    onClick={() => claimMutation.mutate(job.id)}
+                    disabled={claimMutation.isPending}
+                    data-testid={`button-claim-job-${job.id}`}
+                  >
+                    <Hand className="w-4 h-4 mr-2" />
+                    Claim Job
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
