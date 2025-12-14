@@ -14,6 +14,7 @@ import LeadsPage from "@/pages/LeadsPage";
 import TechniciansPage from "@/pages/TechniciansPage";
 import ImportPage from "@/pages/ImportPage";
 import OutreachPage from "@/pages/OutreachPage";
+import PayrollPage from "@/pages/PayrollPage";
 import TechnicianDashboard from "@/pages/TechnicianDashboard";
 import QuotePage from "@/pages/QuotePage";
 import DispatcherDashboard from "@/pages/DispatcherDashboard";
@@ -36,6 +37,7 @@ function AdminRouter() {
       <Route path="/" component={AdminDashboard} />
       <Route path="/leads" component={LeadsPage} />
       <Route path="/technicians" component={TechniciansPage} />
+      <Route path="/payroll" component={PayrollPage} />
       <Route path="/import" component={ImportPage} />
       <Route path="/outreach" component={OutreachPage} />
       <Route path="/export" component={ExportPage} />

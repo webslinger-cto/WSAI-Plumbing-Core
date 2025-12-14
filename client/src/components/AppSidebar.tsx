@@ -28,6 +28,7 @@ import {
   Phone,
   UserCog,
   Download,
+  Wallet,
 } from "lucide-react";
 import cseMascot from "@assets/cse-mascot.png";
 
@@ -42,6 +43,7 @@ const adminMenuItems = [
   { title: "Leads", url: "/leads", icon: Users },
   { title: "Outreach", url: "/outreach", icon: Megaphone },
   { title: "Technicians", url: "/technicians", icon: Wrench },
+  { title: "Payroll", url: "/payroll", icon: Wallet },
   { title: "Import Data", url: "/import", icon: Upload },
   { title: "Export Data", url: "/export", icon: Download },
 ];
