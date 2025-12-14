@@ -51,7 +51,10 @@ import {
   ClipboardCheck,
   Clock,
   Timer,
+  Users,
 } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import cseMascot from "@assets/cse-mascot.png";
 import JobTimeline from "@/components/JobTimeline";
 import type { Job } from "@shared/schema";
@@ -70,6 +73,14 @@ interface QuoteLineItem {
   description: string;
   quantity: number;
   unitPrice: number;
+}
+
+interface LaborEntry {
+  id: string;
+  laborerName: string;
+  role: string;
+  hoursWorked: number;
+  hourlyRate: number;
 }
 
 interface ChecklistItem {
@@ -208,6 +219,14 @@ const CHECKLIST_SECTIONS: ChecklistSection[] = [
 const TAX_RATE = 0.1025;
 const TECH_FEE = 2.0;
 
+const LABORER_ROLES = [
+  { role: "Lead Technician", defaultRate: 75 },
+  { role: "Assistant Technician", defaultRate: 45 },
+  { role: "Apprentice", defaultRate: 30 },
+  { role: "Digger/Excavator", defaultRate: 35 },
+  { role: "General Labor", defaultRate: 25 },
+];
+
 export default function QuotePage() {
   const { toast } = useToast();
   const search = useSearch();
@@ -223,6 +242,7 @@ export default function QuotePage() {
   const [leadSource, setLeadSource] = useState("");
   const [reportedIssue, setReportedIssue] = useState("");
   const [lineItems, setLineItems] = useState<QuoteLineItem[]>([]);
+  const [laborEntries, setLaborEntries] = useState<LaborEntry[]>([]);
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [currentNotesItem, setCurrentNotesItem] = useState<string | null>(null);
   const [tempNotes, setTempNotes] = useState("");
@@ -332,13 +352,36 @@ export default function QuotePage() {
     ));
   };
 
+  const addLaborEntry = (rolePreset?: typeof LABORER_ROLES[0]) => {
+    const newEntry: LaborEntry = {
+      id: String(Date.now()),
+      laborerName: "",
+      role: rolePreset?.role || "General Labor",
+      hoursWorked: 1,
+      hourlyRate: rolePreset?.defaultRate || 25,
+    };
+    setLaborEntries(prev => [...prev, newEntry]);
+  };
+
+  const updateLaborEntry = (id: string, updates: Partial<LaborEntry>) => {
+    setLaborEntries(prev => prev.map(entry => 
+      entry.id === id ? { ...entry, ...updates } : entry
+    ));
+  };
+
+  const removeLaborEntry = (id: string) => {
+    setLaborEntries(prev => prev.filter(entry => entry.id !== id));
+  };
+
   const subtotal = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  const laborTotal = laborEntries.reduce((sum, entry) => sum + entry.hoursWorked * entry.hourlyRate, 0);
   const tax = subtotal * TAX_RATE;
-  const total = subtotal + tax + TECH_FEE;
+  const total = subtotal + laborTotal + tax + TECH_FEE;
 
   const resetChecklist = () => {
     setChecklistState({});
     setLineItems([]);
+    setLaborEntries([]);
     setCustomerName("");
     setLeadSource("");
     setReportedIssue("");
@@ -411,6 +454,20 @@ export default function QuotePage() {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   };
 
+  const createQuoteMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/quotes", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Quote submitted", description: "Quote has been saved to the database." });
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const handleSubmitQuote = () => {
     if (!customerName.trim()) {
       toast({ title: "Customer name required", variant: "destructive" });
@@ -420,7 +477,22 @@ export default function QuotePage() {
       toast({ title: "No services added", description: "Add at least one service to the quote.", variant: "destructive" });
       return;
     }
-    toast({ title: "Quote submitted", description: `Quote for $${total.toFixed(2)} submitted to admin.` });
+    
+    createQuoteMutation.mutate({
+      jobId: jobId || undefined,
+      customerName,
+      customerPhone: job?.customerPhone || "",
+      address: job?.address || "",
+      lineItems: JSON.stringify(lineItems),
+      laborEntries: JSON.stringify(laborEntries),
+      subtotal: subtotal.toString(),
+      laborTotal: laborTotal.toString(),
+      taxRate: TAX_RATE.toString(),
+      taxAmount: tax.toString(),
+      total: total.toString(),
+      status: "draft",
+      notes: reportedIssue,
+    });
   };
 
   const recommendedServices = getRecommendedServices();
@@ -704,24 +776,129 @@ export default function QuotePage() {
                   </p>
                 )}
 
-                <div className="flex flex-col items-end gap-0.5 text-sm pt-2">
-                  <div className="flex gap-4">
-                    <span className="text-muted-foreground">Subtotal</span>
-                    <span className="w-20 text-right">${subtotal.toFixed(2)}</span>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs flex items-center gap-1.5">
+                    <Users className="w-3 h-3" />
+                    Labor Tracking
+                  </Label>
+                  <Select onValueChange={(value) => {
+                    const preset = LABORER_ROLES.find(r => r.role === value);
+                    addLaborEntry(preset);
+                  }}>
+                    <SelectTrigger className="w-[160px] h-8 text-xs" data-testid="select-add-laborer">
+                      <SelectValue placeholder="+ Add laborer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LABORER_ROLES.map(role => (
+                        <SelectItem key={role.role} value={role.role} className="text-xs">
+                          {role.role} - ${role.defaultRate}/hr
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {laborEntries.length > 0 ? (
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="text-[10px]">
+                          <TableHead className="py-2">Name</TableHead>
+                          <TableHead className="py-2">Role</TableHead>
+                          <TableHead className="py-2 w-16">Hours</TableHead>
+                          <TableHead className="py-2 w-16">Rate</TableHead>
+                          <TableHead className="py-2 w-20 text-right">Total</TableHead>
+                          <TableHead className="py-2 w-8"></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {laborEntries.map(entry => (
+                          <TableRow key={entry.id} className="text-xs" data-testid={`labor-entry-${entry.id}`}>
+                            <TableCell className="py-1.5">
+                              <Input
+                                placeholder="Name"
+                                value={entry.laborerName}
+                                onChange={(e) => updateLaborEntry(entry.id, { laborerName: e.target.value })}
+                                className="h-7 w-24 text-xs"
+                                data-testid={`input-laborer-name-${entry.id}`}
+                              />
+                            </TableCell>
+                            <TableCell className="py-1.5 text-xs">{entry.role}</TableCell>
+                            <TableCell className="py-1.5">
+                              <Input
+                                type="number"
+                                min={0.5}
+                                step={0.5}
+                                value={entry.hoursWorked}
+                                onChange={(e) => updateLaborEntry(entry.id, { hoursWorked: parseFloat(e.target.value) || 1 })}
+                                className="h-7 w-14 text-xs"
+                                data-testid={`input-laborer-hours-${entry.id}`}
+                              />
+                            </TableCell>
+                            <TableCell className="py-1.5">
+                              <Input
+                                type="number"
+                                min={0}
+                                value={entry.hourlyRate}
+                                onChange={(e) => updateLaborEntry(entry.id, { hourlyRate: parseFloat(e.target.value) || 0 })}
+                                className="h-7 w-14 text-xs"
+                                data-testid={`input-laborer-rate-${entry.id}`}
+                              />
+                            </TableCell>
+                            <TableCell className="py-1.5 text-right font-medium">
+                              ${(entry.hoursWorked * entry.hourlyRate).toFixed(2)}
+                            </TableCell>
+                            <TableCell className="py-1.5">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6"
+                                onClick={() => removeLaborEntry(entry.id)}
+                                data-testid={`button-remove-laborer-${entry.id}`}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
-                  <div className="flex gap-4">
-                    <span className="text-muted-foreground">Tax (10.25%)</span>
-                    <span className="w-20 text-right">${tax.toFixed(2)}</span>
-                  </div>
-                  <div className="flex gap-4">
-                    <span className="text-muted-foreground">Tech fee</span>
-                    <span className="w-20 text-right">${TECH_FEE.toFixed(2)}</span>
-                  </div>
-                  <Separator className="my-1 w-full" />
-                  <div className="flex gap-4 font-semibold">
-                    <span>Total</span>
-                    <span className="w-20 text-right">${total.toFixed(2)}</span>
-                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground text-center py-3">
+                    No laborers added. Select a role to add.
+                  </p>
+                )}
+              </div>
+
+              <Separator />
+
+              <div className="flex flex-col items-end gap-0.5 text-sm pt-2">
+                <div className="flex gap-4">
+                  <span className="text-muted-foreground">Services Subtotal</span>
+                  <span className="w-20 text-right">${subtotal.toFixed(2)}</span>
+                </div>
+                <div className="flex gap-4">
+                  <span className="text-muted-foreground">Labor Total</span>
+                  <span className="w-20 text-right">${laborTotal.toFixed(2)}</span>
+                </div>
+                <div className="flex gap-4">
+                  <span className="text-muted-foreground">Tax (10.25%)</span>
+                  <span className="w-20 text-right">${tax.toFixed(2)}</span>
+                </div>
+                <div className="flex gap-4">
+                  <span className="text-muted-foreground">Tech fee</span>
+                  <span className="w-20 text-right">${TECH_FEE.toFixed(2)}</span>
+                </div>
+                <Separator className="my-1 w-full" />
+                <div className="flex gap-4 font-semibold">
+                  <span>Total</span>
+                  <span className="w-20 text-right" data-testid="text-quote-total">${total.toFixed(2)}</span>
                 </div>
               </div>
 

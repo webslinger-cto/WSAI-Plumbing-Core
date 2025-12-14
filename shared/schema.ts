@@ -183,7 +183,9 @@ export const quotes = pgTable("quotes", {
   customerEmail: text("customer_email"),
   address: text("address"),
   lineItems: text("line_items"), // JSON string of line items
+  laborEntries: text("labor_entries"), // JSON string of labor entries for payroll
   subtotal: decimal("subtotal"),
+  laborTotal: decimal("labor_total").default("0"), // total labor cost
   taxRate: decimal("tax_rate").default("0"),
   taxAmount: decimal("tax_amount").default("0"),
   total: decimal("total"),
