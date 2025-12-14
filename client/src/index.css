@@ -171,7 +171,32 @@
   }
 
   body {
-    @apply font-sans antialiased bg-background text-foreground;
+    @apply font-sans antialiased text-foreground;
+    background-color: hsl(var(--background));
+  }
+
+  /* Premium black marble background for dark mode */
+  .dark body,
+  body.dark {
+    background-image: url('/attached_assets/BLACK_MARBLE_1765749718013.png');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+  }
+
+  /* Marble background wrapper for main app */
+  .marble-bg {
+    background-image: url('/attached_assets/BLACK_MARBLE_1765749718013.png');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+  }
+
+  /* Semi-transparent overlay for content readability */
+  .marble-overlay {
+    background-color: rgba(0, 0, 0, 0.7);
   }
 }
 

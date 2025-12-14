@@ -181,6 +181,9 @@ export class MemStorage implements IStorage {
       { fullName: "Robert Taylor", phone: "(708) 555-0105", email: "robert@chicagosewerexperts.com", status: "off_duty", skillLevel: "junior" },
     ];
     
+    const techClassifications = ["senior", "senior", "junior", "junior", "digger"];
+    const allJobTypes = ["Sewer Main - Clear", "Sewer Main - Repair", "Drain Cleaning", "Water Heater - Repair", "Pipe Repair", "Camera Inspection"];
+    
     techData.forEach((t, i) => {
       const id = techIds[i];
       this.technicians.set(id, {
@@ -190,6 +193,11 @@ export class MemStorage implements IStorage {
         email: t.email || null,
         status: t.status || "available",
         skillLevel: t.skillLevel || "standard",
+        classification: techClassifications[i] || "junior",
+        approvedJobTypes: i < 2 ? allJobTypes : allJobTypes.slice(0, 3),
+        commissionRate: i < 2 ? "0.15" : "0.10",
+        hourlyRate: i < 2 ? "35.00" : "25.00",
+        emergencyRate: "1.5",
         userId: t.userId || null,
         currentJobId: null,
         maxDailyJobs: 8,
@@ -335,6 +343,11 @@ export class MemStorage implements IStorage {
       status: insertTech.status || "available",
       currentJobId: insertTech.currentJobId || null,
       skillLevel: insertTech.skillLevel || "standard",
+      classification: insertTech.classification || "junior",
+      approvedJobTypes: insertTech.approvedJobTypes || null,
+      commissionRate: insertTech.commissionRate || "0.10",
+      hourlyRate: insertTech.hourlyRate || "25.00",
+      emergencyRate: insertTech.emergencyRate || "1.5",
       maxDailyJobs: insertTech.maxDailyJobs || 8,
       completedJobsToday: insertTech.completedJobsToday || 0,
       lastLocationLat: insertTech.lastLocationLat || null,

@@ -154,11 +154,12 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
 
   const arriveMutation = useMutation({
     mutationFn: async ({ jobId, latitude, longitude }: { jobId: string; latitude?: number; longitude?: number }) => {
-      return apiRequest("POST", `/api/jobs/${jobId}/arrive`, { 
+      const res = await apiRequest("POST", `/api/jobs/${jobId}/arrive`, { 
         technicianId: technicianId,
         latitude,
         longitude,
       });
+      return res.json() as Promise<Job>;
     },
     onSuccess: (data: Job) => {
       queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });

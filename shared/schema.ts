@@ -31,6 +31,10 @@ export const insertUserSchema = createInsertSchema(users).pick({
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
+// Technician classifications
+export const technicianClassifications = ["senior", "junior", "digger"] as const;
+export type TechnicianClassification = typeof technicianClassifications[number];
+
 // Technicians table (extends user with tech-specific data)
 export const technicians = pgTable("technicians", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -40,7 +44,12 @@ export const technicians = pgTable("technicians", {
   email: text("email"),
   status: text("status").notNull().default("available"), // available, busy, off_duty, on_break
   currentJobId: varchar("current_job_id"),
-  skillLevel: text("skill_level").default("standard"), // junior, standard, senior
+  skillLevel: text("skill_level").default("standard"), // junior, standard, senior (legacy)
+  classification: text("classification").default("junior"), // senior, junior, digger
+  approvedJobTypes: text("approved_job_types").array(), // array of service types tech can work
+  commissionRate: decimal("commission_rate").default("0.10"), // default 10% commission
+  hourlyRate: decimal("hourly_rate").default("25.00"), // hourly pay rate
+  emergencyRate: decimal("emergency_rate").default("1.5"), // multiplier for emergency hours
   maxDailyJobs: integer("max_daily_jobs").default(8),
   completedJobsToday: integer("completed_jobs_today").default(0),
   lastLocationLat: decimal("last_location_lat"),

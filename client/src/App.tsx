@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useLayoutEffect } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -110,6 +110,11 @@ function App() {
     fullName: "",
   });
 
+  // Always use dark mode for premium marble background
+  useLayoutEffect(() => {
+    document.documentElement.classList.add("dark");
+  }, []);
+
   const handleLogin = (loginData: LoginResponse) => {
     setAuth({
       isAuthenticated: true,
@@ -153,14 +158,14 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <SidebarProvider style={sidebarStyle as React.CSSProperties}>
-          <div className="flex h-screen w-full">
+          <div className="flex h-screen w-full marble-bg">
             <AppSidebar
               role={auth.role!}
               username={auth.username}
               onLogout={handleLogout}
             />
-            <div className="flex flex-col flex-1 min-w-0">
-              <header className="flex items-center gap-4 px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <div className="flex flex-col flex-1 min-w-0 bg-background/90 backdrop-blur-sm">
+              <header className="flex items-center gap-4 px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
                 <div className="flex-1" />
               </header>

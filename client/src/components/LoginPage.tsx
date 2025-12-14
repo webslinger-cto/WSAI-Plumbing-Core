@@ -65,8 +65,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background via-background to-muted/30 relative">
-      <div className="absolute top-4 left-4 flex flex-col items-center gap-0.5">
+    <div className="min-h-screen flex items-center justify-center p-4 marble-bg relative">
+      <div className="absolute inset-0 bg-black/60" />
+      <div className="absolute top-4 left-4 flex flex-col items-center gap-0.5 z-10">
         <span className="text-[10px] font-bold text-primary">HomeAdvisor</span>
         <div className="bg-white p-1 rounded-md">
           <QRCodeSVG
@@ -78,7 +79,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           />
         </div>
       </div>
-      <div className="absolute top-4 right-4 flex flex-col items-center gap-0.5">
+      <div className="absolute top-4 right-4 flex flex-col items-center gap-0.5 z-10">
         <span className="text-[10px] font-bold text-primary">Yelp</span>
         <div className="bg-white p-1 rounded-md">
           <QRCodeSVG
@@ -90,7 +91,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           />
         </div>
       </div>
-      <div className="absolute bottom-4 left-4 flex flex-col items-center gap-0.5">
+      <div className="absolute bottom-4 left-4 flex flex-col items-center gap-0.5 z-10">
         <span className="text-[10px] font-bold text-primary">Angi</span>
         <div className="bg-white p-1 rounded-md">
           <QRCodeSVG
@@ -102,7 +103,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           />
         </div>
       </div>
-      <div className="absolute bottom-4 right-4 flex flex-col items-center gap-0.5">
+      <div className="absolute bottom-4 right-4 flex flex-col items-center gap-0.5 z-10">
         <span className="text-[10px] font-bold text-primary">Birdeye</span>
         <div className="bg-white p-1 rounded-md">
           <QRCodeSVG
@@ -114,7 +115,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           />
         </div>
       </div>
-      <Card className="w-full max-w-md">
+      <Card className="w-full max-w-md z-10">
         <CardHeader className="text-center space-y-4 pb-2">
           <div className="mx-auto">
             <img 
