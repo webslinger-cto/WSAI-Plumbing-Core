@@ -786,10 +786,13 @@ export default function QuotePage() {
                     <Users className="w-3 h-3" />
                     Labor Tracking
                   </Label>
-                  <Select onValueChange={(value) => {
-                    const preset = LABORER_ROLES.find(r => r.role === value);
-                    addLaborEntry(preset);
-                  }}>
+                  <Select 
+                    value="" 
+                    onValueChange={(value) => {
+                      const preset = LABORER_ROLES.find(r => r.role === value);
+                      addLaborEntry(preset);
+                    }}
+                  >
                     <SelectTrigger className="w-[160px] h-8 text-xs" data-testid="select-add-laborer">
                       <SelectValue placeholder="+ Add laborer" />
                     </SelectTrigger>
