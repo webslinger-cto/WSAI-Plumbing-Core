@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Send, Save, CreditCard, Star, QrCode, Download } from "lucide-react";
+import { Plus, Trash2, Send, Save, CreditCard, Star, QrCode, Download, Users, Clock } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
 interface LineItem {
@@ -22,6 +22,14 @@ interface LineItem {
   type: "labor" | "material" | "service";
   quantity: number;
   unitPrice: number;
+}
+
+interface LaborEntry {
+  id: string;
+  laborerName: string;
+  role: string;
+  hoursWorked: number;
+  hourlyRate: number;
 }
 
 interface QuoteBuilderProps {
@@ -41,8 +49,10 @@ export interface QuoteData {
   customerPhone: string;
   customerAddress: string;
   lineItems: LineItem[];
+  laborEntries: LaborEntry[];
   notes: string;
   subtotal: number;
+  laborTotal: number;
   tax: number;
   total: number;
 }
@@ -59,6 +69,14 @@ const SERVICE_PRESETS = [
 
 const TAX_RATE = 0.0625; // 6.25% IL tax
 
+const LABORER_ROLES = [
+  { role: "Lead Technician", defaultRate: 75 },
+  { role: "Assistant Technician", defaultRate: 45 },
+  { role: "Apprentice", defaultRate: 30 },
+  { role: "Digger/Excavator", defaultRate: 35 },
+  { role: "General Labor", defaultRate: 25 },
+];
+
 export default function QuoteBuilder({
   customerName = "",
   customerPhone = "",
@@ -72,8 +90,10 @@ export default function QuoteBuilder({
   const [address, setAddress] = useState(customerAddress);
   const [notes, setNotes] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
+  const [laborEntries, setLaborEntries] = useState<LaborEntry[]>([]);
   const [showPayment, setShowPayment] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [showLabor, setShowLabor] = useState(false);
 
   const addLineItem = (preset?: typeof SERVICE_PRESETS[0]) => {
     const newItem: LineItem = {
@@ -94,17 +114,40 @@ export default function QuoteBuilder({
     setLineItems(lineItems.filter((item) => item.id !== id));
   };
 
+  const addLaborEntry = (rolePreset?: typeof LABORER_ROLES[0]) => {
+    const newEntry: LaborEntry = {
+      id: crypto.randomUUID(),
+      laborerName: "",
+      role: rolePreset?.role || "General Labor",
+      hoursWorked: 1,
+      hourlyRate: rolePreset?.defaultRate || 25,
+    };
+    setLaborEntries([...laborEntries, newEntry]);
+  };
+
+  const updateLaborEntry = (id: string, updates: Partial<LaborEntry>) => {
+    setLaborEntries(laborEntries.map((entry) => (entry.id === id ? { ...entry, ...updates } : entry)));
+  };
+
+  const removeLaborEntry = (id: string) => {
+    setLaborEntries(laborEntries.filter((entry) => entry.id !== id));
+  };
+
   const subtotal = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-  const tax = subtotal * TAX_RATE;
-  const total = subtotal + tax;
+  const laborTotal = laborEntries.reduce((sum, entry) => sum + entry.hoursWorked * entry.hourlyRate, 0);
+  const taxableAmount = subtotal; // Labor is typically not taxable
+  const tax = taxableAmount * TAX_RATE;
+  const total = subtotal + laborTotal + tax;
 
   const getQuoteData = (): QuoteData => ({
     customerName: name,
     customerPhone: phone,
     customerAddress: address,
     lineItems,
+    laborEntries,
     notes,
     subtotal,
+    laborTotal,
     tax,
     total,
   });
@@ -131,6 +174,32 @@ export default function QuoteBuilder({
         <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">$${(item.quantity * item.unitPrice).toFixed(2)}</td>
       </tr>
     `).join("");
+
+    const laborEntriesHtml = quoteData.laborEntries.length > 0 ? `
+      <h3 style="color: #3b82f6; margin-top: 30px;">Labor</h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="background: #3b82f6;">Worker</th>
+            <th style="background: #3b82f6;">Role</th>
+            <th style="background: #3b82f6; text-align: center;">Hours</th>
+            <th style="background: #3b82f6; text-align: right;">Rate</th>
+            <th style="background: #3b82f6; text-align: right;">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${quoteData.laborEntries.map(entry => `
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #ddd;">${entry.laborerName || 'Unnamed'}</td>
+              <td style="padding: 8px; border-bottom: 1px solid #ddd;">${entry.role}</td>
+              <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: center;">${entry.hoursWorked}</td>
+              <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">$${entry.hourlyRate.toFixed(2)}/hr</td>
+              <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">$${(entry.hoursWorked * entry.hourlyRate).toFixed(2)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    ` : "";
 
     const htmlContent = `
       <!DOCTYPE html>
@@ -169,6 +238,7 @@ export default function QuoteBuilder({
           <p><strong>Address:</strong> ${quoteData.customerAddress}</p>
         </div>
         
+        <h3 style="color: #b22222;">Services & Materials</h3>
         <table>
           <thead>
             <tr>
@@ -183,8 +253,11 @@ export default function QuoteBuilder({
           </tbody>
         </table>
         
+        ${laborEntriesHtml}
+        
         <div class="totals">
-          <p>Subtotal: $${quoteData.subtotal.toFixed(2)}</p>
+          <p>Services & Materials: $${quoteData.subtotal.toFixed(2)}</p>
+          ${quoteData.laborTotal > 0 ? `<p>Labor: $${quoteData.laborTotal.toFixed(2)}</p>` : ""}
           <p>Tax (6.25%): $${quoteData.tax.toFixed(2)}</p>
           <p class="total-line">Total: $${quoteData.total.toFixed(2)}</p>
         </div>
@@ -386,6 +459,132 @@ export default function QuoteBuilder({
         </CardContent>
       </Card>
 
+      {showLabor && (
+        <Card className="border-blue-500/30 bg-blue-500/5">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between gap-4">
+              <CardTitle className="text-sm font-semibold uppercase tracking-wider flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                Labor Tracking
+              </CardTitle>
+              <Select onValueChange={(v) => {
+                const preset = LABORER_ROLES.find((p) => p.role === v);
+                if (preset) addLaborEntry(preset);
+              }}>
+                <SelectTrigger className="w-[180px]" data-testid="select-add-laborer">
+                  <SelectValue placeholder="Add laborer..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {LABORER_ROLES.map((preset) => (
+                    <SelectItem key={preset.role} value={preset.role}>
+                      {preset.role} - ${preset.defaultRate}/hr
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {laborEntries.length === 0 ? (
+              <div className="text-center py-6 text-muted-foreground">
+                <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">No laborers added yet</p>
+                <p className="text-xs mt-1">Track worker hours and costs for this job</p>
+              </div>
+            ) : (
+              <>
+                {laborEntries.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-muted/30 border"
+                    data-testid={`row-labor-entry-${entry.id}`}
+                  >
+                    <div className="flex-1 min-w-[140px]">
+                      <Input
+                        value={entry.laborerName}
+                        onChange={(e) => updateLaborEntry(entry.id, { laborerName: e.target.value })}
+                        placeholder="Worker name"
+                        className="h-9"
+                        data-testid={`input-laborer-name-${entry.id}`}
+                      />
+                    </div>
+                    <Select
+                      value={entry.role}
+                      onValueChange={(v) => {
+                        const preset = LABORER_ROLES.find((r) => r.role === v);
+                        updateLaborEntry(entry.id, { 
+                          role: v, 
+                          hourlyRate: preset?.defaultRate || entry.hourlyRate 
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="w-[150px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LABORER_ROLES.map((r) => (
+                          <SelectItem key={r.role} value={r.role}>
+                            {r.role}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        value={entry.hoursWorked}
+                        onChange={(e) => updateLaborEntry(entry.id, { hoursWorked: Number(e.target.value) })}
+                        className="w-16 h-9 text-center"
+                        min={0.5}
+                        step={0.5}
+                      />
+                      <span className="text-muted-foreground text-sm">hrs</span>
+                      <span className="text-muted-foreground">@</span>
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                          $
+                        </span>
+                        <Input
+                          type="number"
+                          value={entry.hourlyRate}
+                          onChange={(e) => updateLaborEntry(entry.id, { hourlyRate: Number(e.target.value) })}
+                          className="w-20 h-9 pl-6"
+                          min={0}
+                          step={0.5}
+                        />
+                      </div>
+                      <span className="text-muted-foreground text-sm">/hr</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="bg-blue-500/10 text-blue-400 border-blue-500/30">
+                        ${(entry.hoursWorked * entry.hourlyRate).toFixed(2)}
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeLaborEntry(entry.id)}
+                        className="text-destructive"
+                        data-testid={`button-remove-labor-${entry.id}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between pt-2 border-t border-blue-500/20">
+                  <span className="text-sm text-muted-foreground">
+                    Total: {laborEntries.reduce((sum, e) => sum + e.hoursWorked, 0)} hours
+                  </span>
+                  <span className="font-semibold text-blue-400">
+                    Labor Cost: ${laborTotal.toFixed(2)}
+                  </span>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent className="pt-4">
           <div className="space-y-2">
@@ -405,9 +604,15 @@ export default function QuoteBuilder({
       <Card className="bg-card/50">
         <CardContent className="pt-4 space-y-3">
           <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Subtotal</span>
+            <span className="text-muted-foreground">Services & Materials</span>
             <span className="font-medium">${subtotal.toFixed(2)}</span>
           </div>
+          {laborTotal > 0 && (
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Labor ({laborEntries.reduce((sum, e) => sum + e.hoursWorked, 0)} hrs)</span>
+              <span className="font-medium text-blue-400">${laborTotal.toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Tax (6.25%)</span>
             <span className="font-medium">${tax.toFixed(2)}</span>
@@ -546,6 +751,15 @@ export default function QuoteBuilder({
         >
           <Download className="w-4 h-4 mr-2" />
           Download PDF
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => setShowLabor(!showLabor)}
+          className={showLabor ? "border-blue-500/50 bg-blue-500/10" : ""}
+          data-testid="button-toggle-labor"
+        >
+          <Users className="w-4 h-4 mr-2" />
+          {showLabor ? "Hide Labor" : "Track Labor"}
         </Button>
         <Button
           variant="outline"
