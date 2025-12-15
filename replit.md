@@ -123,5 +123,14 @@ Preferred communication style: Simple, everyday language.
 
 ### Replit-Specific
 - **@replit/vite-plugin-runtime-error-modal**: Development error overlay
+
 - **@replit/vite-plugin-cartographer**: Replit integration
 - **@replit/vite-plugin-dev-banner**: Development environment banner
+
+## Pending Integrations
+
+### Twilio SMS Integration (Not Configured)
+The Twilio integration for SMS notifications has not been set up. To enable SMS appointment reminders:
+1. The user needs to provide Twilio credentials (Account SID, Auth Token, and Phone Number)
+2. These should be stored as secrets: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
+3. Once credentials are available, implement the SMS sending logic in server/routes.ts using the twilio npm package
