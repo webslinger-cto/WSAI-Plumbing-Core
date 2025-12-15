@@ -737,5 +737,243 @@ export async function registerRoutes(
     }
   });
 
+  // ==========================================
+  // Lead Provider Webhooks
+  // ==========================================
+
+  // eLocal webhook - receives leads from eLocal
+  app.post("/api/webhooks/elocal", async (req, res) => {
+    try {
+      const { first_name, last_name, phone, email, zip_code, need_id, description } = req.body;
+      
+      if (!phone) {
+        return res.status(400).json({ error: "Phone number is required" });
+      }
+
+      const customerName = [first_name, last_name].filter(Boolean).join(" ") || "Unknown";
+      
+      const leadData = {
+        source: "eLocal",
+        customerName,
+        customerPhone: phone,
+        customerEmail: email || undefined,
+        zipCode: zip_code || undefined,
+        serviceType: need_id || undefined,
+        description: description || undefined,
+        status: "new",
+        priority: "normal",
+      };
+
+      const validation = insertLeadSchema.safeParse(leadData);
+      if (!validation.success) {
+        return res.status(400).json({ error: "Invalid lead data", details: validation.error.flatten() });
+      }
+
+      const lead = await storage.createLead(validation.data);
+      console.log(`[Webhook] eLocal lead created: ${lead.id}`);
+      res.status(200).json({ success: true, leadId: lead.id });
+    } catch (error) {
+      console.error("eLocal webhook error:", error);
+      res.status(500).json({ error: "Failed to process eLocal lead" });
+    }
+  });
+
+  // Angi/HomeAdvisor webhook - receives leads from Angi
+  app.post("/api/webhooks/angi", async (req, res) => {
+    try {
+      // API key authentication (optional - set ANGI_WEBHOOK_KEY to enable)
+      const expectedKey = process.env.ANGI_WEBHOOK_KEY;
+      if (expectedKey) {
+        const apiKey = req.headers["x-api-key"];
+        if (apiKey !== expectedKey) {
+          return res.status(401).json({ error: "Unauthorized" });
+        }
+      }
+      
+      const { name, phone, email, address, zip_code, category, description } = req.body;
+      
+      // Phone is required for lead creation
+      if (!phone) {
+        return res.status(400).json({ error: "Phone number is required" });
+      }
+
+      const leadData = {
+        source: "Angi",
+        customerName: name || "Unknown",
+        customerPhone: phone,
+        customerEmail: email || undefined,
+        address: address || undefined,
+        zipCode: zip_code || undefined,
+        serviceType: category || undefined,
+        description: description || undefined,
+        status: "new",
+        priority: "normal",
+      };
+
+      const validation = insertLeadSchema.safeParse(leadData);
+      if (!validation.success) {
+        return res.status(400).json({ error: "Invalid lead data", details: validation.error.flatten() });
+      }
+
+      const lead = await storage.createLead(validation.data);
+      console.log(`[Webhook] Angi lead created: ${lead.id}`);
+      res.status(200).json({ success: true, leadId: lead.id });
+    } catch (error) {
+      console.error("Angi webhook error:", error);
+      res.status(500).json({ error: "Failed to process Angi lead" });
+    }
+  });
+
+  // Thumbtack webhook - receives leads from Thumbtack
+  app.post("/api/webhooks/thumbtack", async (req, res) => {
+    try {
+      // HTTP Basic Auth (optional - set THUMBTACK_WEBHOOK_USER and THUMBTACK_WEBHOOK_PASS to enable)
+      const expectedUser = process.env.THUMBTACK_WEBHOOK_USER;
+      const expectedPass = process.env.THUMBTACK_WEBHOOK_PASS;
+      if (expectedUser && expectedPass) {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith("Basic ")) {
+          return res.status(401).json({ error: "Unauthorized" });
+        }
+        const base64Credentials = authHeader.slice(6);
+        const credentials = Buffer.from(base64Credentials, "base64").toString("utf-8");
+        const [user, pass] = credentials.split(":");
+        if (user !== expectedUser || pass !== expectedPass) {
+          return res.status(401).json({ error: "Unauthorized" });
+        }
+      }
+      
+      const { leadID, customer, request } = req.body;
+      
+      const customerName = customer?.name || "Unknown";
+      const phone = customer?.phone;
+      const email = customer?.email;
+      
+      // Phone is required for lead creation
+      if (!phone) {
+        return res.status(400).json({ error: "Customer phone is required" });
+      }
+      
+      const category = request?.category || undefined;
+      const description = request?.description || undefined;
+      const location = request?.location || {};
+
+      const leadData = {
+        source: "Thumbtack",
+        customerName,
+        customerPhone: phone,
+        customerEmail: email || undefined,
+        address: location.address || undefined,
+        city: location.city || undefined,
+        zipCode: location.zipCode || undefined,
+        serviceType: category,
+        description: description,
+        status: "new",
+        priority: "normal",
+      };
+
+      const validation = insertLeadSchema.safeParse(leadData);
+      if (!validation.success) {
+        return res.status(400).json({ error: "Invalid lead data", details: validation.error.flatten() });
+      }
+
+      const lead = await storage.createLead(validation.data);
+      console.log(`[Webhook] Thumbtack lead created: ${lead.id} (Thumbtack ID: ${leadID})`);
+      res.status(200).json({ success: true, leadId: lead.id, thumbtackLeadId: leadID });
+    } catch (error) {
+      console.error("Thumbtack webhook error:", error);
+      res.status(500).json({ error: "Failed to process Thumbtack lead" });
+    }
+  });
+
+  // Networx webhook - receives leads from Networx
+  app.post("/api/webhooks/networx", async (req, res) => {
+    try {
+      const { customer_name, phone, email, zip_code, service_type, description } = req.body;
+      
+      if (!phone) {
+        return res.status(400).json({ error: "Phone number is required" });
+      }
+
+      const leadData = {
+        source: "Networx",
+        customerName: customer_name || "Unknown",
+        customerPhone: phone,
+        customerEmail: email || undefined,
+        zipCode: zip_code || undefined,
+        serviceType: service_type || undefined,
+        description: description || undefined,
+        status: "new",
+        priority: "normal",
+      };
+
+      const validation = insertLeadSchema.safeParse(leadData);
+      if (!validation.success) {
+        return res.status(400).json({ error: "Invalid lead data", details: validation.error.flatten() });
+      }
+
+      const lead = await storage.createLead(validation.data);
+      console.log(`[Webhook] Networx lead created: ${lead.id}`);
+      res.status(200).json({ success: true, leadId: lead.id });
+    } catch (error) {
+      console.error("Networx webhook error:", error);
+      res.status(500).json({ error: "Failed to process Networx lead" });
+    }
+  });
+
+  // Inquirly webhook - receives leads from Inquirly conversational AI
+  app.post("/api/webhooks/inquirly", async (req, res) => {
+    try {
+      const { 
+        contact_name, 
+        contact_phone, 
+        contact_email, 
+        contact_address,
+        contact_zip,
+        conversation_summary,
+        service_requested,
+        urgency
+      } = req.body;
+      
+      // Phone is required for lead creation
+      if (!contact_phone) {
+        return res.status(400).json({ error: "Contact phone is required" });
+      }
+
+      // Map Inquirly urgency to our priority
+      let priority = "normal";
+      if (urgency === "high" || urgency === "emergency") {
+        priority = "urgent";
+      } else if (urgency === "medium") {
+        priority = "high";
+      }
+
+      const leadData = {
+        source: "Inquirly",
+        customerName: contact_name || "Unknown",
+        customerPhone: contact_phone,
+        customerEmail: contact_email || undefined,
+        address: contact_address || undefined,
+        zipCode: contact_zip || undefined,
+        serviceType: service_requested || undefined,
+        description: conversation_summary || undefined,
+        status: "new",
+        priority,
+      };
+
+      const validation = insertLeadSchema.safeParse(leadData);
+      if (!validation.success) {
+        return res.status(400).json({ error: "Invalid lead data", details: validation.error.flatten() });
+      }
+
+      const lead = await storage.createLead(validation.data);
+      console.log(`[Webhook] Inquirly lead created: ${lead.id}`);
+      res.status(200).json({ success: true, leadId: lead.id });
+    } catch (error) {
+      console.error("Inquirly webhook error:", error);
+      res.status(500).json({ error: "Failed to process Inquirly lead" });
+    }
+  });
+
   return httpServer;
 }

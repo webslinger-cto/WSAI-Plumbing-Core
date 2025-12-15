@@ -62,7 +62,7 @@ export type InsertTechnician = z.infer<typeof insertTechnicianSchema>;
 export type Technician = typeof technicians.$inferSelect;
 
 // Lead sources
-export const leadSources = ["eLocal", "Networx", "Angi", "HomeAdvisor", "Direct", "Referral", "Website"] as const;
+export const leadSources = ["eLocal", "Networx", "Angi", "HomeAdvisor", "Thumbtack", "Inquirly", "Direct", "Referral", "Website"] as const;
 export type LeadSource = typeof leadSources[number];
 
 // Lead statuses
