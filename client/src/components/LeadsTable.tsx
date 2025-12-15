@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Search, ChevronLeft, ChevronRight, Phone, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SlaTimer } from "./SlaTimer";
 
 export interface Lead {
   id: string;
@@ -29,11 +30,15 @@ export interface Lead {
   city: string;
   state: string;
   zipCode: string;
-  source: "eLocal" | "Networx" | "Direct" | "Angi" | "HomeAdvisor";
+  source: string;
   service: string;
-  status: "new" | "contacted" | "converted" | "lost" | "spam" | "duplicate";
+  status: "new" | "contacted" | "converted" | "lost" | "spam" | "duplicate" | "qualified" | "scheduled";
   cost: number;
   date: string;
+  slaDeadline?: string | null;
+  contactedAt?: string | null;
+  priority?: string;
+  slaBreach?: boolean;
 }
 
 interface LeadsTableProps {
@@ -41,9 +46,11 @@ interface LeadsTableProps {
   onLeadClick?: (lead: Lead) => void;
 }
 
-const statusStyles: Record<Lead["status"], string> = {
+const statusStyles: Record<string, string> = {
   new: "bg-blue-500/10 text-blue-400 border-blue-500/30",
   contacted: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
+  qualified: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30",
+  scheduled: "bg-indigo-500/10 text-indigo-400 border-indigo-500/30",
   converted: "bg-green-500/10 text-green-400 border-green-500/30",
   lost: "bg-red-500/10 text-red-400 border-red-500/30",
   spam: "bg-gray-500/10 text-gray-400 border-gray-500/30",
@@ -108,7 +115,13 @@ export default function LeadsTable({ leads, onLeadClick }: LeadsTableProps) {
                 <SelectItem value="all">All Sources</SelectItem>
                 <SelectItem value="eLocal">eLocal</SelectItem>
                 <SelectItem value="Networx">Networx</SelectItem>
+                <SelectItem value="Angi">Angi</SelectItem>
+                <SelectItem value="HomeAdvisor">HomeAdvisor</SelectItem>
+                <SelectItem value="Thumbtack">Thumbtack</SelectItem>
+                <SelectItem value="Inquirly">Inquirly</SelectItem>
                 <SelectItem value="Direct">Direct</SelectItem>
+                <SelectItem value="Referral">Referral</SelectItem>
+                <SelectItem value="Website">Website</SelectItem>
               </SelectContent>
             </Select>
             <Select
@@ -125,6 +138,8 @@ export default function LeadsTable({ leads, onLeadClick }: LeadsTableProps) {
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="new">New</SelectItem>
                 <SelectItem value="contacted">Contacted</SelectItem>
+                <SelectItem value="qualified">Qualified</SelectItem>
+                <SelectItem value="scheduled">Scheduled</SelectItem>
                 <SelectItem value="converted">Converted</SelectItem>
                 <SelectItem value="lost">Lost</SelectItem>
                 <SelectItem value="spam">Spam</SelectItem>
@@ -145,6 +160,7 @@ export default function LeadsTable({ leads, onLeadClick }: LeadsTableProps) {
                 <TableHead className="text-xs uppercase">Source</TableHead>
                 <TableHead className="text-xs uppercase">Service</TableHead>
                 <TableHead className="text-xs uppercase">Status</TableHead>
+                <TableHead className="text-xs uppercase">SLA</TableHead>
                 <TableHead className="text-xs uppercase text-right">Cost</TableHead>
               </TableRow>
             </TableHeader>
@@ -180,10 +196,16 @@ export default function LeadsTable({ leads, onLeadClick }: LeadsTableProps) {
                   <TableCell>
                     <Badge
                       variant="outline"
-                      className={cn("text-xs capitalize", statusStyles[lead.status])}
+                      className={cn("text-xs capitalize", statusStyles[lead.status] || "")}
                     >
                       {lead.status}
                     </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <SlaTimer
+                      slaDeadline={lead.slaDeadline || null}
+                      contactedAt={lead.contactedAt || null}
+                    />
                   </TableCell>
                   <TableCell className="text-right font-medium">
                     ${lead.cost}
@@ -192,7 +214,7 @@ export default function LeadsTable({ leads, onLeadClick }: LeadsTableProps) {
               ))}
               {paginatedLeads.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                     No leads found matching your criteria
                   </TableCell>
                 </TableRow>

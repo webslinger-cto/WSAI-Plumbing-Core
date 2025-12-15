@@ -88,6 +88,13 @@ export const leads = pgTable("leads", {
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
   convertedAt: timestamp("converted_at"),
   assignedTo: varchar("assigned_to"),
+  contactedAt: timestamp("contacted_at"),
+  slaDeadline: timestamp("sla_deadline"),
+  slaBreach: boolean("sla_breach").default(false),
+  leadScore: integer("lead_score").default(50),
+  isDuplicate: boolean("is_duplicate").default(false),
+  duplicateOfId: varchar("duplicate_of_id"),
+  revenue: decimal("revenue"),
 });
 
 export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, createdAt: true, updatedAt: true });
@@ -256,3 +263,49 @@ export const serviceTypes = [
   "Other"
 ] as const;
 export type ServiceType = typeof serviceTypes[number];
+
+// Quote Templates for pre-built packages
+export const quoteTemplates = pgTable("quote_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  serviceType: text("service_type"),
+  lineItems: text("line_items").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertQuoteTemplateSchema = createInsertSchema(quoteTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertQuoteTemplate = z.infer<typeof insertQuoteTemplateSchema>;
+export type QuoteTemplate = typeof quoteTemplates.$inferSelect;
+
+// Customer interactions for timeline view
+export const customerInteractions = pgTable("customer_interactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id").references(() => leads.id),
+  jobId: varchar("job_id").references(() => jobs.id),
+  customerPhone: text("customer_phone").notNull(),
+  type: text("type").notNull(),
+  direction: text("direction"),
+  content: text("content"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertCustomerInteractionSchema = createInsertSchema(customerInteractions).omit({ id: true, createdAt: true });
+export type InsertCustomerInteraction = z.infer<typeof insertCustomerInteractionSchema>;
+export type CustomerInteraction = typeof customerInteractions.$inferSelect;
+
+// SLA Settings
+export const slaSettings = pgTable("sla_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  priority: text("priority").notNull(),
+  responseTimeMinutes: integer("response_time_minutes").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+});
+
+export const insertSlaSettingSchema = createInsertSchema(slaSettings).omit({ id: true });
+export type InsertSlaSetting = z.infer<typeof insertSlaSettingSchema>;
+export type SlaSetting = typeof slaSettings.$inferSelect;

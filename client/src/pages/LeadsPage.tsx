@@ -9,123 +9,82 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign } from "lucide-react";
+import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2 } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { SlaTimer } from "@/components/SlaTimer";
+import { useToast } from "@/hooks/use-toast";
+import type { Lead as ApiLead } from "@shared/schema";
 
-// todo: remove mock functionality
-const mockLeads: Lead[] = [
-  {
-    id: "1",
-    name: "Leonard Willis",
-    phone: "708-289-7471",
-    email: "lwillis@email.com",
-    city: "Chicago",
+function mapApiLeadToTableLead(lead: ApiLead): Lead & { slaBreach?: boolean } {
+  return {
+    id: lead.id,
+    name: lead.customerName,
+    phone: lead.customerPhone,
+    email: lead.customerEmail || undefined,
+    city: lead.city || "",
     state: "IL",
-    zipCode: "60628",
-    source: "Networx",
-    service: "Sewer Main - Clear",
-    status: "new",
-    cost: 31,
-    date: "2025-12-06",
-  },
-  {
-    id: "2",
-    name: "Miguel Garcia",
-    phone: "708-704-8356",
-    city: "Chicago Heights",
-    state: "IL",
-    zipCode: "60411",
-    source: "eLocal",
-    service: "Plumbing",
-    status: "contacted",
-    cost: 80,
-    date: "2025-12-05",
-  },
-  {
-    id: "3",
-    name: "Chanie Evans",
-    phone: "773-966-9820",
-    email: "chanieevans@yahoo.com",
-    city: "Chicago",
-    state: "IL",
-    zipCode: "60620",
-    source: "Networx",
-    service: "Flood Control",
-    status: "converted",
-    cost: 32,
-    date: "2025-12-06",
-  },
-  {
-    id: "4",
-    name: "Anthony Cunningham",
-    phone: "708-897-6156",
-    email: "broantcun@gmail.com",
-    city: "Harvey",
-    state: "IL",
-    zipCode: "60426",
-    source: "Networx",
-    service: "Drain Clog/Blockage",
-    status: "new",
-    cost: 25,
-    date: "2025-12-05",
-  },
-  {
-    id: "5",
-    name: "Armando Robles",
-    phone: "312-404-7812",
-    city: "Chicago",
-    state: "IL",
-    zipCode: "60637",
-    source: "eLocal",
-    service: "Plumbing",
-    status: "duplicate",
-    cost: 0,
-    date: "2025-12-05",
-  },
-  {
-    id: "6",
-    name: "Takala Kelley",
-    phone: "708-872-0048",
-    city: "Calumet City",
-    state: "IL",
-    zipCode: "60409",
-    source: "eLocal",
-    service: "Plumbing",
-    status: "converted",
-    cost: 80,
-    date: "2025-12-05",
-  },
-  {
-    id: "7",
-    name: "Rosevelt Payne",
-    phone: "331-216-3033",
-    email: "rpayne2552@gmail.com",
-    city: "Oswego",
-    state: "IL",
-    zipCode: "60543",
-    source: "Networx",
-    service: "Plumbing",
-    status: "new",
-    cost: 41,
-    date: "2025-12-05",
-  },
-  {
-    id: "8",
-    name: "Melendez Smalley",
-    phone: "773-891-8323",
-    email: "melendez12@gmail.com",
-    city: "Chicago",
-    state: "IL",
-    zipCode: "60621",
-    source: "Networx",
-    service: "Sewer Main - Clear",
-    status: "contacted",
-    cost: 52,
-    date: "2025-11-28",
-  },
-];
+    zipCode: lead.zipCode || "",
+    source: lead.source,
+    service: lead.serviceType || "Not specified",
+    status: (lead.status as Lead["status"]) || "new",
+    cost: lead.cost ? Number(lead.cost) : 0,
+    date: lead.createdAt ? new Date(lead.createdAt).toISOString().split("T")[0] : "",
+    slaDeadline: lead.slaDeadline ? String(lead.slaDeadline) : null,
+    contactedAt: lead.contactedAt ? String(lead.contactedAt) : null,
+    priority: lead.priority || "normal",
+    slaBreach: lead.slaBreach || false,
+  };
+}
 
 export default function LeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const { toast } = useToast();
+
+  const { data: apiLeads = [], isLoading } = useQuery<ApiLead[]>({
+    queryKey: ["/api/leads"],
+  });
+
+  const leads = apiLeads.map(mapApiLeadToTableLead);
+
+  const markContactedMutation = useMutation({
+    mutationFn: async (leadId: string) => {
+      const response = await apiRequest("POST", `/api/leads/${leadId}/contact`);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({
+        title: data.slaBreached ? "SLA Breached" : "Lead Contacted",
+        description: data.slaBreached 
+          ? `Response time: ${data.responseTimeMinutes} minutes (SLA exceeded)`
+          : `Lead marked as contacted. Response time: ${data.responseTimeMinutes} minutes`,
+        variant: data.slaBreached ? "destructive" : "default",
+      });
+      setSelectedLead(null);
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to mark lead as contacted",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleMarkContacted = () => {
+    if (selectedLead) {
+      markContactedMutation.mutate(selectedLead.id);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -148,7 +107,7 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      <LeadsTable leads={mockLeads} onLeadClick={setSelectedLead} />
+      <LeadsTable leads={leads} onLeadClick={setSelectedLead} />
 
       <Dialog open={!!selectedLead} onOpenChange={() => setSelectedLead(null)}>
         <DialogContent className="max-w-lg">
@@ -160,9 +119,15 @@ export default function LeadsPage() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h3 className="text-lg font-semibold">{selectedLead.name}</h3>
-                  <Badge variant="secondary" className="mt-1">
-                    {selectedLead.source}
-                  </Badge>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge variant="secondary">
+                      {selectedLead.source}
+                    </Badge>
+                    <SlaTimer
+                      slaDeadline={selectedLead.slaDeadline || null}
+                      contactedAt={selectedLead.contactedAt || null}
+                    />
+                  </div>
                 </div>
                 <Badge
                   variant="outline"
@@ -213,6 +178,21 @@ export default function LeadsPage() {
               </div>
 
               <div className="flex gap-2 pt-2">
+                {!selectedLead.contactedAt && selectedLead.status === "new" && (
+                  <Button 
+                    variant="outline"
+                    onClick={handleMarkContacted}
+                    disabled={markContactedMutation.isPending}
+                    data-testid="button-mark-contacted"
+                  >
+                    {markContactedMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <PhoneCall className="w-4 h-4 mr-2" />
+                    )}
+                    Mark Contacted
+                  </Button>
+                )}
                 <Button className="flex-1" data-testid="button-create-quote">
                   Create Quote
                 </Button>

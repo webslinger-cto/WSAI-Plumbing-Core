@@ -133,6 +133,80 @@ export async function registerRoutes(
     res.json(lead);
   });
 
+  // Mark lead as contacted and check SLA
+  app.post("/api/leads/:id/contact", async (req, res) => {
+    try {
+      const lead = await storage.getLead(req.params.id);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+      const now = new Date();
+      const contactedAt = now;
+      
+      // Check if SLA was breached
+      let slaBreach = false;
+      if (lead.slaDeadline) {
+        const deadline = new Date(lead.slaDeadline);
+        slaBreach = now > deadline;
+      }
+
+      const updated = await storage.updateLead(req.params.id, {
+        contactedAt,
+        status: lead.status === "new" ? "contacted" : lead.status,
+        slaBreach,
+      });
+
+      res.json({
+        ...updated,
+        slaBreached: slaBreach,
+        responseTimeMinutes: lead.createdAt 
+          ? Math.round((now.getTime() - new Date(lead.createdAt).getTime()) / 60000)
+          : null,
+      });
+    } catch (error) {
+      console.error("Error marking lead as contacted:", error);
+      res.status(500).json({ error: "Failed to mark lead as contacted" });
+    }
+  });
+
+  // Get SLA breach status for all leads
+  app.get("/api/leads/sla-status", async (req, res) => {
+    try {
+      const leads = await storage.getLeads();
+      const now = new Date();
+      
+      const slaStatus = leads.map(lead => {
+        let status: "ok" | "warning" | "breached" | "contacted" = "ok";
+        let remainingMinutes: number | null = null;
+        
+        if (lead.contactedAt) {
+          status = "contacted";
+        } else if (lead.slaDeadline) {
+          const deadline = new Date(lead.slaDeadline);
+          remainingMinutes = Math.round((deadline.getTime() - now.getTime()) / 60000);
+          
+          if (remainingMinutes <= 0) {
+            status = "breached";
+          } else if (remainingMinutes <= 5) {
+            status = "warning";
+          }
+        }
+        
+        return {
+          id: lead.id,
+          status,
+          remainingMinutes,
+          slaDeadline: lead.slaDeadline,
+          contactedAt: lead.contactedAt,
+        };
+      });
+      
+      res.json(slaStatus);
+    } catch (error) {
+      console.error("Error fetching SLA status:", error);
+      res.status(500).json({ error: "Failed to fetch SLA status" });
+    }
+  });
+
   // Calls
   app.get("/api/calls", async (req, res) => {
     const { limit } = req.query;

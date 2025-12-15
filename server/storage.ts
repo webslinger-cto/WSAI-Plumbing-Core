@@ -143,6 +143,7 @@ export class MemStorage implements IStorage {
   private jobTimelineEvents: Map<string, JobTimelineEvent>;
   private quotes: Map<string, Quote>;
   private notifications: Map<string, Notification>;
+  private shiftLogs: Map<string, ShiftLog>;
 
   constructor() {
     this.users = new Map();
@@ -153,6 +154,7 @@ export class MemStorage implements IStorage {
     this.jobTimelineEvents = new Map();
     this.quotes = new Map();
     this.notifications = new Map();
+    this.shiftLogs = new Map();
     this.seedData();
   }
 
@@ -394,6 +396,9 @@ export class MemStorage implements IStorage {
   async createLead(insertLead: InsertLead): Promise<Lead> {
     const id = randomUUID();
     const now = new Date();
+    const priority = insertLead.priority || "normal";
+    const slaMinutes = priority === "urgent" ? 15 : priority === "high" ? 30 : 60;
+    const slaDeadline = new Date(now.getTime() + slaMinutes * 60 * 1000);
     const lead: Lead = {
       id,
       source: insertLead.source,
@@ -406,12 +411,19 @@ export class MemStorage implements IStorage {
       serviceType: insertLead.serviceType || null,
       description: insertLead.description || null,
       status: insertLead.status || "new",
-      priority: insertLead.priority || "normal",
+      priority,
       cost: insertLead.cost || null,
       createdAt: now,
       updatedAt: now,
       convertedAt: insertLead.convertedAt || null,
       assignedTo: insertLead.assignedTo || null,
+      contactedAt: insertLead.contactedAt || null,
+      slaDeadline,
+      slaBreach: false,
+      leadScore: insertLead.leadScore || 50,
+      isDuplicate: insertLead.isDuplicate || false,
+      duplicateOfId: insertLead.duplicateOfId || null,
+      revenue: insertLead.revenue || null,
     };
     this.leads.set(id, lead);
     return lead;
@@ -600,7 +612,9 @@ export class MemStorage implements IStorage {
       customerEmail: insertQuote.customerEmail || null,
       address: insertQuote.address || null,
       lineItems: insertQuote.lineItems || null,
+      laborEntries: insertQuote.laborEntries || null,
       subtotal: insertQuote.subtotal || null,
+      laborTotal: insertQuote.laborTotal || "0",
       taxRate: insertQuote.taxRate || "0",
       taxAmount: insertQuote.taxAmount || "0",
       total: insertQuote.total || null,
@@ -867,6 +881,59 @@ export class MemStorage implements IStorage {
       techPerformance,
       conversionFunnel,
     };
+  }
+
+  async createShiftLog(log: InsertShiftLog): Promise<ShiftLog> {
+    const id = randomUUID();
+    const shiftLog: ShiftLog = {
+      id,
+      technicianId: log.technicianId,
+      action: log.action,
+      timestamp: new Date(),
+      notes: log.notes || null,
+    };
+    this.shiftLogs.set(id, shiftLog);
+    return shiftLog;
+  }
+
+  async getShiftLogsByTechnician(technicianId: string): Promise<ShiftLog[]> {
+    return Array.from(this.shiftLogs.values())
+      .filter(l => l.technicianId === technicianId)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }
+
+  async getTodayShiftLogs(technicianId: string): Promise<ShiftLog[]> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Array.from(this.shiftLogs.values())
+      .filter(l => l.technicianId === technicianId && new Date(l.timestamp) >= today)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }
+
+  async resetJobBoard(): Promise<void> {
+    Array.from(this.jobs.values()).forEach(j => {
+      if (!["completed", "cancelled"].includes(j.status)) {
+        this.jobs.set(j.id, {
+          ...j,
+          status: "pending",
+          assignedTechnicianId: null,
+          dispatcherId: null,
+          assignedAt: null,
+          confirmedAt: null,
+          enRouteAt: null,
+          arrivedAt: null,
+          startedAt: null,
+          completedAt: null,
+          arrivalLat: null,
+          arrivalLng: null,
+          arrivalVerified: null,
+          arrivalDistance: null,
+        });
+      }
+    });
+    Array.from(this.technicians.values()).forEach(t => {
+      this.technicians.set(t.id, { ...t, status: "off_duty", currentJobId: null, completedJobsToday: 0 });
+    });
   }
 }
 
