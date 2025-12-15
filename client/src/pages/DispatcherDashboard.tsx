@@ -116,7 +116,7 @@ function QuoteReviewCard({ quote, jobs, technicians }: { quote: Quote; jobs: Job
     mutationFn: async () => {
       await apiRequest("PATCH", `/api/quotes/${quote.id}`, { status: "sent", acceptedAt: new Date().toISOString() });
       if (quote.jobId) {
-        await apiRequest("PATCH", `/api/jobs/${quote.jobId}`, { status: "pending" });
+        await apiRequest("PATCH", `/api/jobs/${quote.jobId}`, { status: "pending", assignedTechnicianId: null });
       }
     },
     onSuccess: () => {
@@ -1357,7 +1357,7 @@ export default function DispatcherDashboard() {
     queryKey: ["/api/quotes"],
   });
 
-  const pendingQuotes = quotes.filter(q => q.status === "draft" || q.status === "sent");
+  const pendingQuotes = quotes.filter(q => q.status === "draft");
 
   const assignMutation = useMutation({
     mutationFn: async ({ jobId, technicianId }: { jobId: string; technicianId: string }) => {
