@@ -8,7 +8,8 @@ import {
   type Quote, type InsertQuote,
   type Notification, type InsertNotification,
   type ShiftLog, type InsertShiftLog,
-  users, technicians, leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs,
+  type QuoteTemplate, type InsertQuoteTemplate,
+  users, technicians, leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -130,6 +131,14 @@ export interface IStorage {
   getShiftLogsByTechnician(technicianId: string): Promise<ShiftLog[]>;
   getTodayShiftLogs(technicianId: string): Promise<ShiftLog[]>;
 
+  // Quote Templates
+  getQuoteTemplates(): Promise<QuoteTemplate[]>;
+  getQuoteTemplate(id: string): Promise<QuoteTemplate | undefined>;
+  getQuoteTemplatesByServiceType(serviceType: string): Promise<QuoteTemplate[]>;
+  createQuoteTemplate(template: InsertQuoteTemplate): Promise<QuoteTemplate>;
+  updateQuoteTemplate(id: string, updates: Partial<QuoteTemplate>): Promise<QuoteTemplate | undefined>;
+  deleteQuoteTemplate(id: string): Promise<boolean>;
+
   // Reset
   resetJobBoard(): Promise<void>;
 }
@@ -144,6 +153,7 @@ export class MemStorage implements IStorage {
   private quotes: Map<string, Quote>;
   private notifications: Map<string, Notification>;
   private shiftLogs: Map<string, ShiftLog>;
+  private quoteTemplatesMap: Map<string, QuoteTemplate>;
 
   constructor() {
     this.users = new Map();
@@ -155,6 +165,7 @@ export class MemStorage implements IStorage {
     this.quotes = new Map();
     this.notifications = new Map();
     this.shiftLogs = new Map();
+    this.quoteTemplatesMap = new Map();
     this.seedData();
   }
 
@@ -910,6 +921,51 @@ export class MemStorage implements IStorage {
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   }
 
+  // Quote Templates
+  async getQuoteTemplates(): Promise<QuoteTemplate[]> {
+    return Array.from(this.quoteTemplatesMap.values())
+      .filter(t => t.isActive)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async getQuoteTemplate(id: string): Promise<QuoteTemplate | undefined> {
+    return this.quoteTemplatesMap.get(id);
+  }
+
+  async getQuoteTemplatesByServiceType(serviceType: string): Promise<QuoteTemplate[]> {
+    return Array.from(this.quoteTemplatesMap.values())
+      .filter(t => t.isActive && t.serviceType === serviceType);
+  }
+
+  async createQuoteTemplate(template: InsertQuoteTemplate): Promise<QuoteTemplate> {
+    const id = randomUUID();
+    const now = new Date();
+    const qt: QuoteTemplate = {
+      id,
+      name: template.name,
+      description: template.description || null,
+      serviceType: template.serviceType || null,
+      lineItems: template.lineItems,
+      isActive: template.isActive ?? true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.quoteTemplatesMap.set(id, qt);
+    return qt;
+  }
+
+  async updateQuoteTemplate(id: string, updates: Partial<QuoteTemplate>): Promise<QuoteTemplate | undefined> {
+    const template = this.quoteTemplatesMap.get(id);
+    if (!template) return undefined;
+    const updated = { ...template, ...updates, updatedAt: new Date() };
+    this.quoteTemplatesMap.set(id, updated);
+    return updated;
+  }
+
+  async deleteQuoteTemplate(id: string): Promise<boolean> {
+    return this.quoteTemplatesMap.delete(id);
+  }
+
   async resetJobBoard(): Promise<void> {
     Array.from(this.jobs.values()).forEach(j => {
       if (!["completed", "cancelled"].includes(j.status)) {
@@ -1433,6 +1489,41 @@ export class DatabaseStorage implements IStorage {
         gte(shiftLogs.timestamp, today)
       ))
       .orderBy(asc(shiftLogs.timestamp));
+  }
+
+  // Quote Templates
+  async getQuoteTemplates(): Promise<QuoteTemplate[]> {
+    return await db.select().from(quoteTemplates)
+      .where(eq(quoteTemplates.isActive, true))
+      .orderBy(asc(quoteTemplates.name));
+  }
+
+  async getQuoteTemplate(id: string): Promise<QuoteTemplate | undefined> {
+    const [template] = await db.select().from(quoteTemplates).where(eq(quoteTemplates.id, id));
+    return template;
+  }
+
+  async getQuoteTemplatesByServiceType(serviceType: string): Promise<QuoteTemplate[]> {
+    return await db.select().from(quoteTemplates)
+      .where(and(eq(quoteTemplates.isActive, true), eq(quoteTemplates.serviceType, serviceType)));
+  }
+
+  async createQuoteTemplate(template: InsertQuoteTemplate): Promise<QuoteTemplate> {
+    const [created] = await db.insert(quoteTemplates).values(template).returning();
+    return created;
+  }
+
+  async updateQuoteTemplate(id: string, updates: Partial<QuoteTemplate>): Promise<QuoteTemplate | undefined> {
+    const [updated] = await db.update(quoteTemplates)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(quoteTemplates.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteQuoteTemplate(id: string): Promise<boolean> {
+    const result = await db.delete(quoteTemplates).where(eq(quoteTemplates.id, id));
+    return true;
   }
 
   async resetJobBoard(): Promise<void> {

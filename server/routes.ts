@@ -10,6 +10,7 @@ import {
   insertNotificationSchema,
   insertTechnicianSchema,
   insertShiftLogSchema,
+  insertQuoteTemplateSchema,
 } from "@shared/schema";
 import { isWithinRadius } from "./geocoding";
 
@@ -596,6 +597,62 @@ export async function registerRoutes(
     const quote = await storage.updateQuote(req.params.id, updates);
     if (!quote) return res.status(404).json({ error: "Quote not found" });
     res.json(quote);
+  });
+
+  // Quote Templates
+  app.get("/api/quote-templates", async (req, res) => {
+    try {
+      const templates = await storage.getQuoteTemplates();
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching quote templates:", error);
+      res.status(500).json({ error: "Failed to fetch quote templates" });
+    }
+  });
+
+  app.get("/api/quote-templates/service/:serviceType", async (req, res) => {
+    try {
+      const templates = await storage.getQuoteTemplatesByServiceType(req.params.serviceType);
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching quote templates by service:", error);
+      res.status(500).json({ error: "Failed to fetch quote templates" });
+    }
+  });
+
+  app.get("/api/quote-templates/:id", async (req, res) => {
+    const template = await storage.getQuoteTemplate(req.params.id);
+    if (!template) return res.status(404).json({ error: "Quote template not found" });
+    res.json(template);
+  });
+
+  app.post("/api/quote-templates", async (req, res) => {
+    try {
+      const result = insertQuoteTemplateSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ error: result.error });
+      const template = await storage.createQuoteTemplate(result.data);
+      res.status(201).json(template);
+    } catch (error) {
+      console.error("Error creating quote template:", error);
+      res.status(500).json({ error: "Failed to create quote template" });
+    }
+  });
+
+  app.patch("/api/quote-templates/:id", async (req, res) => {
+    try {
+      const template = await storage.updateQuoteTemplate(req.params.id, req.body);
+      if (!template) return res.status(404).json({ error: "Quote template not found" });
+      res.json(template);
+    } catch (error) {
+      console.error("Error updating quote template:", error);
+      res.status(500).json({ error: "Failed to update quote template" });
+    }
+  });
+
+  app.delete("/api/quote-templates/:id", async (req, res) => {
+    const success = await storage.deleteQuoteTemplate(req.params.id);
+    if (!success) return res.status(404).json({ error: "Quote template not found" });
+    res.json({ success: true });
   });
 
   // Notifications

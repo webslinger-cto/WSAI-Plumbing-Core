@@ -21,6 +21,7 @@ import DispatcherDashboard from "@/pages/DispatcherDashboard";
 import StaffingPool from "@/pages/StaffingPool";
 import ExportPage from "@/pages/ExportPage";
 import SettingsPage from "@/pages/SettingsPage";
+import QuoteTemplatesPage from "@/pages/QuoteTemplatesPage";
 import NotFound from "@/pages/not-found";
 
 interface AuthState {
@@ -38,6 +39,7 @@ function AdminRouter() {
       <Route path="/" component={AdminDashboard} />
       <Route path="/leads" component={LeadsPage} />
       <Route path="/technicians" component={TechniciansPage} />
+      <Route path="/quote-templates" component={QuoteTemplatesPage} />
       <Route path="/payroll" component={PayrollPage} />
       <Route path="/import" component={ImportPage} />
       <Route path="/outreach" component={OutreachPage} />

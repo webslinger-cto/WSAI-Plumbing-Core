@@ -43,6 +43,7 @@ const adminMenuItems = [
   { title: "Leads", url: "/leads", icon: Users },
   { title: "Outreach", url: "/outreach", icon: Megaphone },
   { title: "Technicians", url: "/technicians", icon: Wrench },
+  { title: "Quote Templates", url: "/quote-templates", icon: FileText },
   { title: "Payroll", url: "/payroll", icon: Wallet },
   { title: "Import Data", url: "/import", icon: Upload },
   { title: "Export Data", url: "/export", icon: Download },
