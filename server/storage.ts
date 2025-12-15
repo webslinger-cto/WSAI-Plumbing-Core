@@ -85,6 +85,7 @@ export interface IStorage {
   getLead(id: string): Promise<Lead | undefined>;
   getLeads(): Promise<Lead[]>;
   getLeadsByStatus(status: string): Promise<Lead[]>;
+  findLeadsByPhone(phone: string): Promise<Lead[]>;
   createLead(lead: InsertLead): Promise<Lead>;
   updateLead(id: string, updates: Partial<Lead>): Promise<Lead | undefined>;
 
@@ -402,6 +403,14 @@ export class MemStorage implements IStorage {
 
   async getLeadsByStatus(status: string): Promise<Lead[]> {
     return Array.from(this.leads.values()).filter(l => l.status === status);
+  }
+
+  async findLeadsByPhone(phone: string): Promise<Lead[]> {
+    const normalizedPhone = phone.replace(/\D/g, '');
+    return Array.from(this.leads.values()).filter(l => {
+      const leadPhone = l.customerPhone.replace(/\D/g, '');
+      return leadPhone === normalizedPhone;
+    });
   }
 
   async createLead(insertLead: InsertLead): Promise<Lead> {
@@ -1120,6 +1129,15 @@ export class DatabaseStorage implements IStorage {
 
   async getLeadsByStatus(status: string): Promise<Lead[]> {
     return await db.select().from(leads).where(eq(leads.status, status));
+  }
+
+  async findLeadsByPhone(phone: string): Promise<Lead[]> {
+    const normalizedPhone = phone.replace(/\D/g, '');
+    const allLeads = await db.select().from(leads);
+    return allLeads.filter(l => {
+      const leadPhone = l.customerPhone.replace(/\D/g, '');
+      return leadPhone === normalizedPhone;
+    });
   }
 
   async createLead(insertLead: InsertLead): Promise<Lead> {

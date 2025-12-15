@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw } from "lucide-react";
+import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { SlaTimer } from "@/components/SlaTimer";
@@ -35,6 +35,8 @@ function mapApiLeadToTableLead(lead: ApiLead): Lead & { slaBreach?: boolean } {
     priority: lead.priority || "normal",
     slaBreach: lead.slaBreach || false,
     leadScore: lead.leadScore || 50,
+    isDuplicate: lead.isDuplicate || false,
+    duplicateOfId: lead.duplicateOfId || null,
   };
 }
 
@@ -224,6 +226,38 @@ export default function LeadsPage() {
                 <p className="text-sm font-medium mb-1">Service Requested</p>
                 <p className="text-sm text-muted-foreground">{selectedLead.service}</p>
               </div>
+
+              {selectedLead.isDuplicate && (
+                <>
+                  <Separator />
+                  <div className="p-3 rounded-md bg-purple-500/10 border border-purple-500/30" data-testid="duplicate-alert">
+                    <div className="flex items-center gap-2 text-purple-400">
+                      <Copy className="w-4 h-4" />
+                      <span className="font-medium">Duplicate Lead Detected</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      This lead has the same phone number as an existing lead.
+                    </p>
+                    {selectedLead.duplicateOfId && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => {
+                          const originalLead = leads.find(l => l.id === selectedLead.duplicateOfId);
+                          if (originalLead) {
+                            setSelectedLead(originalLead);
+                          }
+                        }}
+                        data-testid="button-view-original"
+                      >
+                        <Link className="w-3 h-3 mr-1" />
+                        View Original Lead
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
 
               <div className="flex gap-2 pt-2">
                 {!selectedLead.contactedAt && selectedLead.status === "new" && (

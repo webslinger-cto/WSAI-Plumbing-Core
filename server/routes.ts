@@ -181,8 +181,68 @@ export async function registerRoutes(
     
     // Calculate lead score before creating
     const leadScore = calculateLeadScore(result.data);
-    const lead = await storage.createLead({ ...result.data, leadScore });
-    res.status(201).json(lead);
+    
+    // Check for duplicate leads by phone number
+    let isDuplicate = false;
+    let duplicateOfId: string | null = null;
+    
+    if (result.data.customerPhone) {
+      const existingLeads = await storage.findLeadsByPhone(result.data.customerPhone);
+      if (existingLeads.length > 0) {
+        // Find the oldest non-duplicate lead as the original
+        const originalLead = existingLeads
+          .filter(l => !l.isDuplicate)
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0];
+        
+        if (originalLead) {
+          isDuplicate = true;
+          duplicateOfId = originalLead.id;
+        }
+      }
+    }
+    
+    const lead = await storage.createLead({ 
+      ...result.data, 
+      leadScore,
+      isDuplicate,
+      duplicateOfId,
+      status: isDuplicate ? "duplicate" : (result.data.status || "new"),
+    });
+    res.status(201).json({ ...lead, wasDuplicateDetected: isDuplicate });
+  });
+  
+  // Check for duplicate leads
+  app.get("/api/leads/check-duplicate", async (req, res) => {
+    try {
+      const { phone } = req.query;
+      if (!phone || typeof phone !== 'string') {
+        return res.status(400).json({ error: "Phone number required" });
+      }
+      
+      const existingLeads = await storage.findLeadsByPhone(phone);
+      const nonDuplicates = existingLeads.filter(l => !l.isDuplicate);
+      
+      res.json({
+        isDuplicate: nonDuplicates.length > 0,
+        originalLead: nonDuplicates[0] || null,
+        matchCount: existingLeads.length,
+      });
+    } catch (error) {
+      console.error("Error checking for duplicates:", error);
+      res.status(500).json({ error: "Failed to check for duplicates" });
+    }
+  });
+  
+  // Get all duplicate leads
+  app.get("/api/leads/duplicates", async (req, res) => {
+    try {
+      const leads = await storage.getLeads();
+      const duplicates = leads.filter(l => l.isDuplicate);
+      res.json(duplicates);
+    } catch (error) {
+      console.error("Error fetching duplicates:", error);
+      res.status(500).json({ error: "Failed to fetch duplicates" });
+    }
   });
   
   // Recalculate scores for all leads

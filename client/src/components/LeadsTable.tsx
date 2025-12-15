@@ -40,6 +40,8 @@ export interface Lead {
   priority?: string;
   slaBreach?: boolean;
   leadScore?: number;
+  isDuplicate?: boolean;
+  duplicateOfId?: string | null;
 }
 
 interface LeadsTableProps {
