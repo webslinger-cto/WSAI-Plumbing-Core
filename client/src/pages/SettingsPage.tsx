@@ -24,6 +24,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Settings,
   Users,
@@ -43,6 +44,7 @@ import {
   Pencil,
   Trash2,
   DollarSign,
+  Clock,
 } from "lucide-react";
 
 type FeaturePermission = {
@@ -190,6 +192,17 @@ export default function SettingsPage() {
     emailDailyReport: false,
     pushNewLeads: true,
     pushUrgentJobs: true,
+  });
+
+  const [appointmentReminderSettings, setAppointmentReminderSettings] = useState({
+    enabled: true,
+    smsReminders: true,
+    emailReminders: true,
+    reminder24Hours: true,
+    reminder2Hours: true,
+    reminder1Hour: false,
+    reminderDayBefore: false,
+    customMessage: "",
   });
 
   const [generalSettings, setGeneralSettings] = useState({
@@ -659,6 +672,156 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="w-5 h-5" />
+                Appointment Reminders
+              </CardTitle>
+              <CardDescription>
+                Configure automatic reminders for upcoming appointments
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <Label htmlFor="remindersEnabled">Enable Appointment Reminders</Label>
+                  <p className="text-sm text-muted-foreground">Master toggle for all appointment reminders</p>
+                </div>
+                <Switch
+                  id="remindersEnabled"
+                  checked={appointmentReminderSettings.enabled}
+                  onCheckedChange={(checked) => {
+                    setAppointmentReminderSettings((prev) => ({ ...prev, enabled: checked }));
+                    setHasChanges(true);
+                  }}
+                  data-testid="switch-reminders-enabled"
+                />
+              </div>
+
+              {appointmentReminderSettings.enabled && (
+                <>
+                  <Separator />
+
+                  <div className="space-y-4">
+                    <h3 className="font-medium">Reminder Methods</h3>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <Label htmlFor="smsReminders">SMS Reminders</Label>
+                          <p className="text-sm text-muted-foreground">Send text message reminders to customers</p>
+                        </div>
+                        <Switch
+                          id="smsReminders"
+                          checked={appointmentReminderSettings.smsReminders}
+                          onCheckedChange={(checked) => {
+                            setAppointmentReminderSettings((prev) => ({ ...prev, smsReminders: checked }));
+                            setHasChanges(true);
+                          }}
+                          data-testid="switch-sms-reminders"
+                        />
+                      </div>
+                      <Separator />
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <Label htmlFor="emailReminders">Email Reminders</Label>
+                          <p className="text-sm text-muted-foreground">Send email reminders to customers</p>
+                        </div>
+                        <Switch
+                          id="emailReminders"
+                          checked={appointmentReminderSettings.emailReminders}
+                          onCheckedChange={(checked) => {
+                            setAppointmentReminderSettings((prev) => ({ ...prev, emailReminders: checked }));
+                            setHasChanges(true);
+                          }}
+                          data-testid="switch-email-reminders"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="space-y-4">
+                    <h3 className="font-medium">Reminder Timing</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="flex items-center gap-3 p-3 rounded-md bg-muted/50">
+                        <Switch
+                          id="reminderDayBefore"
+                          checked={appointmentReminderSettings.reminderDayBefore}
+                          onCheckedChange={(checked) => {
+                            setAppointmentReminderSettings((prev) => ({ ...prev, reminderDayBefore: checked }));
+                            setHasChanges(true);
+                          }}
+                          data-testid="switch-reminder-day-before"
+                        />
+                        <Label htmlFor="reminderDayBefore" className="cursor-pointer">1 Day Before</Label>
+                      </div>
+                      <div className="flex items-center gap-3 p-3 rounded-md bg-muted/50">
+                        <Switch
+                          id="reminder24Hours"
+                          checked={appointmentReminderSettings.reminder24Hours}
+                          onCheckedChange={(checked) => {
+                            setAppointmentReminderSettings((prev) => ({ ...prev, reminder24Hours: checked }));
+                            setHasChanges(true);
+                          }}
+                          data-testid="switch-reminder-24-hours"
+                        />
+                        <Label htmlFor="reminder24Hours" className="cursor-pointer">24 Hours Before</Label>
+                      </div>
+                      <div className="flex items-center gap-3 p-3 rounded-md bg-muted/50">
+                        <Switch
+                          id="reminder2Hours"
+                          checked={appointmentReminderSettings.reminder2Hours}
+                          onCheckedChange={(checked) => {
+                            setAppointmentReminderSettings((prev) => ({ ...prev, reminder2Hours: checked }));
+                            setHasChanges(true);
+                          }}
+                          data-testid="switch-reminder-2-hours"
+                        />
+                        <Label htmlFor="reminder2Hours" className="cursor-pointer">2 Hours Before</Label>
+                      </div>
+                      <div className="flex items-center gap-3 p-3 rounded-md bg-muted/50">
+                        <Switch
+                          id="reminder1Hour"
+                          checked={appointmentReminderSettings.reminder1Hour}
+                          onCheckedChange={(checked) => {
+                            setAppointmentReminderSettings((prev) => ({ ...prev, reminder1Hour: checked }));
+                            setHasChanges(true);
+                          }}
+                          data-testid="switch-reminder-1-hour"
+                        />
+                        <Label htmlFor="reminder1Hour" className="cursor-pointer">1 Hour Before</Label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="space-y-4">
+                    <div>
+                      <Label htmlFor="customMessage">Custom Message Template</Label>
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Customize the reminder message sent to customers. Use placeholders like {"{customer_name}"}, {"{date}"}, {"{time}"}, {"{address}"}
+                      </p>
+                      <Textarea
+                        id="customMessage"
+                        placeholder="Hi {customer_name}, this is a reminder about your upcoming appointment on {date} at {time}. Our technician will arrive at {address}."
+                        value={appointmentReminderSettings.customMessage}
+                        onChange={(e) => {
+                          setAppointmentReminderSettings((prev) => ({ ...prev, customMessage: e.target.value }));
+                          setHasChanges(true);
+                        }}
+                        className="min-h-[100px]"
+                        data-testid="textarea-custom-message"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
