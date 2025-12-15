@@ -48,6 +48,9 @@ interface AnalyticsData {
     converted: number;
     costPerLead: number;
     avgResponse: number;
+    revenue: number;
+    roi: number;
+    costPerAcquisition: number;
   }>;
   monthlyRevenue: Array<{
     month: string;
@@ -262,6 +265,7 @@ export default function AnalyticsPage() {
         <TabsList>
           <TabsTrigger value="sources" data-testid="tab-sources">Lead Sources</TabsTrigger>
           <TabsTrigger value="revenue" data-testid="tab-revenue">Revenue</TabsTrigger>
+          <TabsTrigger value="roi" data-testid="tab-roi">Marketing ROI</TabsTrigger>
           <TabsTrigger value="services" data-testid="tab-services">Services</TabsTrigger>
           <TabsTrigger value="technicians" data-testid="tab-technicians">Technicians</TabsTrigger>
         </TabsList>
@@ -476,6 +480,172 @@ export default function AnalyticsPage() {
                         />
                       </LineChart>
                     </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </TabsContent>
+
+        <TabsContent value="roi" className="space-y-4">
+          {sourceComparison.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <p className="text-muted-foreground">No marketing data available for this time period.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Marketing Spend</p>
+                    <p className="text-2xl font-bold" data-testid="text-total-marketing-spend">
+                      {formatCurrency(sourceComparison.reduce((sum, s) => sum + s.cost, 0))}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider">Revenue from Leads</p>
+                    <p className="text-2xl font-bold text-green-500" data-testid="text-total-lead-revenue">
+                      {formatCurrency(sourceComparison.reduce((sum, s) => sum + s.revenue, 0))}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider">Overall ROI</p>
+                    <p className="text-2xl font-bold" data-testid="text-overall-roi">
+                      {(() => {
+                        const totalCost = sourceComparison.reduce((sum, s) => sum + s.cost, 0);
+                        const totalRevenue = sourceComparison.reduce((sum, s) => sum + s.revenue, 0);
+                        const overallRoi = totalCost > 0 ? ((totalRevenue - totalCost) / totalCost) * 100 : 0;
+                        return `${overallRoi >= 0 ? '+' : ''}${overallRoi.toFixed(1)}%`;
+                      })()}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider">Avg Cost/Acquisition</p>
+                    <p className="text-2xl font-bold" data-testid="text-avg-cpa">
+                      {formatCurrency(
+                        sourceComparison.reduce((sum, s) => sum + s.costPerAcquisition * s.converted, 0) /
+                        Math.max(sourceComparison.reduce((sum, s) => sum + s.converted, 0), 1)
+                      )}
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-semibold uppercase tracking-wider">
+                      Revenue vs Cost by Source
+                    </CardTitle>
+                    <CardDescription>Compare marketing spend against revenue generated</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-[300px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={sourceComparison}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+                          <XAxis
+                            dataKey="source"
+                            tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                          />
+                          <YAxis
+                            tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                            tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                          />
+                          <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                          <Legend />
+                          <Bar dataKey="cost" fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} name="Cost" />
+                          <Bar dataKey="revenue" fill="hsl(142 71% 45%)" radius={[4, 4, 0, 0]} name="Revenue" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-semibold uppercase tracking-wider">
+                      ROI by Source
+                    </CardTitle>
+                    <CardDescription>Return on investment percentage per lead source</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-[300px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={sourceComparison} layout="vertical">
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+                          <XAxis
+                            type="number"
+                            tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                            tickFormatter={(v) => `${v}%`}
+                          />
+                          <YAxis
+                            type="category"
+                            dataKey="source"
+                            tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                            width={80}
+                          />
+                          <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                          <Bar
+                            dataKey="roi"
+                            fill="hsl(var(--chart-5))"
+                            radius={[0, 4, 4, 0]}
+                            name="ROI %"
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-semibold uppercase tracking-wider">
+                    Marketing ROI Summary
+                  </CardTitle>
+                  <CardDescription>Detailed breakdown of marketing performance by source</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-3 px-4 font-medium text-muted-foreground">Source</th>
+                          <th className="text-right py-3 px-4 font-medium text-muted-foreground">Leads</th>
+                          <th className="text-right py-3 px-4 font-medium text-muted-foreground">Converted</th>
+                          <th className="text-right py-3 px-4 font-medium text-muted-foreground">Cost</th>
+                          <th className="text-right py-3 px-4 font-medium text-muted-foreground">Revenue</th>
+                          <th className="text-right py-3 px-4 font-medium text-muted-foreground">Cost/Acquisition</th>
+                          <th className="text-right py-3 px-4 font-medium text-muted-foreground">ROI</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sourceComparison.map((source) => (
+                          <tr key={source.source} className="border-b last:border-0" data-testid={`row-roi-${source.source}`}>
+                            <td className="py-3 px-4 font-medium">{source.source}</td>
+                            <td className="text-right py-3 px-4">{source.leads}</td>
+                            <td className="text-right py-3 px-4 text-green-500">{source.converted}</td>
+                            <td className="text-right py-3 px-4">${source.cost.toLocaleString()}</td>
+                            <td className="text-right py-3 px-4 text-green-500">${source.revenue.toLocaleString()}</td>
+                            <td className="text-right py-3 px-4">${source.costPerAcquisition.toLocaleString()}</td>
+                            <td className="text-right py-3 px-4">
+                              <Badge variant={source.roi > 0 ? "default" : "secondary"} className="text-xs">
+                                {source.roi >= 0 ? '+' : ''}{source.roi}%
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </CardContent>
               </Card>

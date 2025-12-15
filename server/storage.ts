@@ -33,6 +33,9 @@ export interface AnalyticsData {
     converted: number;
     costPerLead: number;
     avgResponse: number;
+    revenue: number;
+    roi: number;
+    costPerAcquisition: number;
   }>;
   monthlyRevenue: Array<{
     month: string;
@@ -140,6 +143,14 @@ export interface IStorage {
   updateQuoteTemplate(id: string, updates: Partial<QuoteTemplate>): Promise<QuoteTemplate | undefined>;
   deleteQuoteTemplate(id: string): Promise<boolean>;
 
+  // Customer Timeline
+  getCustomerTimeline(phone: string): Promise<{
+    leads: Lead[];
+    calls: Call[];
+    jobs: Job[];
+    quotes: Quote[];
+  }>;
+
   // Reset
   resetJobBoard(): Promise<void>;
 }
@@ -232,13 +243,18 @@ export class MemStorage implements IStorage {
       });
     });
 
-    // Seed leads
+    // Seed leads with cost and revenue data for ROI dashboard
     const leadData: InsertLead[] = [
-      { source: "eLocal", customerName: "Leonard Willis", customerPhone: "(312) 555-1234", address: "123 Main St", city: "Chicago", zipCode: "60601", serviceType: "Sewer Main - Clear", status: "new", priority: "high" },
-      { source: "Networx", customerName: "Maria Garcia", customerPhone: "(312) 555-2345", address: "456 Oak Ave", city: "Chicago", zipCode: "60602", serviceType: "Drain Cleaning", status: "qualified", priority: "normal" },
-      { source: "Direct", customerName: "Thomas Brown", customerPhone: "(312) 555-3456", address: "789 Elm St", city: "Evanston", zipCode: "60201", serviceType: "Water Heater - Repair", status: "scheduled", priority: "normal" },
-      { source: "eLocal", customerName: "Sarah Johnson", customerPhone: "(312) 555-4567", address: "321 Pine Rd", city: "Chicago", zipCode: "60603", serviceType: "Pipe Repair", status: "new", priority: "urgent" },
-      { source: "Angi", customerName: "Michael Davis", customerPhone: "(312) 555-5678", address: "654 Cedar Ln", city: "Oak Park", zipCode: "60301", serviceType: "Toilet Repair", status: "contacted", priority: "low" },
+      { source: "eLocal", customerName: "Leonard Willis", customerPhone: "(312) 555-1234", address: "123 Main St", city: "Chicago", zipCode: "60601", serviceType: "Sewer Main - Clear", status: "converted", priority: "high", cost: "45", revenue: "1250" },
+      { source: "Networx", customerName: "Maria Garcia", customerPhone: "(312) 555-2345", address: "456 Oak Ave", city: "Chicago", zipCode: "60602", serviceType: "Drain Cleaning", status: "converted", priority: "normal", cost: "35", revenue: "450" },
+      { source: "Direct", customerName: "Thomas Brown", customerPhone: "(312) 555-3456", address: "789 Elm St", city: "Evanston", zipCode: "60201", serviceType: "Water Heater - Repair", status: "converted", priority: "normal", cost: "0", revenue: "850" },
+      { source: "eLocal", customerName: "Sarah Johnson", customerPhone: "(312) 555-4567", address: "321 Pine Rd", city: "Chicago", zipCode: "60603", serviceType: "Pipe Repair", status: "new", priority: "urgent", cost: "45", revenue: "0" },
+      { source: "Angi", customerName: "Michael Davis", customerPhone: "(312) 555-5678", address: "654 Cedar Ln", city: "Oak Park", zipCode: "60301", serviceType: "Toilet Repair", status: "converted", priority: "low", cost: "55", revenue: "380" },
+      { source: "Networx", customerName: "Robert Chen", customerPhone: "(312) 555-6789", address: "111 Lake St", city: "Chicago", zipCode: "60604", serviceType: "Sewer Main - Clear", status: "converted", priority: "high", cost: "35", revenue: "1450" },
+      { source: "eLocal", customerName: "Jennifer White", customerPhone: "(312) 555-7890", address: "222 River Rd", city: "Chicago", zipCode: "60605", serviceType: "Drain Cleaning", status: "converted", priority: "normal", cost: "45", revenue: "320" },
+      { source: "Direct", customerName: "David Kim", customerPhone: "(312) 555-8901", address: "333 Oak St", city: "Skokie", zipCode: "60076", serviceType: "Camera Inspection", status: "converted", priority: "normal", cost: "0", revenue: "275" },
+      { source: "Angi", customerName: "Lisa Martinez", customerPhone: "(312) 555-9012", address: "444 Elm Ave", city: "Chicago", zipCode: "60606", serviceType: "Pipe Repair", status: "new", priority: "normal", cost: "55", revenue: "0" },
+      { source: "Thumbtack", customerName: "James Wilson", customerPhone: "(312) 555-0123", address: "555 Pine Ln", city: "Oak Park", zipCode: "60302", serviceType: "Water Heater - Repair", status: "converted", priority: "high", cost: "40", revenue: "920" },
     ];
     leadData.forEach(l => this.createLead(l));
 
@@ -772,23 +788,31 @@ export class MemStorage implements IStorage {
     const netProfit = totalRevenue * (1 - expenseRate);
     const prevProfit = prevRevenue * (1 - expenseRate);
 
-    const sourceStats = new Map<string, { leads: number; cost: number; converted: number }>();
+    const sourceStats = new Map<string, { leads: number; cost: number; converted: number; revenue: number }>();
     currentLeads.forEach(l => {
-      const stats = sourceStats.get(l.source) || { leads: 0, cost: 0, converted: 0 };
+      const stats = sourceStats.get(l.source) || { leads: 0, cost: 0, converted: 0, revenue: 0 };
       stats.leads++;
       stats.cost += parseFloat(l.cost || "0");
+      stats.revenue += parseFloat(l.revenue || "0");
       if (l.status === "converted") stats.converted++;
       sourceStats.set(l.source, stats);
     });
 
-    const sourceComparison = Array.from(sourceStats.entries()).map(([source, stats]) => ({
-      source,
-      leads: stats.leads,
-      cost: stats.cost,
-      converted: stats.converted,
-      costPerLead: stats.leads > 0 ? Math.round(stats.cost / stats.leads) : 0,
-      avgResponse: Math.floor(Math.random() * 15) + 5,
-    }));
+    const sourceComparison = Array.from(sourceStats.entries()).map(([source, stats]) => {
+      const roi = stats.cost > 0 ? ((stats.revenue - stats.cost) / stats.cost) * 100 : 0;
+      const costPerAcquisition = stats.converted > 0 ? Math.round(stats.cost / stats.converted) : 0;
+      return {
+        source,
+        leads: stats.leads,
+        cost: stats.cost,
+        converted: stats.converted,
+        costPerLead: stats.leads > 0 ? Math.round(stats.cost / stats.leads) : 0,
+        avgResponse: Math.floor(Math.random() * 15) + 5,
+        revenue: stats.revenue,
+        roi: Math.round(roi * 10) / 10,
+        costPerAcquisition,
+      };
+    });
 
     const serviceStats = new Map<string, { count: number; revenue: number }>();
     currentJobs.forEach(j => {
@@ -973,6 +997,44 @@ export class MemStorage implements IStorage {
 
   async deleteQuoteTemplate(id: string): Promise<boolean> {
     return this.quoteTemplatesMap.delete(id);
+  }
+
+  async getCustomerTimeline(phone: string): Promise<{
+    leads: Lead[];
+    calls: Call[];
+    jobs: Job[];
+    quotes: Quote[];
+  }> {
+    const normalizedPhone = phone.replace(/\D/g, "");
+    
+    const matchPhone = (p: string | null) => {
+      if (!p) return false;
+      return p.replace(/\D/g, "") === normalizedPhone;
+    };
+    
+    const customerLeads = Array.from(this.leads.values())
+      .filter(l => matchPhone(l.customerPhone))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    const customerCalls = Array.from(this.calls.values())
+      .filter(c => matchPhone(c.callerPhone))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    const customerJobs = Array.from(this.jobs.values())
+      .filter(j => matchPhone(j.customerPhone))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    const jobIds = customerJobs.map(j => j.id);
+    const customerQuotes = Array.from(this.quotes.values())
+      .filter(q => jobIds.includes(q.jobId) || matchPhone(q.customerPhone))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    return {
+      leads: customerLeads,
+      calls: customerCalls,
+      jobs: customerJobs,
+      quotes: customerQuotes,
+    };
   }
 
   async resetJobBoard(): Promise<void> {
@@ -1358,23 +1420,31 @@ export class DatabaseStorage implements IStorage {
     const netProfit = totalRevenue * (1 - expenseRate);
     const prevProfit = prevRevenue * (1 - expenseRate);
 
-    const sourceStats = new Map<string, { leads: number; cost: number; converted: number }>();
+    const sourceStats = new Map<string, { leads: number; cost: number; converted: number; revenue: number }>();
     currentLeads.forEach(l => {
-      const stats = sourceStats.get(l.source) || { leads: 0, cost: 0, converted: 0 };
+      const stats = sourceStats.get(l.source) || { leads: 0, cost: 0, converted: 0, revenue: 0 };
       stats.leads++;
       stats.cost += parseFloat(l.cost || "0");
+      stats.revenue += parseFloat(l.revenue || "0");
       if (l.status === "converted") stats.converted++;
       sourceStats.set(l.source, stats);
     });
 
-    const sourceComparison = Array.from(sourceStats.entries()).map(([source, stats]) => ({
-      source,
-      leads: stats.leads,
-      cost: stats.cost,
-      converted: stats.converted,
-      costPerLead: stats.leads > 0 ? Math.round(stats.cost / stats.leads) : 0,
-      avgResponse: Math.floor(Math.random() * 15) + 5,
-    }));
+    const sourceComparison = Array.from(sourceStats.entries()).map(([source, stats]) => {
+      const roi = stats.cost > 0 ? ((stats.revenue - stats.cost) / stats.cost) * 100 : 0;
+      const costPerAcquisition = stats.converted > 0 ? Math.round(stats.cost / stats.converted) : 0;
+      return {
+        source,
+        leads: stats.leads,
+        cost: stats.cost,
+        converted: stats.converted,
+        costPerLead: stats.leads > 0 ? Math.round(stats.cost / stats.leads) : 0,
+        avgResponse: Math.floor(Math.random() * 15) + 5,
+        revenue: stats.revenue,
+        roi: Math.round(roi * 10) / 10,
+        costPerAcquisition,
+      };
+    });
 
     const serviceStats = new Map<string, { count: number; revenue: number }>();
     currentJobs.forEach(j => {
@@ -1542,6 +1612,47 @@ export class DatabaseStorage implements IStorage {
   async deleteQuoteTemplate(id: string): Promise<boolean> {
     const result = await db.delete(quoteTemplates).where(eq(quoteTemplates.id, id));
     return true;
+  }
+
+  async getCustomerTimeline(phone: string): Promise<{
+    leads: Lead[];
+    calls: Call[];
+    jobs: Job[];
+    quotes: Quote[];
+  }> {
+    const normalizedPhone = phone.replace(/\D/g, "");
+    
+    const customerLeads = await db.select().from(leads)
+      .where(sql`regexp_replace(${leads.customerPhone}, '[^0-9]', '', 'g') = ${normalizedPhone}`)
+      .orderBy(desc(leads.createdAt));
+    
+    const customerCalls = await db.select().from(calls)
+      .where(sql`regexp_replace(${calls.callerPhone}, '[^0-9]', '', 'g') = ${normalizedPhone}`)
+      .orderBy(desc(calls.createdAt));
+    
+    const customerJobs = await db.select().from(jobs)
+      .where(sql`regexp_replace(${jobs.customerPhone}, '[^0-9]', '', 'g') = ${normalizedPhone}`)
+      .orderBy(desc(jobs.createdAt));
+    
+    const jobIds = customerJobs.map(j => j.id);
+    
+    let customerQuotes: Quote[] = [];
+    if (jobIds.length > 0) {
+      customerQuotes = await db.select().from(quotes)
+        .where(sql`${quotes.jobId} = ANY(${jobIds}) OR regexp_replace(${quotes.customerPhone}, '[^0-9]', '', 'g') = ${normalizedPhone}`)
+        .orderBy(desc(quotes.createdAt));
+    } else {
+      customerQuotes = await db.select().from(quotes)
+        .where(sql`regexp_replace(${quotes.customerPhone}, '[^0-9]', '', 'g') = ${normalizedPhone}`)
+        .orderBy(desc(quotes.createdAt));
+    }
+    
+    return {
+      leads: customerLeads,
+      calls: customerCalls,
+      jobs: customerJobs,
+      quotes: customerQuotes,
+    };
   }
 
   async resetJobBoard(): Promise<void> {

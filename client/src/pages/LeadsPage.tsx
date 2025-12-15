@@ -9,10 +9,11 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link } from "lucide-react";
+import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { SlaTimer } from "@/components/SlaTimer";
+import { CustomerTimeline } from "@/components/CustomerTimeline";
 import { useToast } from "@/hooks/use-toast";
 import type { Lead as ApiLead } from "@shared/schema";
 
@@ -225,6 +226,16 @@ export default function LeadsPage() {
               <div>
                 <p className="text-sm font-medium mb-1">Service Requested</p>
                 <p className="text-sm text-muted-foreground">{selectedLead.service}</p>
+              </div>
+
+              <Separator />
+
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <History className="w-4 h-4 text-muted-foreground" />
+                  <p className="text-sm font-medium">Customer History</p>
+                </div>
+                <CustomerTimeline phone={selectedLead.phone} />
               </div>
 
               {selectedLead.isDuplicate && (

@@ -244,6 +244,21 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to fetch duplicates" });
     }
   });
+
+  // Customer Timeline - get all interactions by phone number
+  app.get("/api/customer/timeline", async (req, res) => {
+    try {
+      const { phone } = req.query;
+      if (!phone || typeof phone !== "string") {
+        return res.status(400).json({ error: "Phone number required" });
+      }
+      const timeline = await storage.getCustomerTimeline(phone);
+      res.json(timeline);
+    } catch (error) {
+      console.error("Error fetching customer timeline:", error);
+      res.status(500).json({ error: "Failed to fetch customer timeline" });
+    }
+  });
   
   // Recalculate scores for all leads
   app.post("/api/leads/recalculate-scores", async (req, res) => {
