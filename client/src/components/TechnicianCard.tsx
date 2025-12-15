@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Phone, CheckCircle, XCircle, TrendingUp } from "lucide-react";
 
+export type TechnicianClassification = "senior" | "junior" | "digger";
+
 export interface Technician {
   id: string;
   name: string;
@@ -15,6 +17,9 @@ export interface Technician {
   revenue: number;
   conversionRate: number;
   status: "online" | "busy" | "offline";
+  classification: TechnicianClassification;
+  hourlyRate: number;
+  commissionRate: number;
 }
 
 interface TechnicianCardProps {
@@ -26,6 +31,12 @@ const statusColors = {
   online: "bg-green-500",
   busy: "bg-yellow-500",
   offline: "bg-gray-500",
+};
+
+const classificationColors: Record<TechnicianClassification, string> = {
+  senior: "bg-blue-500/10 text-blue-500 border-blue-500/30",
+  junior: "bg-orange-500/10 text-orange-500 border-orange-500/30",
+  digger: "bg-amber-500/10 text-amber-600 border-amber-500/30",
 };
 
 export default function TechnicianCard({ technician, onClick }: TechnicianCardProps) {
@@ -60,6 +71,9 @@ export default function TechnicianCard({ technician, onClick }: TechnicianCardPr
               <Phone className="w-3.5 h-3.5" />
               <span>{technician.phone}</span>
             </div>
+            <Badge variant="outline" className={`mt-1 text-xs capitalize ${classificationColors[technician.classification]}`}>
+              {technician.classification}
+            </Badge>
           </div>
         </div>
 
@@ -95,6 +109,11 @@ export default function TechnicianCard({ technician, onClick }: TechnicianCardPr
             <span className="font-semibold text-green-500">
               ${technician.revenue.toLocaleString()}
             </span>
+          </div>
+
+          <div className="flex items-center justify-between pt-2 text-xs">
+            <span className="text-muted-foreground">${technician.hourlyRate}/hr</span>
+            <span className="text-muted-foreground">{(technician.commissionRate * 100).toFixed(0)}% commission</span>
           </div>
         </div>
       </CardContent>
