@@ -7,11 +7,12 @@ import {
   type JobTimelineEvent, type InsertJobTimelineEvent,
   type Quote, type InsertQuote,
   type Notification, type InsertNotification,
-  users, technicians, leads, calls, jobs, jobTimelineEvents, quotes, notifications,
+  type ShiftLog, type InsertShiftLog,
+  users, technicians, leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, desc, and, gte, lte, asc } from "drizzle-orm";
+import { eq, desc, and, gte, lte, asc, sql } from "drizzle-orm";
 
 export interface AnalyticsData {
   summary: {
@@ -123,6 +124,14 @@ export interface IStorage {
 
   // Analytics
   getAnalytics(timeRange: string): Promise<AnalyticsData>;
+
+  // Shift Logs
+  createShiftLog(log: InsertShiftLog): Promise<ShiftLog>;
+  getShiftLogsByTechnician(technicianId: string): Promise<ShiftLog[]>;
+  getTodayShiftLogs(technicianId: string): Promise<ShiftLog[]>;
+
+  // Reset
+  resetJobBoard(): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -1337,6 +1346,57 @@ export class DatabaseStorage implements IStorage {
       techPerformance,
       conversionFunnel,
     };
+  }
+
+  async createShiftLog(log: InsertShiftLog): Promise<ShiftLog> {
+    const [newLog] = await db.insert(shiftLogs).values(log).returning();
+    return newLog;
+  }
+
+  async getShiftLogsByTechnician(technicianId: string): Promise<ShiftLog[]> {
+    return await db.select().from(shiftLogs).where(eq(shiftLogs.technicianId, technicianId)).orderBy(desc(shiftLogs.timestamp));
+  }
+
+  async getTodayShiftLogs(technicianId: string): Promise<ShiftLog[]> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return await db.select().from(shiftLogs)
+      .where(and(
+        eq(shiftLogs.technicianId, technicianId),
+        gte(shiftLogs.timestamp, today)
+      ))
+      .orderBy(asc(shiftLogs.timestamp));
+  }
+
+  async resetJobBoard(): Promise<void> {
+    // Reset all active jobs to pending status and clear assignments (preserve job data)
+    await db.update(jobs)
+      .set({ 
+        status: "pending",
+        assignedTechnicianId: null,
+        dispatcherId: null,
+        assignedAt: null,
+        confirmedAt: null,
+        enRouteAt: null,
+        arrivedAt: null,
+        startedAt: null,
+        completedAt: null,
+        arrivalLat: null,
+        arrivalLng: null,
+        arrivalVerified: null,
+        arrivalDistance: null,
+      })
+      .where(
+        sql`${jobs.status} NOT IN ('completed', 'cancelled')`
+      );
+
+    // Set all technicians to off_duty and reset daily stats
+    await db.update(technicians)
+      .set({ 
+        status: "off_duty", 
+        currentJobId: null, 
+        completedJobsToday: 0 
+      });
   }
 }
 

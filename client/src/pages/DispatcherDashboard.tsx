@@ -296,7 +296,7 @@ function JobCard({ job, onAssign, onViewDetails }: { job: Job; onAssign: (job: J
             {status.label}
           </Badge>
           
-          {job.status === "pending" && (
+          {job.status !== "completed" && job.status !== "cancelled" && (
             <Button
               size="sm"
               variant="outline"
@@ -304,7 +304,7 @@ function JobCard({ job, onAssign, onViewDetails }: { job: Job; onAssign: (job: J
               data-testid={`button-assign-job-${job.id}`}
             >
               <User className="w-3 h-3 mr-1" />
-              Assign
+              {job.assignedTechnicianId ? "Reassign" : "Assign"}
             </Button>
           )}
         </div>

@@ -9,6 +9,7 @@ import {
   insertQuoteSchema,
   insertNotificationSchema,
   insertTechnicianSchema,
+  insertShiftLogSchema,
 } from "@shared/schema";
 import { isWithinRadius } from "./geocoding";
 
@@ -689,6 +690,50 @@ export async function registerRoutes(
         techPerformance: [],
         conversionFunnel: [],
       });
+    }
+  });
+
+  // Shift Logs (Technician Availability Time Tracking)
+  app.post("/api/shift-logs", async (req, res) => {
+    try {
+      const result = insertShiftLogSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ error: result.error });
+      const log = await storage.createShiftLog(result.data);
+      res.status(201).json(log);
+    } catch (error) {
+      console.error("Error creating shift log:", error);
+      res.status(500).json({ error: "Failed to create shift log" });
+    }
+  });
+
+  app.get("/api/technicians/:id/shift-logs", async (req, res) => {
+    try {
+      const logs = await storage.getShiftLogsByTechnician(req.params.id);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching shift logs:", error);
+      res.status(500).json({ error: "Failed to fetch shift logs" });
+    }
+  });
+
+  app.get("/api/technicians/:id/shift-logs/today", async (req, res) => {
+    try {
+      const logs = await storage.getTodayShiftLogs(req.params.id);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching today's shift logs:", error);
+      res.status(500).json({ error: "Failed to fetch today's shift logs" });
+    }
+  });
+
+  // Admin: Reset Job Board
+  app.post("/api/admin/reset-job-board", async (req, res) => {
+    try {
+      await storage.resetJobBoard();
+      res.json({ success: true, message: "Job board reset successfully. All jobs cleared and technicians set to off duty." });
+    } catch (error) {
+      console.error("Error resetting job board:", error);
+      res.status(500).json({ error: "Failed to reset job board" });
     }
   });
 

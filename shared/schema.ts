@@ -224,6 +224,19 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type Notification = typeof notifications.$inferSelect;
 
+// Technician shift logs (track availability hours)
+export const shiftLogs = pgTable("shift_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  technicianId: varchar("technician_id").notNull().references(() => technicians.id),
+  action: text("action").notNull(), // clock_in, clock_out
+  timestamp: timestamp("timestamp").notNull().default(sql`now()`),
+  notes: text("notes"),
+});
+
+export const insertShiftLogSchema = createInsertSchema(shiftLogs).omit({ id: true, timestamp: true });
+export type InsertShiftLog = z.infer<typeof insertShiftLogSchema>;
+export type ShiftLog = typeof shiftLogs.$inferSelect;
+
 // Service types for the plumbing business
 export const serviceTypes = [
   "Sewer Main - Clear",

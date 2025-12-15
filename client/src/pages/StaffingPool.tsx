@@ -160,8 +160,23 @@ export default function StaffingPool() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ techId, status }: { techId: string; status: string }) => {
-      return apiRequest("PATCH", `/api/technicians/${techId}`, { status });
+    mutationFn: async ({ techId, status, previousStatus }: { techId: string; status: string; previousStatus: string }) => {
+      await apiRequest("PATCH", `/api/technicians/${techId}`, { status });
+      
+      // Create shift log if transitioning to/from available
+      if (status === "available" && previousStatus !== "available") {
+        // Tech is becoming available - clock in
+        await apiRequest("POST", "/api/shift-logs", {
+          technicianId: techId,
+          action: "clock_in",
+        });
+      } else if (previousStatus === "available" && status !== "available") {
+        // Tech is leaving available status - clock out
+        await apiRequest("POST", "/api/shift-logs", {
+          technicianId: techId,
+          action: "clock_out",
+        });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/technicians"] });
@@ -180,7 +195,9 @@ export default function StaffingPool() {
   });
 
   const handleStatusChange = (techId: string, status: string) => {
-    updateStatusMutation.mutate({ techId, status });
+    const tech = technicians.find(t => t.id === techId);
+    const previousStatus = tech?.status || "off_duty";
+    updateStatusMutation.mutate({ techId, status, previousStatus });
   };
 
   const getCurrentJob = (technician: Technician) => {
