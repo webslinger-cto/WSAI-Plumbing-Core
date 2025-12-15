@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2 } from "lucide-react";
+import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { SlaTimer } from "@/components/SlaTimer";
@@ -34,6 +34,7 @@ function mapApiLeadToTableLead(lead: ApiLead): Lead & { slaBreach?: boolean } {
     contactedAt: lead.contactedAt ? String(lead.contactedAt) : null,
     priority: lead.priority || "normal",
     slaBreach: lead.slaBreach || false,
+    leadScore: lead.leadScore || 50,
   };
 }
 
@@ -72,6 +73,27 @@ export default function LeadsPage() {
     },
   });
 
+  const recalculateScoresMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/leads/recalculate-scores");
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({
+        title: "Scores Recalculated",
+        description: `Updated scores for ${data.updated} leads`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to recalculate scores",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleMarkContacted = () => {
     if (selectedLead) {
       markContactedMutation.mutate(selectedLead.id);
@@ -96,6 +118,19 @@ export default function LeadsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => recalculateScoresMutation.mutate()}
+            disabled={recalculateScoresMutation.isPending}
+            data-testid="button-recalculate-scores"
+          >
+            {recalculateScoresMutation.isPending ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4 mr-2" />
+            )}
+            Recalculate Scores
+          </Button>
           <Button variant="outline" data-testid="button-export-leads">
             <Download className="w-4 h-4 mr-2" />
             Export
@@ -119,9 +154,22 @@ export default function LeadsPage() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h3 className="text-lg font-semibold">{selectedLead.name}</h3>
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
                     <Badge variant="secondary">
                       {selectedLead.source}
+                    </Badge>
+                    <Badge 
+                      variant="outline"
+                      className={`${
+                        (selectedLead.leadScore || 50) >= 80 ? "bg-green-500/10 text-green-400 border-green-500/30" :
+                        (selectedLead.leadScore || 50) >= 60 ? "bg-yellow-500/10 text-yellow-400 border-yellow-500/30" :
+                        (selectedLead.leadScore || 50) >= 40 ? "bg-orange-500/10 text-orange-400 border-orange-500/30" :
+                        "bg-red-500/10 text-red-400 border-red-500/30"
+                      }`}
+                      data-testid="badge-lead-score"
+                    >
+                      <TrendingUp className="w-3 h-3 mr-1" />
+                      Score: {selectedLead.leadScore || 50}
                     </Badge>
                     <SlaTimer
                       slaDeadline={selectedLead.slaDeadline || null}

@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, ChevronLeft, ChevronRight, Phone, Mail } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Phone, Mail, TrendingUp, ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SlaTimer } from "./SlaTimer";
 
@@ -39,6 +39,7 @@ export interface Lead {
   contactedAt?: string | null;
   priority?: string;
   slaBreach?: boolean;
+  leadScore?: number;
 }
 
 interface LeadsTableProps {
@@ -57,10 +58,25 @@ const statusStyles: Record<string, string> = {
   duplicate: "bg-purple-500/10 text-purple-400 border-purple-500/30",
 };
 
+function getScoreColor(score: number): string {
+  if (score >= 80) return "text-green-400";
+  if (score >= 60) return "text-yellow-400";
+  if (score >= 40) return "text-orange-400";
+  return "text-red-400";
+}
+
+function getScoreBg(score: number): string {
+  if (score >= 80) return "bg-green-500/10";
+  if (score >= 60) return "bg-yellow-500/10";
+  if (score >= 40) return "bg-orange-500/10";
+  return "bg-red-500/10";
+}
+
 export default function LeadsTable({ leads, onLeadClick }: LeadsTableProps) {
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sortByScore, setSortByScore] = useState<boolean>(true);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
@@ -73,9 +89,14 @@ export default function LeadsTable({ leads, onLeadClick }: LeadsTableProps) {
     const matchesStatus = statusFilter === "all" || lead.status === statusFilter;
     return matchesSearch && matchesSource && matchesStatus;
   });
+  
+  // Sort by score (highest first) if enabled
+  const sortedLeads = sortByScore 
+    ? [...filteredLeads].sort((a, b) => (b.leadScore || 50) - (a.leadScore || 50))
+    : filteredLeads;
 
-  const totalPages = Math.ceil(filteredLeads.length / itemsPerPage);
-  const paginatedLeads = filteredLeads.slice(
+  const totalPages = Math.ceil(sortedLeads.length / itemsPerPage);
+  const paginatedLeads = sortedLeads.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
@@ -146,6 +167,16 @@ export default function LeadsTable({ leads, onLeadClick }: LeadsTableProps) {
                 <SelectItem value="duplicate">Duplicate</SelectItem>
               </SelectContent>
             </Select>
+            <Button
+              variant={sortByScore ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSortByScore(!sortByScore)}
+              data-testid="button-sort-by-score"
+            >
+              <TrendingUp className="w-4 h-4 mr-1" />
+              Score
+              <ArrowUpDown className="w-3 h-3 ml-1" />
+            </Button>
           </div>
         </div>
       </CardHeader>
@@ -154,6 +185,7 @@ export default function LeadsTable({ leads, onLeadClick }: LeadsTableProps) {
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
+                <TableHead className="text-xs uppercase">Score</TableHead>
                 <TableHead className="text-xs uppercase">Name</TableHead>
                 <TableHead className="text-xs uppercase">Contact</TableHead>
                 <TableHead className="text-xs uppercase">Location</TableHead>
@@ -172,6 +204,15 @@ export default function LeadsTable({ leads, onLeadClick }: LeadsTableProps) {
                   onClick={() => onLeadClick?.(lead)}
                   data-testid={`row-lead-${lead.id}`}
                 >
+                  <TableCell>
+                    <div className={cn(
+                      "inline-flex items-center justify-center w-10 h-6 rounded text-xs font-semibold",
+                      getScoreBg(lead.leadScore || 50),
+                      getScoreColor(lead.leadScore || 50)
+                    )} data-testid={`text-score-${lead.id}`}>
+                      {lead.leadScore || 50}
+                    </div>
+                  </TableCell>
                   <TableCell className="font-medium">{lead.name}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -214,7 +255,7 @@ export default function LeadsTable({ leads, onLeadClick }: LeadsTableProps) {
               ))}
               {paginatedLeads.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                     No leads found matching your criteria
                   </TableCell>
                 </TableRow>
@@ -226,8 +267,8 @@ export default function LeadsTable({ leads, onLeadClick }: LeadsTableProps) {
           <div className="flex items-center justify-between px-4 py-3 border-t">
             <span className="text-xs text-muted-foreground">
               Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
-              {Math.min(currentPage * itemsPerPage, filteredLeads.length)} of{" "}
-              {filteredLeads.length}
+              {Math.min(currentPage * itemsPerPage, sortedLeads.length)} of{" "}
+              {sortedLeads.length}
             </span>
             <div className="flex items-center gap-1">
               <Button

@@ -121,11 +121,85 @@ export async function registerRoutes(
     res.json(lead);
   });
 
+  // Lead scoring function
+  function calculateLeadScore(lead: Partial<InsertLead>): number {
+    let score = 50; // Base score
+    
+    // Service type scoring (emergency services = higher priority)
+    const highValueServices = ["Sewer Main - Replace", "Sewer Main - Repair", "Water Heater - Replace", "Pipe Replacement"];
+    const mediumValueServices = ["Sewer Main - Clear", "Water Heater - Repair", "Hydro Jetting", "Camera Inspection", "Ejector Pump", "Sump Pump"];
+    const lowValueServices = ["Drain Cleaning", "Toilet Repair", "Faucet Repair"];
+    
+    if (lead.serviceType) {
+      if (highValueServices.some(s => lead.serviceType?.includes(s))) {
+        score += 25;
+      } else if (mediumValueServices.some(s => lead.serviceType?.includes(s))) {
+        score += 15;
+      } else if (lowValueServices.some(s => lead.serviceType?.includes(s))) {
+        score += 5;
+      }
+    }
+    
+    // Lead source quality scoring
+    const highQualitySources = ["Direct", "Referral", "Website"];
+    const mediumQualitySources = ["eLocal", "Networx"];
+    const lowQualitySources = ["Thumbtack", "Angi", "HomeAdvisor", "Inquirly"];
+    
+    if (lead.source) {
+      if (highQualitySources.includes(lead.source)) {
+        score += 15;
+      } else if (mediumQualitySources.includes(lead.source)) {
+        score += 10;
+      } else if (lowQualitySources.includes(lead.source)) {
+        score += 5;
+      }
+    }
+    
+    // Priority scoring
+    if (lead.priority === "urgent") {
+      score += 20;
+    } else if (lead.priority === "high") {
+      score += 10;
+    } else if (lead.priority === "low") {
+      score -= 10;
+    }
+    
+    // Chicago area zip codes get bonus (in-service area)
+    const chicagoZips = ["60601", "60602", "60603", "60604", "60605", "60606", "60607", "60608", "60609", "60610", "60611", "60612", "60613", "60614", "60615", "60616", "60617", "60618", "60619", "60620", "60621", "60622", "60623", "60624", "60625", "60626", "60628", "60629", "60630", "60631", "60632", "60633", "60634", "60636", "60637", "60638", "60639", "60640", "60641", "60642", "60643", "60644", "60645", "60646", "60647", "60649", "60651", "60652", "60653", "60654", "60655", "60656", "60657", "60659", "60660", "60661"];
+    
+    if (lead.zipCode && chicagoZips.includes(lead.zipCode)) {
+      score += 10;
+    }
+    
+    // Cap score between 0 and 100
+    return Math.max(0, Math.min(100, score));
+  }
+
   app.post("/api/leads", async (req, res) => {
     const result = insertLeadSchema.safeParse(req.body);
     if (!result.success) return res.status(400).json({ error: result.error });
-    const lead = await storage.createLead(result.data);
+    
+    // Calculate lead score before creating
+    const leadScore = calculateLeadScore(result.data);
+    const lead = await storage.createLead({ ...result.data, leadScore });
     res.status(201).json(lead);
+  });
+  
+  // Recalculate scores for all leads
+  app.post("/api/leads/recalculate-scores", async (req, res) => {
+    try {
+      const leads = await storage.getLeads();
+      const updates = await Promise.all(
+        leads.map(async (lead) => {
+          const newScore = calculateLeadScore(lead);
+          return storage.updateLead(lead.id, { leadScore: newScore });
+        })
+      );
+      res.json({ message: "Scores recalculated", updated: updates.length });
+    } catch (error) {
+      console.error("Error recalculating scores:", error);
+      res.status(500).json({ error: "Failed to recalculate scores" });
+    }
   });
 
   app.patch("/api/leads/:id", async (req, res) => {
