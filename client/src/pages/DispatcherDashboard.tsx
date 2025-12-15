@@ -114,13 +114,17 @@ function QuoteReviewCard({ quote, jobs, technicians }: { quote: Quote; jobs: Job
 
   const approveMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("PATCH", `/api/quotes/${quote.id}`, { status: "sent" });
+      await apiRequest("PATCH", `/api/quotes/${quote.id}`, { status: "sent", acceptedAt: new Date().toISOString() });
+      if (quote.jobId) {
+        await apiRequest("PATCH", `/api/jobs/${quote.jobId}`, { status: "pending" });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
       toast({
         title: "Quote Approved",
-        description: "The quote has been approved and sent to the customer.",
+        description: "The quote has been approved and the job is now on the dispatch board.",
       });
     },
     onError: () => {
