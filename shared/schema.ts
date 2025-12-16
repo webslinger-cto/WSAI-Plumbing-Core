@@ -159,6 +159,24 @@ export const jobs = pgTable("jobs", {
   arrivalDistance: decimal("arrival_distance"),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
+  // Labor tracking
+  laborHours: decimal("labor_hours"), // actual hours worked
+  laborRate: decimal("labor_rate"), // hourly rate used for this job
+  laborCost: decimal("labor_cost"), // laborHours * laborRate
+  // Expense tracking
+  materialsCost: decimal("materials_cost"),
+  travelExpense: decimal("travel_expense"),
+  equipmentCost: decimal("equipment_cost"),
+  otherExpenses: decimal("other_expenses"),
+  expenseNotes: text("expense_notes"),
+  // Revenue and ROI
+  totalCost: decimal("total_cost"), // sum of all costs
+  totalRevenue: decimal("total_revenue"), // from accepted quote
+  profit: decimal("profit"), // totalRevenue - totalCost
+  // Cancellation tracking
+  cancelledAt: timestamp("cancelled_at"),
+  cancellationReason: text("cancellation_reason"),
+  cancelledBy: varchar("cancelled_by"), // tech ID or admin ID who cancelled
 });
 
 export const insertJobSchema = createInsertSchema(jobs).omit({ id: true, createdAt: true, updatedAt: true });

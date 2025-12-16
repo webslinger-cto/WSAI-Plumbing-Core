@@ -1073,6 +1073,63 @@ export class MemStorage implements IStorage {
       this.technicians.set(t.id, { ...t, status: "off_duty", currentJobId: null, completedJobsToday: 0 });
     });
   }
+
+  // Contact Attempts (stub for MemStorage)
+  async createContactAttempt(attempt: InsertContactAttempt): Promise<ContactAttempt> {
+    const id = randomUUID();
+    const created: ContactAttempt = {
+      id,
+      leadId: attempt.leadId ?? null,
+      jobId: attempt.jobId ?? null,
+      type: attempt.type,
+      direction: attempt.direction ?? "outbound",
+      status: attempt.status ?? "sent",
+      subject: attempt.subject ?? null,
+      content: attempt.content ?? null,
+      templateId: attempt.templateId ?? null,
+      externalId: attempt.externalId ?? null,
+      recipientEmail: attempt.recipientEmail ?? null,
+      recipientPhone: attempt.recipientPhone ?? null,
+      sentBy: attempt.sentBy ?? null,
+      sentAt: attempt.sentAt ?? null,
+      deliveredAt: attempt.deliveredAt ?? null,
+      openedAt: attempt.openedAt ?? null,
+      failedReason: attempt.failedReason ?? null,
+      createdAt: new Date(),
+    };
+    return created;
+  }
+
+  async getContactAttemptsByLead(leadId: string): Promise<ContactAttempt[]> {
+    return [];
+  }
+
+  async getContactAttemptsByJob(jobId: string): Promise<ContactAttempt[]> {
+    return [];
+  }
+
+  // Webhook Logs (stub for MemStorage)
+  async createWebhookLog(log: InsertWebhookLog): Promise<WebhookLog> {
+    const id = randomUUID();
+    const created: WebhookLog = {
+      id,
+      source: log.source,
+      endpoint: log.endpoint,
+      method: log.method,
+      headers: log.headers ?? null,
+      payload: log.payload ?? null,
+      responseStatus: log.responseStatus ?? null,
+      responseBody: log.responseBody ?? null,
+      processingTimeMs: log.processingTimeMs ?? null,
+      error: log.error ?? null,
+      createdAt: new Date(),
+    };
+    return created;
+  }
+
+  async getWebhookLogs(limit?: number, source?: string): Promise<WebhookLog[]> {
+    return [];
+  }
 }
 
 export class DatabaseStorage implements IStorage {

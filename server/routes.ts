@@ -17,6 +17,16 @@ import {
 } from "@shared/schema";
 import { sendEmail, generateLeadAcknowledgmentEmail } from "./services/email";
 import { isWithinRadius } from "./geocoding";
+import { 
+  autoContactLead, 
+  createJobFromLead, 
+  autoAssignTechnician, 
+  cancelJob, 
+  updateJobCosts, 
+  completeJob,
+  sendAppointmentReminder,
+  calculateJobROI
+} from "./services/automation";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -1055,6 +1065,12 @@ export async function registerRoutes(
 
       const lead = await storage.createLead(validation.data);
       console.log(`[Webhook] eLocal lead created: ${lead.id}`);
+      
+      // Trigger auto-contact
+      autoContactLead(lead.id).catch(err => 
+        console.error(`Auto-contact failed for lead ${lead.id}:`, err)
+      );
+      
       res.status(200).json({ success: true, leadId: lead.id });
     } catch (error) {
       console.error("eLocal webhook error:", error);
@@ -1101,6 +1117,12 @@ export async function registerRoutes(
 
       const lead = await storage.createLead(validation.data);
       console.log(`[Webhook] Angi lead created: ${lead.id}`);
+      
+      // Trigger auto-contact
+      autoContactLead(lead.id).catch(err => 
+        console.error(`Auto-contact failed for lead ${lead.id}:`, err)
+      );
+      
       res.status(200).json({ success: true, leadId: lead.id });
     } catch (error) {
       console.error("Angi webhook error:", error);
@@ -1198,6 +1220,12 @@ export async function registerRoutes(
 
       const lead = await storage.createLead(validation.data);
       console.log(`[Webhook] Networx lead created: ${lead.id}`);
+      
+      // Trigger auto-contact
+      autoContactLead(lead.id).catch(err => 
+        console.error(`Auto-contact failed for lead ${lead.id}:`, err)
+      );
+      
       res.status(200).json({ success: true, leadId: lead.id });
     } catch (error) {
       console.error("Networx webhook error:", error);
@@ -1502,10 +1530,265 @@ export async function registerRoutes(
 
       const lead = await storage.createLead(validation.data);
       console.log(`[Webhook] Inquirly lead created: ${lead.id}`);
+      
+      // Trigger auto-contact
+      autoContactLead(lead.id).catch(err => 
+        console.error(`Auto-contact failed for lead ${lead.id}:`, err)
+      );
+      
       res.status(200).json({ success: true, leadId: lead.id });
     } catch (error) {
       console.error("Inquirly webhook error:", error);
       res.status(500).json({ error: "Failed to process Inquirly lead" });
+    }
+  });
+
+  // ==================== AUTOMATION API ENDPOINTS ====================
+
+  // Confirm estimate - creates a job from a lead when customer confirms they want an estimate
+  app.post("/api/leads/:id/confirm-estimate", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { scheduledDate, scheduledTimeStart, scheduledTimeEnd, autoAssign } = req.body;
+
+      const result = await createJobFromLead(
+        id,
+        scheduledDate ? new Date(scheduledDate) : undefined,
+        scheduledTimeStart,
+        scheduledTimeEnd
+      );
+
+      if (!result.success || !result.job) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      // Auto-assign technician if requested
+      let assignedTech = null;
+      if (autoAssign) {
+        const assignResult = await autoAssignTechnician(result.job.id);
+        if (assignResult.success) {
+          assignedTech = assignResult.technician;
+        }
+      }
+
+      res.json({ 
+        success: true, 
+        job: result.job, 
+        assignedTechnician: assignedTech 
+      });
+    } catch (error) {
+      console.error("Confirm estimate error:", error);
+      res.status(500).json({ error: "Failed to confirm estimate" });
+    }
+  });
+
+  // Cancel a job with full tracking
+  app.post("/api/jobs/:id/cancel", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { cancelledBy, reason } = req.body;
+
+      if (!reason) {
+        return res.status(400).json({ error: "Cancellation reason is required" });
+      }
+
+      const result = await cancelJob(id, cancelledBy || "system", reason);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Cancel job error:", error);
+      res.status(500).json({ error: "Failed to cancel job" });
+    }
+  });
+
+  // Update job costs (labor, materials, expenses)
+  app.patch("/api/jobs/:id/costs", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { laborHours, materialsCost, travelExpense, equipmentCost, otherExpenses, expenseNotes } = req.body;
+
+      const result = await updateJobCosts(id, {
+        laborHours,
+        materialsCost,
+        travelExpense,
+        equipmentCost,
+        otherExpenses,
+        expenseNotes,
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      // Return updated job
+      const job = await storage.getJob(id);
+      res.json(job);
+    } catch (error) {
+      console.error("Update job costs error:", error);
+      res.status(500).json({ error: "Failed to update job costs" });
+    }
+  });
+
+  // Complete a job with final cost calculation
+  app.post("/api/jobs/:id/complete", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { laborHours, materialsCost, travelExpense, equipmentCost, otherExpenses, expenseNotes, totalRevenue } = req.body;
+
+      const result = await completeJob(id, {
+        laborHours,
+        materialsCost,
+        travelExpense,
+        equipmentCost,
+        otherExpenses,
+        expenseNotes,
+        totalRevenue,
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      // Return updated job
+      const job = await storage.getJob(id);
+      res.json(job);
+    } catch (error) {
+      console.error("Complete job error:", error);
+      res.status(500).json({ error: "Failed to complete job" });
+    }
+  });
+
+  // Send appointment reminder
+  app.post("/api/jobs/:id/send-reminder", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const result = await sendAppointmentReminder(id);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Send reminder error:", error);
+      res.status(500).json({ error: "Failed to send reminder" });
+    }
+  });
+
+  // Auto-assign technician to a job
+  app.post("/api/jobs/:id/auto-assign", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const result = await autoAssignTechnician(id);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      // Return updated job with technician
+      const job = await storage.getJob(id);
+      res.json({ job, technician: result.technician });
+    } catch (error) {
+      console.error("Auto-assign error:", error);
+      res.status(500).json({ error: "Failed to auto-assign technician" });
+    }
+  });
+
+  // Get job ROI analysis
+  app.get("/api/jobs/:id/roi", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const job = await storage.getJob(id);
+
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      const roi = calculateJobROI(job);
+      res.json({ job, roi });
+    } catch (error) {
+      console.error("Get job ROI error:", error);
+      res.status(500).json({ error: "Failed to get job ROI" });
+    }
+  });
+
+  // Get aggregated ROI analytics for all jobs
+  app.get("/api/analytics/roi", async (req, res) => {
+    try {
+      const { startDate, endDate, includeCompleted = "true", includeCancelled = "true" } = req.query;
+      
+      const allJobs = await storage.getJobs();
+      
+      // Filter jobs by date and status
+      let filteredJobs = allJobs.filter(job => {
+        const jobDate = new Date(job.createdAt);
+        if (startDate && jobDate < new Date(startDate as string)) return false;
+        if (endDate && jobDate > new Date(endDate as string)) return false;
+        if (includeCompleted !== "true" && job.status === "completed") return false;
+        if (includeCancelled !== "true" && job.status === "cancelled") return false;
+        return true;
+      });
+
+      // Calculate aggregate ROI
+      const summary = {
+        totalJobs: filteredJobs.length,
+        completedJobs: filteredJobs.filter(j => j.status === "completed").length,
+        cancelledJobs: filteredJobs.filter(j => j.status === "cancelled").length,
+        totalRevenue: 0,
+        totalCost: 0,
+        totalLaborCost: 0,
+        totalMaterialsCost: 0,
+        totalTravelExpense: 0,
+        totalEquipmentCost: 0,
+        totalOtherExpenses: 0,
+        totalProfit: 0,
+        averageProfitMargin: 0,
+      };
+
+      filteredJobs.forEach(job => {
+        const roi = calculateJobROI(job);
+        summary.totalRevenue += roi.totalRevenue;
+        summary.totalCost += roi.totalCost;
+        summary.totalLaborCost += roi.laborCost;
+        summary.totalMaterialsCost += roi.materialsCost;
+        summary.totalTravelExpense += roi.travelExpense;
+        summary.totalEquipmentCost += roi.equipmentCost;
+        summary.totalOtherExpenses += roi.otherExpenses;
+        summary.totalProfit += roi.profit;
+      });
+
+      summary.averageProfitMargin = summary.totalRevenue > 0 
+        ? (summary.totalProfit / summary.totalRevenue) * 100 
+        : 0;
+
+      res.json(summary);
+    } catch (error) {
+      console.error("Get ROI analytics error:", error);
+      res.status(500).json({ error: "Failed to get ROI analytics" });
+    }
+  });
+
+  // Manual trigger for auto-contact on a lead
+  app.post("/api/leads/:id/auto-contact", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const result = await autoContactLead(id);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Auto-contact error:", error);
+      res.status(500).json({ error: "Failed to auto-contact lead" });
     }
   });
 

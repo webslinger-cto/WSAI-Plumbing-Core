@@ -29,6 +29,7 @@ import {
   Area,
 } from "recharts";
 import { TrendingUp, TrendingDown, DollarSign, Users, Target, Activity } from "lucide-react";
+import JobCostsAnalytics from "@/components/JobCostsAnalytics";
 
 interface AnalyticsData {
   summary: {
@@ -266,6 +267,7 @@ export default function AnalyticsPage() {
           <TabsTrigger value="sources" data-testid="tab-sources">Lead Sources</TabsTrigger>
           <TabsTrigger value="revenue" data-testid="tab-revenue">Revenue</TabsTrigger>
           <TabsTrigger value="roi" data-testid="tab-roi">Marketing ROI</TabsTrigger>
+          <TabsTrigger value="jobcosts" data-testid="tab-jobcosts">Job Costs</TabsTrigger>
           <TabsTrigger value="services" data-testid="tab-services">Services</TabsTrigger>
           <TabsTrigger value="technicians" data-testid="tab-technicians">Technicians</TabsTrigger>
         </TabsList>
@@ -651,6 +653,10 @@ export default function AnalyticsPage() {
               </Card>
             </>
           )}
+        </TabsContent>
+
+        <TabsContent value="jobcosts" className="space-y-4">
+          <JobCostsAnalytics timeRange={timeRange} />
         </TabsContent>
 
         <TabsContent value="services" className="space-y-4">
