@@ -9,7 +9,9 @@ import {
   type Notification, type InsertNotification,
   type ShiftLog, type InsertShiftLog,
   type QuoteTemplate, type InsertQuoteTemplate,
-  users, technicians, leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates,
+  type ContactAttempt, type InsertContactAttempt,
+  type WebhookLog, type InsertWebhookLog,
+  users, technicians, leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -150,6 +152,15 @@ export interface IStorage {
     jobs: Job[];
     quotes: Quote[];
   }>;
+
+  // Contact Attempts
+  createContactAttempt(attempt: InsertContactAttempt): Promise<ContactAttempt>;
+  getContactAttemptsByLead(leadId: string): Promise<ContactAttempt[]>;
+  getContactAttemptsByJob(jobId: string): Promise<ContactAttempt[]>;
+
+  // Webhook Logs
+  createWebhookLog(log: InsertWebhookLog): Promise<WebhookLog>;
+  getWebhookLogs(limit?: number, source?: string): Promise<WebhookLog[]>;
 
   // Reset
   resetJobBoard(): Promise<void>;
@@ -1684,6 +1695,42 @@ export class DatabaseStorage implements IStorage {
         currentJobId: null, 
         completedJobsToday: 0 
       });
+  }
+
+  // Contact Attempts
+  async createContactAttempt(attempt: InsertContactAttempt): Promise<ContactAttempt> {
+    const [created] = await db.insert(contactAttempts).values(attempt).returning();
+    return created;
+  }
+
+  async getContactAttemptsByLead(leadId: string): Promise<ContactAttempt[]> {
+    return db.select().from(contactAttempts)
+      .where(eq(contactAttempts.leadId, leadId))
+      .orderBy(desc(contactAttempts.createdAt));
+  }
+
+  async getContactAttemptsByJob(jobId: string): Promise<ContactAttempt[]> {
+    return db.select().from(contactAttempts)
+      .where(eq(contactAttempts.jobId, jobId))
+      .orderBy(desc(contactAttempts.createdAt));
+  }
+
+  // Webhook Logs
+  async createWebhookLog(log: InsertWebhookLog): Promise<WebhookLog> {
+    const [created] = await db.insert(webhookLogs).values(log).returning();
+    return created;
+  }
+
+  async getWebhookLogs(limit: number = 50, source?: string): Promise<WebhookLog[]> {
+    if (source) {
+      return db.select().from(webhookLogs)
+        .where(eq(webhookLogs.source, source))
+        .orderBy(desc(webhookLogs.createdAt))
+        .limit(limit);
+    }
+    return db.select().from(webhookLogs)
+      .orderBy(desc(webhookLogs.createdAt))
+      .limit(limit);
   }
 }
 

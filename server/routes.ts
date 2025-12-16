@@ -11,7 +11,11 @@ import {
   insertTechnicianSchema,
   insertShiftLogSchema,
   insertQuoteTemplateSchema,
+  insertContactAttemptSchema,
+  insertWebhookLogSchema,
+  type InsertLead,
 } from "@shared/schema";
+import { sendEmail, generateLeadAcknowledgmentEmail } from "./services/email";
 import { isWithinRadius } from "./geocoding";
 
 export async function registerRoutes(
@@ -1198,6 +1202,256 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Networx webhook error:", error);
       res.status(500).json({ error: "Failed to process Networx lead" });
+    }
+  });
+
+  // Zapier/Generic webhook - universal lead intake for Zapier, Google Forms, etc.
+  app.post("/api/webhooks/zapier/lead", async (req, res) => {
+    const startTime = Date.now();
+    try {
+      const { 
+        customer_name, 
+        name,
+        phone, 
+        customer_phone,
+        email,
+        customer_email,
+        address,
+        city,
+        zip_code,
+        zipCode,
+        service_type,
+        serviceType,
+        description,
+        notes,
+        source,
+        priority,
+        send_email
+      } = req.body;
+      
+      // Support multiple field naming conventions
+      const customerPhone = phone || customer_phone;
+      const customerName = customer_name || name || "Unknown";
+      const customerEmail = email || customer_email;
+      const customerZip = zip_code || zipCode;
+      const customerService = service_type || serviceType;
+      const customerDescription = description || notes;
+      
+      if (!customerPhone) {
+        await storage.createWebhookLog({
+          source: "zapier",
+          endpoint: "/api/webhooks/zapier/lead",
+          method: "POST",
+          headers: JSON.stringify(req.headers),
+          payload: JSON.stringify(req.body),
+          responseStatus: 400,
+          responseBody: JSON.stringify({ error: "Phone number is required" }),
+          processingTimeMs: Date.now() - startTime,
+          error: "Missing phone number",
+        });
+        return res.status(400).json({ error: "Phone number is required" });
+      }
+
+      const leadData = {
+        source: source || "Zapier",
+        customerName,
+        customerPhone,
+        customerEmail: customerEmail || undefined,
+        address: address || undefined,
+        city: city || undefined,
+        zipCode: customerZip || undefined,
+        serviceType: customerService || undefined,
+        description: customerDescription || undefined,
+        status: "new" as const,
+        priority: priority || "normal",
+      };
+
+      const validation = insertLeadSchema.safeParse(leadData);
+      if (!validation.success) {
+        await storage.createWebhookLog({
+          source: "zapier",
+          endpoint: "/api/webhooks/zapier/lead",
+          method: "POST",
+          headers: JSON.stringify(req.headers),
+          payload: JSON.stringify(req.body),
+          responseStatus: 400,
+          responseBody: JSON.stringify({ error: "Invalid lead data" }),
+          processingTimeMs: Date.now() - startTime,
+          error: JSON.stringify(validation.error.flatten()),
+        });
+        return res.status(400).json({ error: "Invalid lead data", details: validation.error.flatten() });
+      }
+
+      const lead = await storage.createLead(validation.data);
+      console.log(`[Webhook] Zapier lead created: ${lead.id}`);
+      
+      // Auto-send acknowledgment email if email provided and send_email not explicitly false
+      let emailSent = false;
+      let emailError: string | null = null;
+      
+      if (customerEmail && send_email !== false) {
+        try {
+          const emailContent = generateLeadAcknowledgmentEmail(
+            customerName,
+            customerService || "plumbing service"
+          );
+          
+          const emailResult = await sendEmail({
+            to: customerEmail,
+            subject: emailContent.subject,
+            html: emailContent.html,
+            text: emailContent.text,
+          });
+          
+          emailSent = emailResult.success;
+          emailError = emailResult.error || null;
+          
+          // Log the contact attempt
+          await storage.createContactAttempt({
+            leadId: lead.id,
+            type: "email",
+            direction: "outbound",
+            status: emailResult.success ? "sent" : "failed",
+            subject: emailContent.subject,
+            content: emailContent.html,
+            templateId: "lead_acknowledgment",
+            externalId: emailResult.messageId,
+            recipientEmail: customerEmail,
+            sentBy: "automation",
+            sentAt: new Date(),
+            failedReason: emailError,
+          });
+          
+          if (emailResult.success) {
+            // Update lead to contacted status
+            await storage.updateLead(lead.id, {
+              status: "contacted",
+              contactedAt: new Date(),
+            });
+          }
+        } catch (err) {
+          console.error("Auto-email error:", err);
+          emailError = err instanceof Error ? err.message : "Unknown error";
+        }
+      }
+      
+      // Log successful webhook
+      await storage.createWebhookLog({
+        source: "zapier",
+        endpoint: "/api/webhooks/zapier/lead",
+        method: "POST",
+        headers: JSON.stringify(req.headers),
+        payload: JSON.stringify(req.body),
+        responseStatus: 200,
+        responseBody: JSON.stringify({ success: true, leadId: lead.id }),
+        processingTimeMs: Date.now() - startTime,
+      });
+      
+      res.status(200).json({ 
+        success: true, 
+        leadId: lead.id,
+        emailSent,
+        emailError,
+      });
+    } catch (error) {
+      console.error("Zapier webhook error:", error);
+      await storage.createWebhookLog({
+        source: "zapier",
+        endpoint: "/api/webhooks/zapier/lead",
+        method: "POST",
+        headers: JSON.stringify(req.headers),
+        payload: JSON.stringify(req.body),
+        responseStatus: 500,
+        processingTimeMs: Date.now() - startTime,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      res.status(500).json({ error: "Failed to process lead" });
+    }
+  });
+  
+  // Manual email send endpoint
+  app.post("/api/leads/:id/send-email", async (req, res) => {
+    try {
+      const lead = await storage.getLead(req.params.id);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+      
+      if (!lead.customerEmail) {
+        return res.status(400).json({ error: "Lead has no email address" });
+      }
+      
+      const { template = "acknowledgment" } = req.body;
+      
+      let emailContent;
+      if (template === "acknowledgment") {
+        emailContent = generateLeadAcknowledgmentEmail(
+          lead.customerName,
+          lead.serviceType || "plumbing service"
+        );
+      } else {
+        return res.status(400).json({ error: "Unknown email template" });
+      }
+      
+      const emailResult = await sendEmail({
+        to: lead.customerEmail,
+        subject: emailContent.subject,
+        html: emailContent.html,
+        text: emailContent.text,
+      });
+      
+      // Log the contact attempt
+      await storage.createContactAttempt({
+        leadId: lead.id,
+        type: "email",
+        direction: "outbound",
+        status: emailResult.success ? "sent" : "failed",
+        subject: emailContent.subject,
+        content: emailContent.html,
+        templateId: template,
+        externalId: emailResult.messageId,
+        recipientEmail: lead.customerEmail,
+        sentBy: req.body.userId || "manual",
+        sentAt: new Date(),
+        failedReason: emailResult.error,
+      });
+      
+      if (emailResult.success && lead.status === "new") {
+        await storage.updateLead(lead.id, {
+          status: "contacted",
+          contactedAt: new Date(),
+        });
+      }
+      
+      res.json({ 
+        success: emailResult.success, 
+        messageId: emailResult.messageId,
+        error: emailResult.error,
+      });
+    } catch (error) {
+      console.error("Email send error:", error);
+      res.status(500).json({ error: "Failed to send email" });
+    }
+  });
+  
+  // Get contact attempts for a lead
+  app.get("/api/leads/:id/contacts", async (req, res) => {
+    try {
+      const contacts = await storage.getContactAttemptsByLead(req.params.id);
+      res.json(contacts);
+    } catch (error) {
+      console.error("Error fetching contact attempts:", error);
+      res.status(500).json({ error: "Failed to fetch contact attempts" });
+    }
+  });
+  
+  // Get webhook logs
+  app.get("/api/webhook-logs", async (req, res) => {
+    try {
+      const { limit = "50", source } = req.query;
+      const logs = await storage.getWebhookLogs(parseInt(limit as string), source as string);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching webhook logs:", error);
+      res.status(500).json({ error: "Failed to fetch webhook logs" });
     }
   });
 

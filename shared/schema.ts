@@ -309,3 +309,88 @@ export const slaSettings = pgTable("sla_settings", {
 export const insertSlaSettingSchema = createInsertSchema(slaSettings).omit({ id: true });
 export type InsertSlaSetting = z.infer<typeof insertSlaSettingSchema>;
 export type SlaSetting = typeof slaSettings.$inferSelect;
+
+// Contact attempts for tracking outreach
+export const contactAttempts = pgTable("contact_attempts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id").references(() => leads.id),
+  jobId: varchar("job_id").references(() => jobs.id),
+  type: text("type").notNull(), // email, sms, call, voicemail
+  direction: text("direction").notNull().default("outbound"), // inbound, outbound
+  status: text("status").notNull().default("sent"), // pending, sent, delivered, opened, clicked, bounced, failed
+  subject: text("subject"),
+  content: text("content"),
+  templateId: text("template_id"),
+  externalId: text("external_id"), // message ID from Resend/Twilio
+  recipientEmail: text("recipient_email"),
+  recipientPhone: text("recipient_phone"),
+  sentBy: varchar("sent_by"), // user ID or 'automation'
+  sentAt: timestamp("sent_at"),
+  deliveredAt: timestamp("delivered_at"),
+  openedAt: timestamp("opened_at"),
+  failedReason: text("failed_reason"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertContactAttemptSchema = createInsertSchema(contactAttempts).omit({ id: true, createdAt: true });
+export type InsertContactAttempt = z.infer<typeof insertContactAttemptSchema>;
+export type ContactAttempt = typeof contactAttempts.$inferSelect;
+
+// Automation events for tracking workflow actions
+export const automationEvents = pgTable("automation_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  eventType: text("event_type").notNull(), // lead_created, lead_contacted, job_scheduled, quote_sent, etc.
+  entityType: text("entity_type").notNull(), // lead, job, quote, technician
+  entityId: varchar("entity_id").notNull(),
+  triggerSource: text("trigger_source").notNull(), // webhook, manual, automation, schedule
+  status: text("status").notNull().default("pending"), // pending, processing, completed, failed
+  actionsTaken: text("actions_taken"), // JSON array of actions
+  errorMessage: text("error_message"),
+  metadata: text("metadata"), // JSON string for extra data
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertAutomationEventSchema = createInsertSchema(automationEvents).omit({ id: true, createdAt: true });
+export type InsertAutomationEvent = z.infer<typeof insertAutomationEventSchema>;
+export type AutomationEvent = typeof automationEvents.$inferSelect;
+
+// Automation settings for configuring triggers and actions
+export const automationSettings = pgTable("automation_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  triggerType: text("trigger_type").notNull(), // new_lead, lead_uncontacted, job_scheduled, quote_sent
+  actionType: text("action_type").notNull(), // send_email, send_sms, create_task, notify_user
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  delayMinutes: integer("delay_minutes").default(0),
+  conditions: text("conditions"), // JSON conditions
+  actionConfig: text("action_config"), // JSON action configuration
+  emailSubject: text("email_subject"),
+  emailTemplate: text("email_template"),
+  smsTemplate: text("sms_template"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertAutomationSettingSchema = createInsertSchema(automationSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertAutomationSetting = z.infer<typeof insertAutomationSettingSchema>;
+export type AutomationSetting = typeof automationSettings.$inferSelect;
+
+// Webhook logs for debugging integrations
+export const webhookLogs = pgTable("webhook_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  source: text("source").notNull(), // zapier, elocal, networx, angi, etc.
+  endpoint: text("endpoint").notNull(),
+  method: text("method").notNull(),
+  headers: text("headers"), // JSON
+  payload: text("payload"), // JSON
+  responseStatus: integer("response_status"),
+  responseBody: text("response_body"),
+  processingTimeMs: integer("processing_time_ms"),
+  error: text("error"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertWebhookLogSchema = createInsertSchema(webhookLogs).omit({ id: true, createdAt: true });
+export type InsertWebhookLog = z.infer<typeof insertWebhookLogSchema>;
+export type WebhookLog = typeof webhookLogs.$inferSelect;
