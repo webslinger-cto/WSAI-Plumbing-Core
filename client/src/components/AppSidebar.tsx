@@ -29,6 +29,8 @@ import {
   UserCog,
   Download,
   Wallet,
+  Briefcase,
+  Receipt,
 } from "lucide-react";
 import cseMascot from "@assets/cse-mascot.png";
 
@@ -41,6 +43,8 @@ interface AppSidebarProps {
 const adminMenuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Leads", url: "/leads", icon: Users },
+  { title: "Jobs", url: "/jobs", icon: Briefcase },
+  { title: "Quotes", url: "/quotes", icon: Receipt },
   { title: "Outreach", url: "/outreach", icon: Megaphone },
   { title: "Technicians", url: "/technicians", icon: Wrench },
   { title: "Quote Templates", url: "/quote-templates", icon: FileText },
@@ -51,6 +55,8 @@ const adminMenuItems = [
 
 const dispatcherMenuItems = [
   { title: "Dispatch Center", url: "/", icon: LayoutDashboard },
+  { title: "Jobs", url: "/jobs", icon: Briefcase },
+  { title: "Quotes", url: "/quotes", icon: Receipt },
   { title: "Staffing Pool", url: "/staffing", icon: UserCog },
   { title: "Calls", url: "/calls", icon: Phone },
   { title: "Leads", url: "/leads", icon: Users },

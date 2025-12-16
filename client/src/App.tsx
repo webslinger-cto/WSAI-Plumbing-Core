@@ -22,6 +22,8 @@ import StaffingPool from "@/pages/StaffingPool";
 import ExportPage from "@/pages/ExportPage";
 import SettingsPage from "@/pages/SettingsPage";
 import QuoteTemplatesPage from "@/pages/QuoteTemplatesPage";
+import JobsPage from "@/pages/JobsPage";
+import QuotesPage from "@/pages/QuotesPage";
 import NotFound from "@/pages/not-found";
 
 interface AuthState {
@@ -38,6 +40,8 @@ function AdminRouter() {
     <Switch>
       <Route path="/" component={AdminDashboard} />
       <Route path="/leads" component={LeadsPage} />
+      <Route path="/jobs" component={JobsPage} />
+      <Route path="/quotes" component={QuotesPage} />
       <Route path="/technicians" component={TechniciansPage} />
       <Route path="/quote-templates" component={QuoteTemplatesPage} />
       <Route path="/payroll" component={PayrollPage} />
@@ -54,6 +58,8 @@ function DispatcherRouter() {
   return (
     <Switch>
       <Route path="/" component={DispatcherDashboard} />
+      <Route path="/jobs" component={JobsPage} />
+      <Route path="/quotes" component={QuotesPage} />
       <Route path="/staffing" component={StaffingPool} />
       <Route path="/calls" component={() => (
         <div className="space-y-4">
