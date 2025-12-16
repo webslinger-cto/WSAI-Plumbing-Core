@@ -28,12 +28,12 @@
 - Gradients: Radial gradients from `#1e1f28` to `#05060a` for depth
 
 **Accents**:
-- Primary Red: `#b22222` (CTAs, important elements)
-- Hover Red: `#c63c3c` (interactive states)
-- Soft Red: `rgba(178, 34, 34, 0.18)` (backgrounds)
+- Primary Orange: `#f97316` (CTAs, important elements - Chicago Sewer Experts brand color)
+- Hover Orange: `#fb923c` (interactive states)
+- Soft Orange: `rgba(249, 115, 22, 0.18)` (backgrounds)
 - Success Green: `#4caf50` (completed states, positive metrics)
 - Danger Red: `#f44336` (errors, critical alerts)
-- Warning Orange: `#ff9800` (caution states)
+- Warning Amber: `#f59e0b` (caution states)
 
 **Text**:
 - Primary: `#f5f5f5`
@@ -95,7 +95,7 @@
 - Dark backgrounds with colored data points
 
 **Buttons**:
-- Primary: Red background `#b22222`, pill-shaped, uppercase, 0.08em letter-spacing
+- Primary: Orange background `#f97316`, pill-shaped, uppercase, 0.08em letter-spacing (CSE brand CTA)
 - Secondary: Outlined with `rgba(244,244,244,0.3)` border
 - Ghost: Transparent with muted text
 - Danger: Red outlined `rgba(244,67,54,0.7)`
@@ -104,7 +104,7 @@
 **Forms & Inputs**:
 - Dark backgrounds `#161821`
 - Subtle borders `#2a2d38`
-- Focus state: Red accent border
+- Focus state: Orange accent border (matches CSE brand)
 - Labels above inputs (11px, muted)
 - Validation states with color-coded borders
 
@@ -140,7 +140,7 @@
 
 **Loading States**:
 - Skeleton loaders with shimmer effect
-- Spinner for data fetching (red accent)
+- Spinner for data fetching (orange accent)
 
 **Micro-interactions**:
 - Success checkmarks for completed actions
@@ -181,4 +181,4 @@ No hero images required. This is a utility application focused on data and funct
 - Action buttons
 - Empty states
 
-The Chicago Sewer Experts logo should be a simple icon (wrench/pipe symbol) in the header with gradient red background and subtle glow effect.
+The Chicago Sewer Experts logo should be a simple icon (wrench/pipe symbol) in the header with gradient orange background and subtle glow effect, matching the brand's orange CTA color.
