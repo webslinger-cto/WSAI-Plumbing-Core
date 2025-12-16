@@ -41,9 +41,20 @@ Preferred communication style: Simple, everyday language.
 - Development server integration with Vite HMR through `server/vite.ts`
 - Custom logging middleware tracking request duration and JSON responses
 
-**Storage Layer**: Abstract storage interface (`IStorage`) defined in `server/storage.ts` with a memory-based implementation (`MemStorage`). Currently implements basic user CRUD operations (getUser, getUserByUsername, createUser). The interface is designed to be swapped with a database-backed implementation.
+**Storage Layer**: Abstract storage interface (`IStorage`) defined in `server/storage.ts` with PostgreSQL-backed implementation (DbStorage). Implements full CRUD for users, leads, technicians, jobs, quotes, contact attempts, and webhook logs.
 
-**Authentication**: No authentication system currently implemented. Login page exists as a UI mockup with hardcoded credentials (password: "demo123").
+**Authentication**: Session-based authentication with Passport.js. Hardcoded demo credentials (admin/demo123, dispatcher/demo123, technician/demo123).
+
+**Automation Service**: Located in `server/services/automation.ts`, provides automated dispatcher functionality:
+- autoContactLead: Sends acknowledgment email/text when leads arrive
+- createJobFromLead: Creates job when customer confirms estimate
+- autoAssignTechnician: Auto-assigns available technician to job
+- updateJobCosts: Updates labor hours, expenses, materials
+- completeJob: Finalizes job with cost calculations
+- cancelJob: Tracks cancelled jobs with reason and expenses
+- sendAppointmentReminder: Sends email reminders via Resend
+
+**Email Service**: Located in `server/services/email.ts`, integrates with Resend API for transactional emails.
 
 **Data Validation**: Zod schemas integrated with Drizzle ORM for runtime type validation using `drizzle-zod`.
 
@@ -51,16 +62,18 @@ Preferred communication style: Simple, everyday language.
 
 **ORM**: Drizzle ORM configured for PostgreSQL dialect.
 
-**Schema Definition**: Located in `shared/schema.ts`. Currently defines a single `users` table with:
-- UUID primary key (auto-generated)
-- Username (unique, not null)
-- Password (not null)
+**Schema Definition**: Located in `shared/schema.ts`. Defines the following tables:
+- **users**: UUID primary key, username, password, role (admin/dispatcher/technician)
+- **leads**: Lead tracking with source, status, contact info, notes
+- **technicians**: Employee records with hourly rates, skills, availability
+- **jobs**: Full job lifecycle with labor tracking (laborHours, laborRate, laborCost), expenses (materialsCost, travelExpense, equipmentCost, otherExpenses), revenue (totalRevenue, totalCost, profit), and cancellation tracking (cancelledAt, cancellationReason, cancelledBy)
+- **quotes**: Customer quotes with line items
+- **contact_attempts**: Audit log for all customer contact attempts
+- **webhook_logs**: Logging for external webhook integrations
 
 **Migration Strategy**: Drizzle Kit configured with migrations output to `./migrations` directory. Schema changes managed through `npm run db:push` script.
 
 **Connection Management**: PostgreSQL connection pool managed through `pg` library, instantiated in `server/db.ts`.
-
-**Design Rationale**: The minimal schema suggests the application is in early development. The actual application would require tables for leads, technicians, quotes, services, activities, and outreach campaigns based on the UI components.
 
 ### Build System
 
