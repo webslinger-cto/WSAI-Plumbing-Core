@@ -24,6 +24,7 @@ import SettingsPage from "@/pages/SettingsPage";
 import QuoteTemplatesPage from "@/pages/QuoteTemplatesPage";
 import JobsPage from "@/pages/JobsPage";
 import QuotesPage from "@/pages/QuotesPage";
+import OperationsMenuPage from "@/pages/OperationsMenuPage";
 import NotFound from "@/pages/not-found";
 
 interface AuthState {
@@ -49,6 +50,7 @@ function AdminRouter() {
       <Route path="/outreach" component={OutreachPage} />
       <Route path="/export" component={ExportPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/operations">{() => <OperationsMenuPage role="admin" />}</Route>
       <Route component={NotFound} />
     </Switch>
   );
@@ -68,6 +70,7 @@ function DispatcherRouter() {
         </div>
       )} />
       <Route path="/leads" component={LeadsPage} />
+      <Route path="/operations">{() => <OperationsMenuPage role="dispatcher" />}</Route>
       <Route component={NotFound} />
     </Switch>
   );
@@ -92,6 +95,7 @@ function TechnicianRouter({ technicianId, userId, fullName }: { technicianId: st
           <p className="text-muted-foreground">Earnings report page coming soon.</p>
         </div>
       )} />
+      <Route path="/operations">{() => <OperationsMenuPage role="technician" username={fullName} />}</Route>
       <Route component={NotFound} />
     </Switch>
   );

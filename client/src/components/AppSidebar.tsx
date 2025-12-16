@@ -31,6 +31,7 @@ import {
   Wallet,
   Briefcase,
   Receipt,
+  BookOpen,
 } from "lucide-react";
 import cseMascot from "@assets/cse-mascot.png";
 
@@ -51,6 +52,7 @@ const adminMenuItems = [
   { title: "Payroll", url: "/payroll", icon: Wallet },
   { title: "Import Data", url: "/import", icon: Upload },
   { title: "Export Data", url: "/export", icon: Download },
+  { title: "Operations Guide", url: "/operations", icon: BookOpen },
 ];
 
 const dispatcherMenuItems = [
@@ -60,6 +62,7 @@ const dispatcherMenuItems = [
   { title: "Staffing Pool", url: "/staffing", icon: UserCog },
   { title: "Calls", url: "/calls", icon: Phone },
   { title: "Leads", url: "/leads", icon: Users },
+  { title: "Operations Guide", url: "/operations", icon: BookOpen },
 ];
 
 const techMenuItems = [
@@ -67,6 +70,7 @@ const techMenuItems = [
   { title: "Quote Tool", url: "/quote", icon: FileText },
   { title: "My Jobs", url: "/jobs", icon: ClipboardList },
   { title: "Earnings", url: "/earnings", icon: DollarSign },
+  { title: "Operations Guide", url: "/operations", icon: BookOpen },
 ];
 
 export default function AppSidebar({ role, username, onLogout }: AppSidebarProps) {

@@ -142,6 +142,25 @@ Preferred communication style: Simple, everyday language.
 
 ## Operations Documentation
 
+### In-App Operations Guide
+Each user role has access to a role-specific Operations Guide in the sidebar (`/operations`):
+
+**Admin View:**
+- Full system overview and all automation features
+- Webhook endpoints table for all lead sources
+- Complete workflow diagram with all steps highlighted
+
+**Dispatcher View:**
+- Dispatch-focused operations and job management
+- Daily checklist (morning, throughout day, end of day)
+- Job status flow diagram
+- Workflow showing dispatcher-relevant steps
+
+**Technician View:**
+- Field work focus with job status actions
+- Cost tracking guide (labor hours, materials, travel, equipment)
+- Workflow showing technician-relevant steps (assignment through completion)
+
 ### OPERATIONS_MENU.md
 Complete reference for all CRM functions including:
 - Login credentials for all user roles
