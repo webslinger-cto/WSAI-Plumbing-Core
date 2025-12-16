@@ -140,6 +140,36 @@ Preferred communication style: Simple, everyday language.
 - **@replit/vite-plugin-cartographer**: Replit integration
 - **@replit/vite-plugin-dev-banner**: Development environment banner
 
+## Operations Documentation
+
+### OPERATIONS_MENU.md
+Complete reference for all CRM functions including:
+- Login credentials for all user roles
+- Lead management and webhook endpoints (eLocal, Networx, Angi, Thumbtack, Inquirly, Zapier)
+- Automation workflow diagram (Lead Intake → Auto-Contact → Job Creation → Tech Assignment → Completion/Cancellation)
+- All API endpoints with methods and parameters
+- Job cost tracking fields and calculations
+- Analytics tabs and export functionality
+
+### Test Suite
+Location: `scripts/test-suite.sh`
+
+Run after every change:
+```bash
+./scripts/test-suite.sh
+```
+
+Tests cover:
+- Health and core endpoints
+- Authentication (all 5 user accounts)
+- Leads API (list/create)
+- Jobs API (list/create)
+- Technicians API (list/available/content validation)
+- Quotes API
+- All webhook endpoints (eLocal, Networx, Inquirly, Zapier)
+- Webhook logs
+- Export data validation
+
 ## Pending Integrations
 
 ### Twilio SMS Integration (Not Configured)
