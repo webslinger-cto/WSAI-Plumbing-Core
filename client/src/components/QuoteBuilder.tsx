@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,8 +15,10 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Send, Save, CreditCard, Star, QrCode, Download, Users, Clock } from "lucide-react";
+import { Plus, Trash2, Send, Save, CreditCard, Star, QrCode, Download, Users, Clock, Briefcase, Loader2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import { useToast } from "@/hooks/use-toast";
+import type { Job } from "@shared/schema";
 
 interface LineItem {
   id: string;
@@ -33,12 +37,16 @@ interface LaborEntry {
 }
 
 interface QuoteBuilderProps {
+  jobId?: string;
+  technicianId?: string;
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
   technicianName?: string;
+  showJobSelector?: boolean;
   onSave?: (quote: QuoteData) => void;
   onSend?: (quote: QuoteData) => void;
+  onQuoteCreated?: () => void;
 }
 
 const GOOGLE_REVIEW_PLACE_ID = "ChIJSTKCCzZwBYgRPN0F2TRRuoA";
@@ -78,13 +86,18 @@ const LABORER_ROLES = [
 ];
 
 export default function QuoteBuilder({
+  jobId: initialJobId,
+  technicianId,
   customerName = "",
   customerPhone = "",
   customerAddress = "",
   technicianName = "Your Technician",
+  showJobSelector = false,
   onSave,
   onSend,
+  onQuoteCreated,
 }: QuoteBuilderProps) {
+  const { toast } = useToast();
   const [name, setName] = useState(customerName);
   const [phone, setPhone] = useState(customerPhone);
   const [address, setAddress] = useState(customerAddress);
@@ -94,6 +107,102 @@ export default function QuoteBuilder({
   const [showPayment, setShowPayment] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [showLabor, setShowLabor] = useState(false);
+  const [selectedJobId, setSelectedJobId] = useState<string>(initialJobId || "");
+
+  // Fetch jobs for job selector (when showJobSelector is true or no jobId provided)
+  const { data: jobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
+    queryKey: ["/api/jobs"],
+    queryFn: async () => {
+      const res = await fetch("/api/jobs");
+      if (!res.ok) throw new Error("Failed to fetch jobs");
+      return res.json();
+    },
+    enabled: showJobSelector || !initialJobId,
+  });
+
+  // Filter to active jobs that can have quotes
+  const activeJobs = jobs.filter(j => 
+    ["pending", "assigned", "confirmed", "en_route", "on_site", "in_progress"].includes(j.status)
+  );
+
+  // When a job is selected, populate customer info
+  const handleJobSelect = (jobId: string) => {
+    setSelectedJobId(jobId);
+    const job = jobs.find(j => j.id === jobId);
+    if (job) {
+      setName(job.customerName);
+      setPhone(job.customerPhone || "");
+      setAddress(`${job.address}${job.city ? `, ${job.city}` : ""}`);
+    }
+  };
+
+  // Mutation to save quote to API
+  const saveQuoteMutation = useMutation({
+    mutationFn: async (data: { status: "draft" | "sent" }) => {
+      const quoteData = getQuoteData();
+      const jobIdToUse = selectedJobId || initialJobId;
+      
+      if (!jobIdToUse) {
+        throw new Error("Please select a job first");
+      }
+
+      return apiRequest("POST", "/api/quotes", {
+        jobId: jobIdToUse,
+        technicianId: technicianId || undefined,
+        customerName: quoteData.customerName,
+        customerPhone: quoteData.customerPhone,
+        customerEmail: undefined,
+        address: quoteData.customerAddress,
+        lineItems: JSON.stringify(quoteData.lineItems),
+        laborEntries: JSON.stringify(quoteData.laborEntries),
+        subtotal: String(quoteData.subtotal),
+        laborTotal: String(quoteData.laborTotal),
+        taxRate: String(TAX_RATE * 100),
+        taxAmount: String(quoteData.tax),
+        total: String(quoteData.total),
+        status: data.status,
+        notes: quoteData.notes,
+        sentAt: data.status === "sent" ? new Date().toISOString() : undefined,
+      });
+    },
+    onSuccess: (_, variables) => {
+      // Invalidate all relevant queries for cross-platform sync
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      // Also invalidate technician-scoped jobs query if technicianId is provided
+      if (technicianId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/jobs", { technicianId }] });
+      }
+      toast({
+        title: variables.status === "sent" ? "Quote Sent" : "Quote Saved",
+        description: variables.status === "sent" 
+          ? "Quote has been sent to the customer and saved to the system."
+          : "Quote has been saved as a draft.",
+      });
+      onQuoteCreated?.();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to save quote",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSaveQuote = () => {
+    const quoteData = getQuoteData();
+    onSave?.(quoteData);
+    saveQuoteMutation.mutate({ status: "draft" });
+  };
+
+  const handleSendQuote = () => {
+    const quoteData = getQuoteData();
+    onSend?.(quoteData);
+    saveQuoteMutation.mutate({ status: "sent" });
+  };
+
+  const currentJobId = selectedJobId || initialJobId;
 
   const addLineItem = (preset?: typeof SERVICE_PRESETS[0]) => {
     const newItem: LineItem = {
@@ -297,6 +406,55 @@ export default function QuoteBuilder({
 
   return (
     <div className="space-y-4">
+      {/* Job Selector - shown when no jobId provided or showJobSelector is true */}
+      {(showJobSelector || !initialJobId) && (
+        <Card className="border-primary/30">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold uppercase tracking-wider flex items-center gap-2">
+              <Briefcase className="w-4 h-4" />
+              Select Job
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {jobsLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-sm text-muted-foreground">Loading jobs...</span>
+              </div>
+            ) : activeJobs.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No active jobs available. Create a job first before generating a quote.
+              </p>
+            ) : (
+              <Select value={selectedJobId} onValueChange={handleJobSelect}>
+                <SelectTrigger data-testid="select-job-for-quote">
+                  <SelectValue placeholder="Select a job to create quote for..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeJobs.map((job) => (
+                    <SelectItem key={job.id} value={job.id}>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{job.customerName}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {job.serviceType} - {job.address}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {selectedJobId && (
+              <div className="mt-3 p-3 rounded-lg bg-muted/30 border">
+                <p className="text-xs text-muted-foreground mb-1">Selected Job</p>
+                <p className="text-sm font-medium">{name}</p>
+                <p className="text-xs text-muted-foreground">{address}</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold uppercase tracking-wider">
@@ -737,10 +895,15 @@ export default function QuoteBuilder({
       <div className="flex flex-wrap gap-3">
         <Button
           variant="outline"
-          onClick={() => onSave?.(getQuoteData())}
+          onClick={handleSaveQuote}
+          disabled={saveQuoteMutation.isPending || (!currentJobId && !selectedJobId)}
           data-testid="button-save-quote"
         >
-          <Save className="w-4 h-4 mr-2" />
+          {saveQuoteMutation.isPending ? (
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <Save className="w-4 h-4 mr-2" />
+          )}
           Save Draft
         </Button>
         <Button
@@ -778,11 +941,15 @@ export default function QuoteBuilder({
           {showFeedback ? "Hide Feedback" : "Customer Feedback"}
         </Button>
         <Button
-          onClick={() => onSend?.(getQuoteData())}
-          disabled={lineItems.length === 0 || !name}
+          onClick={handleSendQuote}
+          disabled={lineItems.length === 0 || !name || saveQuoteMutation.isPending || (!currentJobId && !selectedJobId)}
           data-testid="button-send-quote"
         >
-          <Send className="w-4 h-4 mr-2" />
+          {saveQuoteMutation.isPending ? (
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <Send className="w-4 h-4 mr-2" />
+          )}
           Send Quote
         </Button>
       </div>

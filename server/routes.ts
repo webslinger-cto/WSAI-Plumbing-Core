@@ -752,19 +752,33 @@ export async function registerRoutes(
   });
 
   app.post("/api/quotes", async (req, res) => {
-    const result = insertQuoteSchema.safeParse(req.body);
-    if (!result.success) return res.status(400).json({ error: result.error });
-    const quote = await storage.createQuote(result.data);
-    
-    // Create timeline event
-    await storage.createJobTimelineEvent({
-      jobId: result.data.jobId,
-      eventType: "quote_sent",
-      description: `Quote created for $${result.data.total}`,
-      createdBy: result.data.technicianId || undefined,
-    });
-    
-    res.status(201).json(quote);
+    try {
+      // Convert ISO date strings to Date objects
+      const body = { ...req.body };
+      const dateFields = ['sentAt', 'viewedAt', 'acceptedAt', 'declinedAt', 'expiresAt'];
+      dateFields.forEach(field => {
+        if (body[field] && typeof body[field] === 'string') {
+          body[field] = new Date(body[field]);
+        }
+      });
+      
+      const result = insertQuoteSchema.safeParse(body);
+      if (!result.success) return res.status(400).json({ error: result.error });
+      const quote = await storage.createQuote(result.data);
+      
+      // Create timeline event
+      await storage.createJobTimelineEvent({
+        jobId: result.data.jobId,
+        eventType: "quote_sent",
+        description: `Quote created for $${result.data.total}`,
+        createdBy: result.data.technicianId || undefined,
+      });
+      
+      res.status(201).json(quote);
+    } catch (error) {
+      console.error("Error creating quote:", error);
+      res.status(500).json({ error: "Failed to create quote" });
+    }
   });
 
   app.patch("/api/quotes/:id", async (req, res) => {

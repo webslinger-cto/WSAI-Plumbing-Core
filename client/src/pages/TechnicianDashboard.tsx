@@ -663,15 +663,10 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
             <DialogTitle>Create New Quote</DialogTitle>
           </DialogHeader>
           <QuoteBuilder
+            technicianId={technicianId}
             technicianName={fullName}
-            onSave={(quote) => {
-              console.log("Quote saved:", quote);
-              setShowQuoteBuilder(false);
-            }}
-            onSend={(quote) => {
-              console.log("Quote sent:", quote);
-              setShowQuoteBuilder(false);
-            }}
+            showJobSelector={true}
+            onQuoteCreated={() => setShowQuoteBuilder(false)}
           />
         </DialogContent>
       </Dialog>
@@ -763,18 +758,13 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
               </TabsContent>
               <TabsContent value="quote" className="mt-4">
                 <QuoteBuilder
+                  jobId={selectedJob.id}
+                  technicianId={technicianId}
                   customerName={selectedJob.customerName}
-                  customerPhone={selectedJob.customerPhone}
-                  customerAddress={`${selectedJob.address}, ${selectedJob.city}`}
+                  customerPhone={selectedJob.customerPhone || ""}
+                  customerAddress={`${selectedJob.address}${selectedJob.city ? `, ${selectedJob.city}` : ""}`}
                   technicianName={fullName}
-                  onSave={(quote) => {
-                    console.log("Quote saved:", quote);
-                    setSelectedJob(null);
-                  }}
-                  onSend={(quote) => {
-                    console.log("Quote sent:", quote);
-                    setSelectedJob(null);
-                  }}
+                  onQuoteCreated={() => setSelectedJob(null)}
                 />
               </TabsContent>
             </Tabs>
