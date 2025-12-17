@@ -43,7 +43,10 @@ Preferred communication style: Simple, everyday language.
 
 **Storage Layer**: Abstract storage interface (`IStorage`) defined in `server/storage.ts` with PostgreSQL-backed implementation (DbStorage). Implements full CRUD for users, leads, technicians, jobs, quotes, contact attempts, and webhook logs.
 
-**Authentication**: Session-based authentication with Passport.js. Hardcoded demo credentials (admin/demo123, dispatcher/demo123, technician/demo123).
+**Authentication**: Session-based authentication with Passport.js. Demo credentials:
+- Admin: admin / demo123
+- Dispatcher: dispatcher / demo123
+- Technicians: mike / demo123, carlos / demo123, james / demo123
 
 **Automation Service**: Located in `server/services/automation.ts`, provides automated dispatcher functionality:
 - autoContactLead: Sends acknowledgment email/text when leads arrive
