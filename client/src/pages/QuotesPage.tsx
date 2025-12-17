@@ -44,6 +44,8 @@ import {
   Phone,
   MapPin,
   User,
+  Link2,
+  Copy,
 } from "lucide-react";
 import type { Quote, Job, Technician } from "@shared/schema";
 import { format, formatDistanceToNow } from "date-fns";
@@ -122,6 +124,32 @@ export default function QuotesPage() {
     },
     onError: () => {
       toast({ title: "Decline Failed", description: "Could not decline the quote.", variant: "destructive" });
+    },
+  });
+
+  const generateLinkMutation = useMutation({
+    mutationFn: async (quoteId: string) => {
+      const res = await apiRequest("POST", `/api/quotes/${quoteId}/generate-link`);
+      return res.json();
+    },
+    onSuccess: async (data: { token: string; publicUrl: string }) => {
+      const fullUrl = `${window.location.origin}${data.publicUrl}`;
+      try {
+        await navigator.clipboard.writeText(fullUrl);
+        toast({ 
+          title: "Link Copied", 
+          description: "The quote link has been copied to your clipboard." 
+        });
+      } catch {
+        toast({ 
+          title: "Link Generated", 
+          description: fullUrl,
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+    },
+    onError: () => {
+      toast({ title: "Failed", description: "Could not generate quote link.", variant: "destructive" });
     },
   });
 
@@ -283,7 +311,17 @@ export default function QuotesPage() {
                           </p>
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
+                          <div className="flex justify-end gap-2 flex-wrap">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => generateLinkMutation.mutate(quote.id)}
+                              disabled={generateLinkMutation.isPending}
+                              data-testid={`button-copy-link-${quote.id}`}
+                            >
+                              <Link2 className="w-3 h-3 mr-1" />
+                              Copy Link
+                            </Button>
                             <Button
                               variant="outline"
                               size="sm"

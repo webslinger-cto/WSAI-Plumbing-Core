@@ -26,6 +26,7 @@ import JobsPage from "@/pages/JobsPage";
 import QuotesPage from "@/pages/QuotesPage";
 import OperationsMenuPage from "@/pages/OperationsMenuPage";
 import NotFound from "@/pages/not-found";
+import PublicQuotePage from "@/pages/PublicQuotePage";
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -110,7 +111,7 @@ interface LoginResponse {
 }
 
 function App() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [auth, setAuth] = useState<AuthState>({
     isAuthenticated: false,
     role: null,
@@ -147,6 +148,20 @@ function App() {
       fullName: "",
     });
   };
+
+  // Check if this is a public quote page (no auth required)
+  if (location.startsWith('/quote/')) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Switch>
+            <Route path="/quote/:token" component={PublicQuotePage} />
+          </Switch>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
 
   if (!auth.isAuthenticated) {
     return (
