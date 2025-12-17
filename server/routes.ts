@@ -794,6 +794,80 @@ export async function registerRoutes(
     res.json(quote);
   });
 
+  // Generate public link token for a quote
+  app.post("/api/quotes/:id/generate-link", async (req, res) => {
+    try {
+      const quote = await storage.getQuote(req.params.id);
+      if (!quote) return res.status(404).json({ error: "Quote not found" });
+      
+      // Generate a unique token if not already present
+      const token = quote.publicToken || crypto.randomUUID().replace(/-/g, '').substring(0, 16);
+      const updatedQuote = await storage.updateQuote(req.params.id, { publicToken: token });
+      
+      res.json({ 
+        token, 
+        publicUrl: `/quote/${token}`,
+        quote: updatedQuote 
+      });
+    } catch (error) {
+      console.error("Error generating quote link:", error);
+      res.status(500).json({ error: "Failed to generate quote link" });
+    }
+  });
+
+  // Public quote viewing endpoint (no auth required)
+  app.get("/api/public/quote/:token", async (req, res) => {
+    try {
+      const quote = await storage.getQuoteByToken(req.params.token);
+      if (!quote) return res.status(404).json({ error: "Quote not found" });
+      
+      // Mark as viewed if first time viewing
+      if (!quote.viewedAt) {
+        await storage.updateQuote(quote.id, { viewedAt: new Date(), status: 'viewed' });
+      }
+      
+      res.json(quote);
+    } catch (error) {
+      console.error("Error fetching public quote:", error);
+      res.status(500).json({ error: "Failed to fetch quote" });
+    }
+  });
+
+  // Public quote accept/decline actions
+  app.post("/api/public/quote/:token/accept", async (req, res) => {
+    try {
+      const quote = await storage.getQuoteByToken(req.params.token);
+      if (!quote) return res.status(404).json({ error: "Quote not found" });
+      
+      const updatedQuote = await storage.updateQuote(quote.id, { 
+        status: 'accepted', 
+        acceptedAt: new Date() 
+      });
+      
+      res.json(updatedQuote);
+    } catch (error) {
+      console.error("Error accepting quote:", error);
+      res.status(500).json({ error: "Failed to accept quote" });
+    }
+  });
+
+  app.post("/api/public/quote/:token/decline", async (req, res) => {
+    try {
+      const quote = await storage.getQuoteByToken(req.params.token);
+      if (!quote) return res.status(404).json({ error: "Quote not found" });
+      
+      const updatedQuote = await storage.updateQuote(quote.id, { 
+        status: 'declined', 
+        declinedAt: new Date() 
+      });
+      
+      res.json(updatedQuote);
+    } catch (error) {
+      console.error("Error declining quote:", error);
+      res.status(500).json({ error: "Failed to decline quote" });
+    }
+  });
+
   // Quote Templates
   app.get("/api/quote-templates", async (req, res) => {
     try {

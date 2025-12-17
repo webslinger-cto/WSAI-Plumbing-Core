@@ -216,6 +216,7 @@ export const quotes = pgTable("quotes", {
   total: decimal("total"),
   status: text("status").notNull().default("draft"), // draft, sent, viewed, accepted, declined, expired
   notes: text("notes"),
+  publicToken: varchar("public_token").unique(), // Token for public quote viewing link
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   sentAt: timestamp("sent_at"),
   viewedAt: timestamp("viewed_at"),

@@ -115,6 +115,7 @@ export interface IStorage {
 
   // Quotes
   getQuote(id: string): Promise<Quote | undefined>;
+  getQuoteByToken(token: string): Promise<Quote | undefined>;
   getQuotesByJob(jobId: string): Promise<Quote[]>;
   getQuotesByStatus(status: string): Promise<Quote[]>;
   getAllQuotes(): Promise<Quote[]>;
@@ -644,6 +645,10 @@ export class MemStorage implements IStorage {
     return this.quotes.get(id);
   }
 
+  async getQuoteByToken(token: string): Promise<Quote | undefined> {
+    return Array.from(this.quotes.values()).find(q => q.publicToken === token);
+  }
+
   async getQuotesByJob(jobId: string): Promise<Quote[]> {
     return Array.from(this.quotes.values()).filter(q => q.jobId === jobId);
   }
@@ -667,6 +672,7 @@ export class MemStorage implements IStorage {
       total: insertQuote.total || null,
       status: insertQuote.status || "draft",
       notes: insertQuote.notes || null,
+      publicToken: insertQuote.publicToken || null,
       createdAt: new Date(),
       sentAt: insertQuote.sentAt || null,
       viewedAt: insertQuote.viewedAt || null,
@@ -1367,6 +1373,11 @@ export class DatabaseStorage implements IStorage {
   // Quotes
   async getQuote(id: string): Promise<Quote | undefined> {
     const [quote] = await db.select().from(quotes).where(eq(quotes.id, id));
+    return quote;
+  }
+
+  async getQuoteByToken(token: string): Promise<Quote | undefined> {
+    const [quote] = await db.select().from(quotes).where(eq(quotes.publicToken, token));
     return quote;
   }
 
