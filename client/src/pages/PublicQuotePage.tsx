@@ -243,8 +243,8 @@ export default function PublicQuotePage() {
                       <TableRow key={item.id || index}>
                         <TableCell>{item.description}</TableCell>
                         <TableCell className="text-center">{item.quantity}</TableCell>
-                        <TableCell className="text-right">${item.unitPrice.toFixed(2)}</TableCell>
-                        <TableCell className="text-right">${item.total.toFixed(2)}</TableCell>
+                        <TableCell className="text-right">${parseFloat(String(item.unitPrice)).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">${parseFloat(String(item.total)).toFixed(2)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -269,8 +269,8 @@ export default function PublicQuotePage() {
                       <TableRow key={entry.id || index}>
                         <TableCell>{entry.description}</TableCell>
                         <TableCell className="text-center">{entry.hours}</TableCell>
-                        <TableCell className="text-right">${entry.rate.toFixed(2)}/hr</TableCell>
-                        <TableCell className="text-right">${entry.total.toFixed(2)}</TableCell>
+                        <TableCell className="text-right">${parseFloat(String(entry.rate)).toFixed(2)}/hr</TableCell>
+                        <TableCell className="text-right">${parseFloat(String(entry.total)).toFixed(2)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
