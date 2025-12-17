@@ -433,10 +433,28 @@ export async function registerRoutes(
   });
 
   app.post("/api/jobs", async (req, res) => {
-    const result = insertJobSchema.safeParse(req.body);
-    if (!result.success) return res.status(400).json({ error: result.error });
-    const job = await storage.createJob(result.data);
-    res.status(201).json(job);
+    try {
+      // Convert ISO date strings to Date objects for validation
+      const body = { ...req.body };
+      if (body.scheduledDate && typeof body.scheduledDate === 'string') {
+        body.scheduledDate = new Date(body.scheduledDate);
+      }
+      // Handle timestamp fields that might come as strings
+      const timestampFields = ['assignedAt', 'confirmedAt', 'enRouteAt', 'arrivedAt', 'startedAt', 'completedAt', 'cancelledAt'];
+      timestampFields.forEach(field => {
+        if (body[field] && typeof body[field] === 'string') {
+          body[field] = new Date(body[field]);
+        }
+      });
+      
+      const result = insertJobSchema.safeParse(body);
+      if (!result.success) return res.status(400).json({ error: result.error });
+      const job = await storage.createJob(result.data);
+      res.status(201).json(job);
+    } catch (error) {
+      console.error("Error creating job:", error);
+      res.status(500).json({ error: "Failed to create job" });
+    }
   });
 
   app.patch("/api/jobs/:id", async (req, res) => {
