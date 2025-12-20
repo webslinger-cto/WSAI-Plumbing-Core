@@ -413,3 +413,75 @@ export const webhookLogs = pgTable("webhook_logs", {
 export const insertWebhookLogSchema = createInsertSchema(webhookLogs).omit({ id: true, createdAt: true });
 export type InsertWebhookLog = z.infer<typeof insertWebhookLogSchema>;
 export type WebhookLog = typeof webhookLogs.$inferSelect;
+
+// Job attachments (photos, videos, documents)
+export const jobAttachments = pgTable("job_attachments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  technicianId: varchar("technician_id").references(() => technicians.id),
+  type: text("type").notNull(), // photo, video, document
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type"),
+  fileSize: integer("file_size"), // bytes
+  url: text("url"), // storage URL or base64 data
+  thumbnailUrl: text("thumbnail_url"),
+  caption: text("caption"),
+  category: text("category"), // before, during, after, damage, parts, signature
+  latitude: decimal("latitude"),
+  longitude: decimal("longitude"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertJobAttachmentSchema = createInsertSchema(jobAttachments).omit({ id: true, createdAt: true });
+export type InsertJobAttachment = z.infer<typeof insertJobAttachmentSchema>;
+export type JobAttachment = typeof jobAttachments.$inferSelect;
+
+// Job checklists for technicians
+export const jobChecklists = pgTable("job_checklists", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  technicianId: varchar("technician_id").references(() => technicians.id),
+  title: text("title").notNull(),
+  items: text("items"), // JSON array of {id, text, checked, notes}
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertJobChecklistSchema = createInsertSchema(jobChecklists).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertJobChecklist = z.infer<typeof insertJobChecklistSchema>;
+export type JobChecklist = typeof jobChecklists.$inferSelect;
+
+// Technician location history for GPS tracking
+export const technicianLocations = pgTable("technician_locations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  technicianId: varchar("technician_id").notNull().references(() => technicians.id),
+  latitude: decimal("latitude").notNull(),
+  longitude: decimal("longitude").notNull(),
+  accuracy: decimal("accuracy"), // meters
+  speed: decimal("speed"), // m/s
+  heading: decimal("heading"), // degrees
+  altitude: decimal("altitude"),
+  batteryLevel: integer("battery_level"), // percentage
+  isMoving: boolean("is_moving"),
+  jobId: varchar("job_id").references(() => jobs.id), // current job if any
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertTechnicianLocationSchema = createInsertSchema(technicianLocations).omit({ id: true, createdAt: true });
+export type InsertTechnicianLocation = z.infer<typeof insertTechnicianLocationSchema>;
+export type TechnicianLocation = typeof technicianLocations.$inferSelect;
+
+// Checklist templates (pre-defined checklists for different service types)
+export const checklistTemplates = pgTable("checklist_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  serviceType: text("service_type"), // optional - applies to specific service types
+  items: text("items"), // JSON array of {id, text, required}
+  isDefault: boolean("is_default").default(false),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertChecklistTemplateSchema = createInsertSchema(checklistTemplates).omit({ id: true, createdAt: true });
+export type InsertChecklistTemplate = z.infer<typeof insertChecklistTemplateSchema>;
+export type ChecklistTemplate = typeof checklistTemplates.$inferSelect;

@@ -68,11 +68,15 @@ Preferred communication style: Simple, everyday language.
 **Schema Definition**: Located in `shared/schema.ts`. Defines the following tables:
 - **users**: UUID primary key, username, password, role (admin/dispatcher/technician)
 - **leads**: Lead tracking with source, status, contact info, notes
-- **technicians**: Employee records with hourly rates, skills, availability
+- **technicians**: Employee records with hourly rates, skills, availability, last known GPS location
 - **jobs**: Full job lifecycle with labor tracking (laborHours, laborRate, laborCost), expenses (materialsCost, travelExpense, equipmentCost, otherExpenses), revenue (totalRevenue, totalCost, profit), and cancellation tracking (cancelledAt, cancellationReason, cancelledBy)
 - **quotes**: Customer quotes with line items
 - **contact_attempts**: Audit log for all customer contact attempts
 - **webhook_logs**: Logging for external webhook integrations
+- **job_attachments**: Photo/video attachments captured by technicians (with GPS coordinates, categories: before/during/after)
+- **job_checklists**: Per-job checklists with item completion tracking
+- **technician_locations**: GPS tracking history for real-time location monitoring
+- **checklist_templates**: Reusable checklist templates by service type
 
 **Migration Strategy**: Drizzle Kit configured with migrations output to `./migrations` directory. Schema changes managed through `npm run db:push` script.
 

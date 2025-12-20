@@ -11,7 +11,12 @@ import {
   type QuoteTemplate, type InsertQuoteTemplate,
   type ContactAttempt, type InsertContactAttempt,
   type WebhookLog, type InsertWebhookLog,
+  type JobAttachment, type InsertJobAttachment,
+  type JobChecklist, type InsertJobChecklist,
+  type TechnicianLocation, type InsertTechnicianLocation,
+  type ChecklistTemplate, type InsertChecklistTemplate,
   users, technicians, leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
+  jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -163,6 +168,31 @@ export interface IStorage {
   createWebhookLog(log: InsertWebhookLog): Promise<WebhookLog>;
   getWebhookLogs(limit?: number, source?: string): Promise<WebhookLog[]>;
 
+  // Job Attachments (photos, videos)
+  getJobAttachments(jobId: string): Promise<JobAttachment[]>;
+  createJobAttachment(attachment: InsertJobAttachment): Promise<JobAttachment>;
+  deleteJobAttachment(id: string): Promise<boolean>;
+
+  // Job Checklists
+  getJobChecklists(jobId: string): Promise<JobChecklist[]>;
+  getJobChecklist(id: string): Promise<JobChecklist | undefined>;
+  createJobChecklist(checklist: InsertJobChecklist): Promise<JobChecklist>;
+  updateJobChecklist(id: string, updates: Partial<JobChecklist>): Promise<JobChecklist | undefined>;
+
+  // Technician Locations (GPS tracking)
+  getTechnicianLocations(technicianId: string, limit?: number): Promise<TechnicianLocation[]>;
+  getLatestTechnicianLocation(technicianId: string): Promise<TechnicianLocation | undefined>;
+  getAllTechniciansLatestLocations(): Promise<TechnicianLocation[]>;
+  createTechnicianLocation(location: InsertTechnicianLocation): Promise<TechnicianLocation>;
+
+  // Checklist Templates
+  getChecklistTemplates(): Promise<ChecklistTemplate[]>;
+  getChecklistTemplate(id: string): Promise<ChecklistTemplate | undefined>;
+  getChecklistTemplatesByServiceType(serviceType: string): Promise<ChecklistTemplate[]>;
+  createChecklistTemplate(template: InsertChecklistTemplate): Promise<ChecklistTemplate>;
+  updateChecklistTemplate(id: string, updates: Partial<ChecklistTemplate>): Promise<ChecklistTemplate | undefined>;
+  deleteChecklistTemplate(id: string): Promise<boolean>;
+
   // Reset
   resetJobBoard(): Promise<void>;
 }
@@ -178,6 +208,10 @@ export class MemStorage implements IStorage {
   private notifications: Map<string, Notification>;
   private shiftLogs: Map<string, ShiftLog>;
   private quoteTemplatesMap: Map<string, QuoteTemplate>;
+  private jobAttachments: Map<string, JobAttachment>;
+  private jobChecklists: Map<string, JobChecklist>;
+  private technicianLocations: Map<string, TechnicianLocation>;
+  private checklistTemplatesMap: Map<string, ChecklistTemplate>;
 
   constructor() {
     this.users = new Map();
@@ -190,6 +224,10 @@ export class MemStorage implements IStorage {
     this.notifications = new Map();
     this.shiftLogs = new Map();
     this.quoteTemplatesMap = new Map();
+    this.jobAttachments = new Map();
+    this.jobChecklists = new Map();
+    this.technicianLocations = new Map();
+    this.checklistTemplatesMap = new Map();
     this.seedData();
   }
 
@@ -1136,6 +1174,171 @@ export class MemStorage implements IStorage {
   async getWebhookLogs(limit?: number, source?: string): Promise<WebhookLog[]> {
     return [];
   }
+
+  // Job Attachments
+  async getJobAttachments(jobId: string): Promise<JobAttachment[]> {
+    return Array.from(this.jobAttachments.values())
+      .filter(a => a.jobId === jobId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async createJobAttachment(attachment: InsertJobAttachment): Promise<JobAttachment> {
+    const id = randomUUID();
+    const created: JobAttachment = {
+      id,
+      jobId: attachment.jobId,
+      technicianId: attachment.technicianId ?? null,
+      type: attachment.type,
+      filename: attachment.filename,
+      mimeType: attachment.mimeType ?? null,
+      fileSize: attachment.fileSize ?? null,
+      url: attachment.url ?? null,
+      thumbnailUrl: attachment.thumbnailUrl ?? null,
+      caption: attachment.caption ?? null,
+      category: attachment.category ?? null,
+      latitude: attachment.latitude ?? null,
+      longitude: attachment.longitude ?? null,
+      createdAt: new Date(),
+    };
+    this.jobAttachments.set(id, created);
+    return created;
+  }
+
+  async deleteJobAttachment(id: string): Promise<boolean> {
+    return this.jobAttachments.delete(id);
+  }
+
+  // Job Checklists
+  async getJobChecklists(jobId: string): Promise<JobChecklist[]> {
+    return Array.from(this.jobChecklists.values())
+      .filter(c => c.jobId === jobId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async getJobChecklist(id: string): Promise<JobChecklist | undefined> {
+    return this.jobChecklists.get(id);
+  }
+
+  async createJobChecklist(checklist: InsertJobChecklist): Promise<JobChecklist> {
+    const id = randomUUID();
+    const created: JobChecklist = {
+      id,
+      jobId: checklist.jobId,
+      technicianId: checklist.technicianId ?? null,
+      title: checklist.title,
+      items: checklist.items ?? null,
+      completedAt: checklist.completedAt ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.jobChecklists.set(id, created);
+    return created;
+  }
+
+  async updateJobChecklist(id: string, updates: Partial<JobChecklist>): Promise<JobChecklist | undefined> {
+    const existing = this.jobChecklists.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates, updatedAt: new Date() };
+    this.jobChecklists.set(id, updated);
+    return updated;
+  }
+
+  // Technician Locations
+  async getTechnicianLocations(technicianId: string, limit?: number): Promise<TechnicianLocation[]> {
+    const locations = Array.from(this.technicianLocations.values())
+      .filter(l => l.technicianId === technicianId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return limit ? locations.slice(0, limit) : locations;
+  }
+
+  async getLatestTechnicianLocation(technicianId: string): Promise<TechnicianLocation | undefined> {
+    const locations = await this.getTechnicianLocations(technicianId, 1);
+    return locations[0];
+  }
+
+  async getAllTechniciansLatestLocations(): Promise<TechnicianLocation[]> {
+    const latestByTech = new Map<string, TechnicianLocation>();
+    Array.from(this.technicianLocations.values())
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .forEach(loc => {
+        if (!latestByTech.has(loc.technicianId)) {
+          latestByTech.set(loc.technicianId, loc);
+        }
+      });
+    return Array.from(latestByTech.values());
+  }
+
+  async createTechnicianLocation(location: InsertTechnicianLocation): Promise<TechnicianLocation> {
+    const id = randomUUID();
+    const created: TechnicianLocation = {
+      id,
+      technicianId: location.technicianId,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      accuracy: location.accuracy ?? null,
+      speed: location.speed ?? null,
+      heading: location.heading ?? null,
+      altitude: location.altitude ?? null,
+      batteryLevel: location.batteryLevel ?? null,
+      isMoving: location.isMoving ?? null,
+      jobId: location.jobId ?? null,
+      createdAt: new Date(),
+    };
+    this.technicianLocations.set(id, created);
+    
+    // Update technician's last known location
+    const tech = this.technicians.get(location.technicianId);
+    if (tech) {
+      this.technicians.set(location.technicianId, {
+        ...tech,
+        lastLocationLat: location.latitude,
+        lastLocationLng: location.longitude,
+        lastLocationUpdate: new Date(),
+      });
+    }
+    return created;
+  }
+
+  // Checklist Templates
+  async getChecklistTemplates(): Promise<ChecklistTemplate[]> {
+    return Array.from(this.checklistTemplatesMap.values())
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async getChecklistTemplate(id: string): Promise<ChecklistTemplate | undefined> {
+    return this.checklistTemplatesMap.get(id);
+  }
+
+  async getChecklistTemplatesByServiceType(serviceType: string): Promise<ChecklistTemplate[]> {
+    return Array.from(this.checklistTemplatesMap.values())
+      .filter(t => t.serviceType === serviceType || t.serviceType === null);
+  }
+
+  async createChecklistTemplate(template: InsertChecklistTemplate): Promise<ChecklistTemplate> {
+    const id = randomUUID();
+    const created: ChecklistTemplate = {
+      id,
+      name: template.name,
+      serviceType: template.serviceType ?? null,
+      items: template.items ?? null,
+      isDefault: template.isDefault ?? false,
+      createdAt: new Date(),
+    };
+    this.checklistTemplatesMap.set(id, created);
+    return created;
+  }
+
+  async updateChecklistTemplate(id: string, updates: Partial<ChecklistTemplate>): Promise<ChecklistTemplate | undefined> {
+    const existing = this.checklistTemplatesMap.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates };
+    this.checklistTemplatesMap.set(id, updated);
+    return updated;
+  }
+
+  async deleteChecklistTemplate(id: string): Promise<boolean> {
+    return this.checklistTemplatesMap.delete(id);
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1799,6 +2002,134 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(webhookLogs)
       .orderBy(desc(webhookLogs.createdAt))
       .limit(limit);
+  }
+
+  // Job Attachments
+  async getJobAttachments(jobId: string): Promise<JobAttachment[]> {
+    return db.select().from(jobAttachments)
+      .where(eq(jobAttachments.jobId, jobId))
+      .orderBy(desc(jobAttachments.createdAt));
+  }
+
+  async createJobAttachment(attachment: InsertJobAttachment): Promise<JobAttachment> {
+    const [created] = await db.insert(jobAttachments).values(attachment).returning();
+    return created;
+  }
+
+  async deleteJobAttachment(id: string): Promise<boolean> {
+    const result = await db.delete(jobAttachments).where(eq(jobAttachments.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Job Checklists
+  async getJobChecklists(jobId: string): Promise<JobChecklist[]> {
+    return db.select().from(jobChecklists)
+      .where(eq(jobChecklists.jobId, jobId))
+      .orderBy(desc(jobChecklists.createdAt));
+  }
+
+  async getJobChecklist(id: string): Promise<JobChecklist | undefined> {
+    const [checklist] = await db.select().from(jobChecklists).where(eq(jobChecklists.id, id));
+    return checklist;
+  }
+
+  async createJobChecklist(checklist: InsertJobChecklist): Promise<JobChecklist> {
+    const [created] = await db.insert(jobChecklists).values(checklist).returning();
+    return created;
+  }
+
+  async updateJobChecklist(id: string, updates: Partial<JobChecklist>): Promise<JobChecklist | undefined> {
+    const [updated] = await db.update(jobChecklists)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(jobChecklists.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Technician Locations (GPS tracking)
+  async getTechnicianLocations(technicianId: string, limit: number = 100): Promise<TechnicianLocation[]> {
+    return db.select().from(technicianLocations)
+      .where(eq(technicianLocations.technicianId, technicianId))
+      .orderBy(desc(technicianLocations.createdAt))
+      .limit(limit);
+  }
+
+  async getLatestTechnicianLocation(technicianId: string): Promise<TechnicianLocation | undefined> {
+    const [location] = await db.select().from(technicianLocations)
+      .where(eq(technicianLocations.technicianId, technicianId))
+      .orderBy(desc(technicianLocations.createdAt))
+      .limit(1);
+    return location;
+  }
+
+  async getAllTechniciansLatestLocations(): Promise<TechnicianLocation[]> {
+    // Get the latest location for each technician using a subquery
+    const latestLocations = await db.execute(sql`
+      SELECT DISTINCT ON (technician_id) 
+        id,
+        technician_id AS "technicianId",
+        latitude,
+        longitude,
+        accuracy,
+        speed,
+        heading,
+        altitude,
+        battery_level AS "batteryLevel",
+        is_moving AS "isMoving",
+        job_id AS "jobId",
+        created_at AS "createdAt"
+      FROM technician_locations
+      ORDER BY technician_id, created_at DESC
+    `);
+    return latestLocations.rows as TechnicianLocation[];
+  }
+
+  async createTechnicianLocation(location: InsertTechnicianLocation): Promise<TechnicianLocation> {
+    const [created] = await db.insert(technicianLocations).values(location).returning();
+    
+    // Also update the technician's last known location
+    await db.update(technicians)
+      .set({
+        lastLocationLat: location.latitude,
+        lastLocationLng: location.longitude,
+        lastLocationUpdate: new Date(),
+      })
+      .where(eq(technicians.id, location.technicianId));
+    
+    return created;
+  }
+
+  // Checklist Templates
+  async getChecklistTemplates(): Promise<ChecklistTemplate[]> {
+    return db.select().from(checklistTemplates).orderBy(asc(checklistTemplates.name));
+  }
+
+  async getChecklistTemplate(id: string): Promise<ChecklistTemplate | undefined> {
+    const [template] = await db.select().from(checklistTemplates).where(eq(checklistTemplates.id, id));
+    return template;
+  }
+
+  async getChecklistTemplatesByServiceType(serviceType: string): Promise<ChecklistTemplate[]> {
+    return db.select().from(checklistTemplates)
+      .where(sql`${checklistTemplates.serviceType} = ${serviceType} OR ${checklistTemplates.serviceType} IS NULL`);
+  }
+
+  async createChecklistTemplate(template: InsertChecklistTemplate): Promise<ChecklistTemplate> {
+    const [created] = await db.insert(checklistTemplates).values(template).returning();
+    return created;
+  }
+
+  async updateChecklistTemplate(id: string, updates: Partial<ChecklistTemplate>): Promise<ChecklistTemplate | undefined> {
+    const [updated] = await db.update(checklistTemplates)
+      .set(updates)
+      .where(eq(checklistTemplates.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteChecklistTemplate(id: string): Promise<boolean> {
+    const result = await db.delete(checklistTemplates).where(eq(checklistTemplates.id, id)).returning();
+    return result.length > 0;
   }
 }
 

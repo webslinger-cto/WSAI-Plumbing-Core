@@ -13,6 +13,10 @@ import {
   insertQuoteTemplateSchema,
   insertContactAttemptSchema,
   insertWebhookLogSchema,
+  insertJobAttachmentSchema,
+  insertJobChecklistSchema,
+  insertTechnicianLocationSchema,
+  insertChecklistTemplateSchema,
   type InsertLead,
 } from "@shared/schema";
 import { sendEmail, generateLeadAcknowledgmentEmail } from "./services/email";
@@ -1899,6 +1903,236 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Auto-contact error:", error);
       res.status(500).json({ error: "Failed to auto-contact lead" });
+    }
+  });
+
+  // ========================================
+  // JOB ATTACHMENTS (Photos/Videos)
+  // ========================================
+  
+  app.get("/api/jobs/:id/attachments", async (req, res) => {
+    try {
+      const attachments = await storage.getJobAttachments(req.params.id);
+      res.json(attachments);
+    } catch (error) {
+      console.error("Get job attachments error:", error);
+      res.status(500).json({ error: "Failed to get attachments" });
+    }
+  });
+
+  app.post("/api/jobs/:id/attachments", async (req, res) => {
+    try {
+      const result = insertJobAttachmentSchema.safeParse({
+        ...req.body,
+        jobId: req.params.id,
+      });
+      if (!result.success) return res.status(400).json({ error: result.error });
+      
+      const attachment = await storage.createJobAttachment(result.data);
+      
+      // Create timeline event
+      await storage.createJobTimelineEvent({
+        jobId: req.params.id,
+        eventType: "attachment_added",
+        description: `${result.data.type} added: ${result.data.filename}`,
+        createdBy: result.data.technicianId || undefined,
+      });
+      
+      res.status(201).json(attachment);
+    } catch (error) {
+      console.error("Create job attachment error:", error);
+      res.status(500).json({ error: "Failed to create attachment" });
+    }
+  });
+
+  app.delete("/api/attachments/:id", async (req, res) => {
+    try {
+      const success = await storage.deleteJobAttachment(req.params.id);
+      if (!success) return res.status(404).json({ error: "Attachment not found" });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete attachment error:", error);
+      res.status(500).json({ error: "Failed to delete attachment" });
+    }
+  });
+
+  // ========================================
+  // JOB CHECKLISTS
+  // ========================================
+  
+  app.get("/api/jobs/:id/checklists", async (req, res) => {
+    try {
+      const checklists = await storage.getJobChecklists(req.params.id);
+      res.json(checklists);
+    } catch (error) {
+      console.error("Get job checklists error:", error);
+      res.status(500).json({ error: "Failed to get checklists" });
+    }
+  });
+
+  app.post("/api/jobs/:id/checklists", async (req, res) => {
+    try {
+      const result = insertJobChecklistSchema.safeParse({
+        ...req.body,
+        jobId: req.params.id,
+      });
+      if (!result.success) return res.status(400).json({ error: result.error });
+      
+      const checklist = await storage.createJobChecklist(result.data);
+      res.status(201).json(checklist);
+    } catch (error) {
+      console.error("Create job checklist error:", error);
+      res.status(500).json({ error: "Failed to create checklist" });
+    }
+  });
+
+  app.get("/api/checklists/:id", async (req, res) => {
+    try {
+      const checklist = await storage.getJobChecklist(req.params.id);
+      if (!checklist) return res.status(404).json({ error: "Checklist not found" });
+      res.json(checklist);
+    } catch (error) {
+      console.error("Get checklist error:", error);
+      res.status(500).json({ error: "Failed to get checklist" });
+    }
+  });
+
+  app.patch("/api/checklists/:id", async (req, res) => {
+    try {
+      const checklist = await storage.updateJobChecklist(req.params.id, req.body);
+      if (!checklist) return res.status(404).json({ error: "Checklist not found" });
+      res.json(checklist);
+    } catch (error) {
+      console.error("Update checklist error:", error);
+      res.status(500).json({ error: "Failed to update checklist" });
+    }
+  });
+
+  // ========================================
+  // CHECKLIST TEMPLATES
+  // ========================================
+  
+  app.get("/api/checklist-templates", async (req, res) => {
+    try {
+      const templates = await storage.getChecklistTemplates();
+      res.json(templates);
+    } catch (error) {
+      console.error("Get checklist templates error:", error);
+      res.status(500).json({ error: "Failed to get checklist templates" });
+    }
+  });
+
+  app.get("/api/checklist-templates/service/:serviceType", async (req, res) => {
+    try {
+      const templates = await storage.getChecklistTemplatesByServiceType(req.params.serviceType);
+      res.json(templates);
+    } catch (error) {
+      console.error("Get checklist templates by service error:", error);
+      res.status(500).json({ error: "Failed to get checklist templates" });
+    }
+  });
+
+  app.post("/api/checklist-templates", async (req, res) => {
+    try {
+      const result = insertChecklistTemplateSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ error: result.error });
+      
+      const template = await storage.createChecklistTemplate(result.data);
+      res.status(201).json(template);
+    } catch (error) {
+      console.error("Create checklist template error:", error);
+      res.status(500).json({ error: "Failed to create checklist template" });
+    }
+  });
+
+  app.patch("/api/checklist-templates/:id", async (req, res) => {
+    try {
+      const template = await storage.updateChecklistTemplate(req.params.id, req.body);
+      if (!template) return res.status(404).json({ error: "Checklist template not found" });
+      res.json(template);
+    } catch (error) {
+      console.error("Update checklist template error:", error);
+      res.status(500).json({ error: "Failed to update checklist template" });
+    }
+  });
+
+  app.delete("/api/checklist-templates/:id", async (req, res) => {
+    try {
+      const success = await storage.deleteChecklistTemplate(req.params.id);
+      if (!success) return res.status(404).json({ error: "Checklist template not found" });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete checklist template error:", error);
+      res.status(500).json({ error: "Failed to delete checklist template" });
+    }
+  });
+
+  // ========================================
+  // GPS TRACKING / TECHNICIAN LOCATIONS
+  // ========================================
+  
+  // Update technician location (called from mobile app)
+  app.post("/api/technicians/:id/location", async (req, res) => {
+    try {
+      const result = insertTechnicianLocationSchema.safeParse({
+        ...req.body,
+        technicianId: req.params.id,
+      });
+      if (!result.success) return res.status(400).json({ error: result.error });
+      
+      const location = await storage.createTechnicianLocation(result.data);
+      res.status(201).json(location);
+    } catch (error) {
+      console.error("Update technician location error:", error);
+      res.status(500).json({ error: "Failed to update location" });
+    }
+  });
+
+  // Get technician location history
+  app.get("/api/technicians/:id/locations", async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
+      const locations = await storage.getTechnicianLocations(req.params.id, limit);
+      res.json(locations);
+    } catch (error) {
+      console.error("Get technician locations error:", error);
+      res.status(500).json({ error: "Failed to get locations" });
+    }
+  });
+
+  // Get latest location for a technician
+  app.get("/api/technicians/:id/location/latest", async (req, res) => {
+    try {
+      const location = await storage.getLatestTechnicianLocation(req.params.id);
+      if (!location) return res.status(404).json({ error: "No location found" });
+      res.json(location);
+    } catch (error) {
+      console.error("Get latest technician location error:", error);
+      res.status(500).json({ error: "Failed to get location" });
+    }
+  });
+
+  // Get all technicians' latest locations (for dispatch map)
+  app.get("/api/technicians/locations/all", async (req, res) => {
+    try {
+      const locations = await storage.getAllTechniciansLatestLocations();
+      
+      // Enrich with technician details
+      const technicians = await storage.getTechnicians();
+      const enrichedLocations = locations.map(loc => {
+        const tech = technicians.find(t => t.id === loc.technicianId);
+        return {
+          ...loc,
+          technicianName: tech?.fullName || "Unknown",
+          technicianStatus: tech?.status || "unknown",
+          technicianPhone: tech?.phone || null,
+        };
+      });
+      
+      res.json(enrichedLocations);
+    } catch (error) {
+      console.error("Get all technician locations error:", error);
+      res.status(500).json({ error: "Failed to get locations" });
     }
   });
 
