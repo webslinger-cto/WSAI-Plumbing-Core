@@ -1873,9 +1873,12 @@ export async function registerRoutes(
 
   // Check SMS service status
   app.get("/api/sms/status", async (req, res) => {
+    const debug = smsService.getDebugInfo();
     res.json({ 
       configured: smsService.isConfigured(),
-      provider: "SignalWire"
+      provider: "SignalWire",
+      fromNumberFormat: debug.fromNumberFormat,
+      fromNumberLength: debug.fromNumberLength
     });
   });
 

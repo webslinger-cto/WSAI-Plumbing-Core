@@ -112,3 +112,14 @@ export async function sendQuoteReady(
 export function isConfigured(): boolean {
   return !!(projectId && apiToken && spaceUrl && fromNumber);
 }
+
+export function getDebugInfo(): { fromNumberFormat: string; fromNumberLength: number } {
+  if (!fromNumber) {
+    return { fromNumberFormat: "NOT SET", fromNumberLength: 0 };
+  }
+  // Show first 3 chars and last 2 chars for debugging
+  const masked = fromNumber.length > 5 
+    ? `${fromNumber.slice(0, 3)}***${fromNumber.slice(-2)}`
+    : "***";
+  return { fromNumberFormat: masked, fromNumberLength: fromNumber.length };
+}
