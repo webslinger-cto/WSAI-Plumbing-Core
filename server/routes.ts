@@ -458,9 +458,26 @@ export async function registerRoutes(
   });
 
   app.patch("/api/jobs/:id", async (req, res) => {
-    const job = await storage.updateJob(req.params.id, req.body);
-    if (!job) return res.status(404).json({ error: "Job not found" });
-    res.json(job);
+    try {
+      // Convert timestamp strings to Date objects
+      const body = { ...req.body };
+      const timestampFields = ['assignedAt', 'confirmedAt', 'enRouteAt', 'arrivedAt', 'startedAt', 'completedAt', 'cancelledAt'];
+      timestampFields.forEach(field => {
+        if (body[field] && typeof body[field] === 'string') {
+          body[field] = new Date(body[field]);
+        }
+      });
+      if (body.scheduledDate && typeof body.scheduledDate === 'string') {
+        body.scheduledDate = new Date(body.scheduledDate);
+      }
+      
+      const job = await storage.updateJob(req.params.id, body);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      res.json(job);
+    } catch (error) {
+      console.error("Error updating job:", error);
+      res.status(500).json({ error: "Failed to update job" });
+    }
   });
 
   // Job claim (tech picks from pool)
@@ -677,36 +694,52 @@ export async function registerRoutes(
   });
 
   app.post("/api/jobs/:id/complete", async (req, res) => {
-    const { technicianId } = req.body;
-    const job = await storage.getJob(req.params.id);
-    if (!job) return res.status(404).json({ error: "Job not found" });
-    
-    const now = new Date();
-    const updated = await storage.updateJob(req.params.id, {
-      status: "completed",
-      completedAt: now,
-    });
-    
-    await storage.createJobTimelineEvent({
-      jobId: req.params.id,
-      eventType: "completed",
-      description: "Job completed",
-      createdBy: technicianId,
-    });
-    
-    // Update technician status
-    if (technicianId) {
-      const tech = await storage.getTechnician(technicianId);
-      if (tech) {
-        await storage.updateTechnician(technicianId, { 
-          status: "available",
-          currentJobId: null,
-          completedJobsToday: (tech.completedJobsToday || 0) + 1,
-        });
+    try {
+      const { id } = req.params;
+      const { technicianId, laborHours, materialsCost, travelExpense, equipmentCost, otherExpenses, expenseNotes, totalRevenue } = req.body;
+
+      // Use automation service to complete job with cost calculation
+      const result = await completeJob(id, {
+        laborHours,
+        materialsCost,
+        travelExpense,
+        equipmentCost,
+        otherExpenses,
+        expenseNotes,
+        totalRevenue,
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
       }
+
+      // Create timeline event
+      await storage.createJobTimelineEvent({
+        jobId: id,
+        eventType: "completed",
+        description: "Job completed",
+        createdBy: technicianId,
+      });
+
+      // Update technician status
+      if (technicianId) {
+        const tech = await storage.getTechnician(technicianId);
+        if (tech) {
+          await storage.updateTechnician(technicianId, { 
+            status: "available",
+            currentJobId: null,
+            completedJobsToday: (tech.completedJobsToday || 0) + 1,
+          });
+        }
+      }
+
+      // Return updated job
+      const job = await storage.getJob(id);
+      res.json(job);
+    } catch (error) {
+      console.error("Complete job error:", error);
+      res.status(500).json({ error: "Failed to complete job" });
     }
-    
-    res.json(updated);
   });
 
   // Job Timeline
@@ -1736,35 +1769,6 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Update job costs error:", error);
       res.status(500).json({ error: "Failed to update job costs" });
-    }
-  });
-
-  // Complete a job with final cost calculation
-  app.post("/api/jobs/:id/complete", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { laborHours, materialsCost, travelExpense, equipmentCost, otherExpenses, expenseNotes, totalRevenue } = req.body;
-
-      const result = await completeJob(id, {
-        laborHours,
-        materialsCost,
-        travelExpense,
-        equipmentCost,
-        otherExpenses,
-        expenseNotes,
-        totalRevenue,
-      });
-
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-
-      // Return updated job
-      const job = await storage.getJob(id);
-      res.json(job);
-    } catch (error) {
-      console.error("Complete job error:", error);
-      res.status(500).json({ error: "Failed to complete job" });
     }
   });
 

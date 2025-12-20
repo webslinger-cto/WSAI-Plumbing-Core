@@ -215,38 +215,52 @@ export async function updateJobCosts(
   }
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    console.log(`[updateJobCosts] Input costs:`, costs);
+    
     const job = await storage.getJob(jobId);
     if (!job) {
       return { success: false, error: "Job not found" };
     }
 
     // Calculate labor cost
-    const laborHours = parseFloat(costs.laborHours || job.laborHours || "0");
+    const laborHoursValue = costs.laborHours || job.laborHours || "0";
+    const laborHours = parseFloat(laborHoursValue);
     const laborRate = parseFloat(job.laborRate || "25.00");
     const laborCost = laborHours * laborRate;
 
     // Calculate total costs
-    const materialsCost = parseFloat(costs.materialsCost || job.materialsCost || "0");
-    const travelExpense = parseFloat(costs.travelExpense || job.travelExpense || "0");
-    const equipmentCost = parseFloat(costs.equipmentCost || job.equipmentCost || "0");
-    const otherExpenses = parseFloat(costs.otherExpenses || job.otherExpenses || "0");
+    const materialsCostValue = costs.materialsCost || job.materialsCost || "0";
+    const materialsCost = parseFloat(materialsCostValue);
+    const travelExpenseValue = costs.travelExpense || job.travelExpense || "0";
+    const travelExpense = parseFloat(travelExpenseValue);
+    const equipmentCostValue = costs.equipmentCost || job.equipmentCost || "0";
+    const equipmentCost = parseFloat(equipmentCostValue);
+    const otherExpensesValue = costs.otherExpenses || job.otherExpenses || "0";
+    const otherExpenses = parseFloat(otherExpensesValue);
     const totalCost = laborCost + materialsCost + travelExpense + equipmentCost + otherExpenses;
 
     // Calculate profit if we have revenue
     const totalRevenue = parseFloat(job.totalRevenue || "0");
     const profit = totalRevenue - totalCost;
 
-    await storage.updateJob(jobId, {
-      laborHours: costs.laborHours || job.laborHours,
+    const updateData = {
+      laborHours: laborHoursValue,
       laborCost: laborCost.toFixed(2),
-      materialsCost: costs.materialsCost || job.materialsCost,
-      travelExpense: costs.travelExpense || job.travelExpense,
-      equipmentCost: costs.equipmentCost || job.equipmentCost,
-      otherExpenses: costs.otherExpenses || job.otherExpenses,
+      materialsCost: materialsCostValue,
+      travelExpense: travelExpenseValue,
+      equipmentCost: equipmentCostValue,
+      otherExpenses: otherExpensesValue,
       expenseNotes: costs.expenseNotes || job.expenseNotes,
       totalCost: totalCost.toFixed(2),
       profit: profit.toFixed(2),
-    });
+    };
+    
+    console.log(`[updateJobCosts] Updating job ${jobId} with:`, updateData);
+
+    await storage.updateJob(jobId, updateData);
+    
+    const updatedJob = await storage.getJob(jobId);
+    console.log(`[updateJobCosts] Updated job laborHours:`, updatedJob?.laborHours);
 
     return { success: true };
   } catch (error) {
@@ -269,7 +283,7 @@ export async function completeJob(
   }
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const job = await storage.getJob(jobId);
+    let job = await storage.getJob(jobId);
     if (!job) {
       return { success: false, error: "Job not found" };
     }
@@ -277,6 +291,12 @@ export async function completeJob(
     // Update costs first
     if (Object.keys(finalData).length > 0) {
       await updateJobCosts(jobId, finalData);
+    }
+
+    // Re-fetch job to get updated totalCost after updateJobCosts
+    job = await storage.getJob(jobId);
+    if (!job) {
+      return { success: false, error: "Job not found after cost update" };
     }
 
     // Set revenue if provided
