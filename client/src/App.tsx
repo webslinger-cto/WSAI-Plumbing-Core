@@ -25,6 +25,7 @@ import QuoteTemplatesPage from "@/pages/QuoteTemplatesPage";
 import JobsPage from "@/pages/JobsPage";
 import QuotesPage from "@/pages/QuotesPage";
 import OperationsMenuPage from "@/pages/OperationsMenuPage";
+import TechnicianMapPage from "@/pages/TechnicianMapPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 
@@ -45,6 +46,7 @@ function AdminRouter() {
       <Route path="/jobs" component={JobsPage} />
       <Route path="/quotes" component={QuotesPage} />
       <Route path="/technicians" component={TechniciansPage} />
+      <Route path="/map" component={TechnicianMapPage} />
       <Route path="/quote-templates" component={QuoteTemplatesPage} />
       <Route path="/payroll" component={PayrollPage} />
       <Route path="/import" component={ImportPage} />
@@ -63,6 +65,7 @@ function DispatcherRouter() {
       <Route path="/" component={DispatcherDashboard} />
       <Route path="/jobs" component={JobsPage} />
       <Route path="/quotes" component={QuotesPage} />
+      <Route path="/map" component={TechnicianMapPage} />
       <Route path="/staffing" component={StaffingPool} />
       <Route path="/calls" component={() => (
         <div className="space-y-4">

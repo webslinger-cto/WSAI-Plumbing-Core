@@ -32,6 +32,7 @@ import {
   Briefcase,
   Receipt,
   BookOpen,
+  MapPin,
 } from "lucide-react";
 import cseMascot from "@assets/cse-mascot.png";
 
@@ -46,6 +47,7 @@ const adminMenuItems = [
   { title: "Leads", url: "/leads", icon: Users },
   { title: "Jobs", url: "/jobs", icon: Briefcase },
   { title: "Quotes", url: "/quotes", icon: Receipt },
+  { title: "Technician Map", url: "/map", icon: MapPin },
   { title: "Outreach", url: "/outreach", icon: Megaphone },
   { title: "Technicians", url: "/technicians", icon: Wrench },
   { title: "Quote Templates", url: "/quote-templates", icon: FileText },
@@ -59,6 +61,7 @@ const dispatcherMenuItems = [
   { title: "Dispatch Center", url: "/", icon: LayoutDashboard },
   { title: "Jobs", url: "/jobs", icon: Briefcase },
   { title: "Quotes", url: "/quotes", icon: Receipt },
+  { title: "Technician Map", url: "/map", icon: MapPin },
   { title: "Staffing Pool", url: "/staffing", icon: UserCog },
   { title: "Calls", url: "/calls", icon: Phone },
   { title: "Leads", url: "/leads", icon: Users },
