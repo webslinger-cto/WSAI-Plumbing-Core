@@ -29,8 +29,11 @@ import {
   updateJobCosts, 
   completeJob,
   sendAppointmentReminder,
+  sendTechnicianEnRouteSMS,
+  sendJobCompleteSMS,
   calculateJobROI
 } from "./services/automation";
+import * as smsService from "./services/sms";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -1776,7 +1779,7 @@ export async function registerRoutes(
     }
   });
 
-  // Send appointment reminder
+  // Send appointment reminder (email + SMS)
   app.post("/api/jobs/:id/send-reminder", async (req, res) => {
     try {
       const { id } = req.params;
@@ -1787,11 +1790,93 @@ export async function registerRoutes(
         return res.status(400).json({ error: result.error });
       }
 
-      res.json({ success: true });
+      res.json({ success: true, emailSent: result.emailSent, smsSent: result.smsSent });
     } catch (error) {
       console.error("Send reminder error:", error);
       res.status(500).json({ error: "Failed to send reminder" });
     }
+  });
+
+  // Send SMS notification that technician is en route
+  app.post("/api/jobs/:id/send-en-route-sms", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { estimatedArrival } = req.body;
+
+      const result = await sendTechnicianEnRouteSMS(id, estimatedArrival || "15-20 minutes");
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Send en route SMS error:", error);
+      res.status(500).json({ error: "Failed to send en route SMS" });
+    }
+  });
+
+  // Send SMS notification that job is complete
+  app.post("/api/jobs/:id/send-complete-sms", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const result = await sendJobCompleteSMS(id);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Send complete SMS error:", error);
+      res.status(500).json({ error: "Failed to send job complete SMS" });
+    }
+  });
+
+  // Send custom SMS to a phone number
+  app.post("/api/sms/send", async (req, res) => {
+    try {
+      const { to, message, jobId } = req.body;
+
+      if (!to || !message) {
+        return res.status(400).json({ error: "Phone number and message required" });
+      }
+
+      const result = await smsService.sendSMS(to, message);
+      
+      // Log contact attempt if job is specified
+      if (jobId) {
+        await storage.createContactAttempt({
+          jobId,
+          type: "sms",
+          direction: "outbound",
+          status: result.success ? "sent" : "failed",
+          content: message,
+          recipientPhone: to,
+          sentAt: result.success ? new Date() : null,
+          externalId: result.messageId || null,
+          failedReason: result.error || null,
+        });
+      }
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ success: true, messageId: result.messageId });
+    } catch (error) {
+      console.error("Send SMS error:", error);
+      res.status(500).json({ error: "Failed to send SMS" });
+    }
+  });
+
+  // Check SMS service status
+  app.get("/api/sms/status", async (req, res) => {
+    res.json({ 
+      configured: smsService.isConfigured(),
+      provider: "SignalWire"
+    });
   });
 
   // Auto-assign technician to a job

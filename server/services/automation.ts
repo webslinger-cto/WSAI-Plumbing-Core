@@ -3,6 +3,7 @@
 
 import { storage } from "../storage";
 import { sendEmail, generateLeadAcknowledgmentEmail, generateAppointmentReminderEmail } from "./email";
+import * as smsService from "./sms";
 import type { Lead, Job, Technician } from "@shared/schema";
 
 // Contact a lead automatically via email when they come in
@@ -343,16 +344,12 @@ export async function completeJob(
   }
 }
 
-// Send appointment reminder email
-export async function sendAppointmentReminder(jobId: string): Promise<{ success: boolean; error?: string }> {
+// Send appointment reminder via email and SMS
+export async function sendAppointmentReminder(jobId: string): Promise<{ success: boolean; error?: string; emailSent?: boolean; smsSent?: boolean }> {
   try {
     const job = await storage.getJob(jobId);
     if (!job) {
       return { success: false, error: "Job not found" };
-    }
-
-    if (!job.customerEmail) {
-      return { success: false, error: "No customer email" };
     }
 
     // Get technician name
@@ -372,30 +369,130 @@ export async function sendAppointmentReminder(jobId: string): Promise<{ success:
       ? `${job.scheduledTimeStart}${job.scheduledTimeEnd ? ` - ${job.scheduledTimeEnd}` : ""}`
       : "To be confirmed";
 
-    const emailContent = generateAppointmentReminderEmail(
-      job.customerName,
-      dateStr,
-      timeStr,
-      techName,
-      job.address
-    );
+    let emailSent = false;
+    let smsSent = false;
 
-    const result = await sendEmail({
-      to: job.customerEmail,
-      subject: emailContent.subject,
-      html: emailContent.html,
-      text: emailContent.text,
-    });
+    // Send email if customer has email
+    if (job.customerEmail) {
+      const emailContent = generateAppointmentReminderEmail(
+        job.customerName,
+        dateStr,
+        timeStr,
+        techName,
+        job.address
+      );
+
+      const emailResult = await sendEmail({
+        to: job.customerEmail,
+        subject: emailContent.subject,
+        html: emailContent.html,
+        text: emailContent.text,
+      });
+
+      // Log email contact attempt
+      await storage.createContactAttempt({
+        jobId: job.id,
+        type: "email",
+        direction: "outbound",
+        status: emailResult.success ? "sent" : "failed",
+        subject: emailContent.subject,
+        content: emailContent.text,
+        recipientEmail: job.customerEmail,
+        sentAt: emailResult.success ? new Date() : null,
+        externalId: emailResult.messageId || null,
+        failedReason: emailResult.error || null,
+      });
+
+      emailSent = emailResult.success;
+    }
+
+    // Send SMS if customer has phone and SMS is configured
+    if (job.customerPhone && smsService.isConfigured()) {
+      const scheduledDateTime = job.scheduledDate ? new Date(job.scheduledDate) : new Date();
+      if (job.scheduledTimeStart) {
+        const [hours, minutes] = job.scheduledTimeStart.split(":").map(Number);
+        scheduledDateTime.setHours(hours || 0, minutes || 0);
+      }
+
+      const smsResult = await smsService.sendAppointmentReminder(
+        job.customerPhone,
+        job.customerName,
+        scheduledDateTime,
+        techName,
+        job.address
+      );
+
+      // Log SMS contact attempt
+      await storage.createContactAttempt({
+        jobId: job.id,
+        type: "sms",
+        direction: "outbound",
+        status: smsResult.success ? "sent" : "failed",
+        content: `Appointment reminder SMS to ${job.customerPhone}`,
+        recipientPhone: job.customerPhone,
+        sentAt: smsResult.success ? new Date() : null,
+        externalId: smsResult.messageId || null,
+        failedReason: smsResult.error || null,
+      });
+
+      smsSent = smsResult.success;
+    }
+
+    // Success if at least one method was attempted (even if neither was configured)
+    // Only fail if we tried to send but all attempts failed
+    const hasContactInfo = job.customerEmail || job.customerPhone;
+    if (!hasContactInfo) {
+      return { success: false, error: "No contact method available (no email or phone)", emailSent, smsSent };
+    }
+
+    // Return success if at least one delivery succeeded, or if no delivery was possible due to config
+    return { success: emailSent || smsSent, emailSent, smsSent };
+  } catch (error) {
+    console.error("Send reminder error:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
+// Send SMS notification when technician is en route
+export async function sendTechnicianEnRouteSMS(jobId: string, estimatedArrival: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const job = await storage.getJob(jobId);
+    if (!job) {
+      return { success: false, error: "Job not found" };
+    }
+
+    if (!job.customerPhone) {
+      return { success: false, error: "No customer phone number" };
+    }
+
+    if (!smsService.isConfigured()) {
+      return { success: false, error: "SMS service not configured" };
+    }
+
+    // Get technician name
+    let techName = "Your Technician";
+    if (job.assignedTechnicianId) {
+      const tech = await storage.getTechnician(job.assignedTechnicianId);
+      if (tech) {
+        techName = tech.fullName;
+      }
+    }
+
+    const result = await smsService.sendTechnicianEnRoute(
+      job.customerPhone,
+      job.customerName,
+      techName,
+      estimatedArrival
+    );
 
     // Log contact attempt
     await storage.createContactAttempt({
       jobId: job.id,
-      type: "email",
+      type: "sms",
       direction: "outbound",
       status: result.success ? "sent" : "failed",
-      subject: emailContent.subject,
-      content: emailContent.text,
-      recipientEmail: job.customerEmail,
+      content: `En route notification to ${job.customerPhone}`,
+      recipientPhone: job.customerPhone,
       sentAt: result.success ? new Date() : null,
       externalId: result.messageId || null,
       failedReason: result.error || null,
@@ -403,7 +500,58 @@ export async function sendAppointmentReminder(jobId: string): Promise<{ success:
 
     return result;
   } catch (error) {
-    console.error("Send reminder error:", error);
+    console.error("Send en route SMS error:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
+// Send SMS notification when job is complete
+export async function sendJobCompleteSMS(jobId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const job = await storage.getJob(jobId);
+    if (!job) {
+      return { success: false, error: "Job not found" };
+    }
+
+    if (!job.customerPhone) {
+      return { success: false, error: "No customer phone number" };
+    }
+
+    if (!smsService.isConfigured()) {
+      return { success: false, error: "SMS service not configured" };
+    }
+
+    // Get technician name
+    let techName = "Your Technician";
+    if (job.assignedTechnicianId) {
+      const tech = await storage.getTechnician(job.assignedTechnicianId);
+      if (tech) {
+        techName = tech.fullName;
+      }
+    }
+
+    const result = await smsService.sendJobComplete(
+      job.customerPhone,
+      job.customerName,
+      techName
+    );
+
+    // Log contact attempt
+    await storage.createContactAttempt({
+      jobId: job.id,
+      type: "sms",
+      direction: "outbound",
+      status: result.success ? "sent" : "failed",
+      content: `Job complete notification to ${job.customerPhone}`,
+      recipientPhone: job.customerPhone,
+      sentAt: result.success ? new Date() : null,
+      externalId: result.messageId || null,
+      failedReason: result.error || null,
+    });
+
+    return result;
+  } catch (error) {
+    console.error("Send job complete SMS error:", error);
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 }

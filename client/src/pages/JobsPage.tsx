@@ -44,7 +44,18 @@ import {
   UserPlus,
   Phone,
   Calendar,
+  MessageSquare,
+  Bell,
+  MoreVertical,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { Job, Technician } from "@shared/schema";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -111,6 +122,42 @@ export default function JobsPage() {
     },
     onError: () => {
       toast({ title: "Update Failed", description: "Could not update the job.", variant: "destructive" });
+    },
+  });
+
+  const sendReminderMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      return apiRequest("POST", `/api/jobs/${jobId}/send-reminder`);
+    },
+    onSuccess: (_, jobId) => {
+      toast({ title: "Reminder Sent", description: "Appointment reminder has been sent via email and SMS." });
+    },
+    onError: () => {
+      toast({ title: "Send Failed", description: "Could not send reminder.", variant: "destructive" });
+    },
+  });
+
+  const sendEnRouteSMSMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      return apiRequest("POST", `/api/jobs/${jobId}/send-en-route-sms`, { estimatedArrival: "15-20 minutes" });
+    },
+    onSuccess: () => {
+      toast({ title: "SMS Sent", description: "En route notification sent to customer." });
+    },
+    onError: () => {
+      toast({ title: "Send Failed", description: "Could not send SMS.", variant: "destructive" });
+    },
+  });
+
+  const sendCompleteSMSMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      return apiRequest("POST", `/api/jobs/${jobId}/send-complete-sms`);
+    },
+    onSuccess: () => {
+      toast({ title: "SMS Sent", description: "Job complete notification sent to customer." });
+    },
+    onError: () => {
+      toast({ title: "Send Failed", description: "Could not send SMS.", variant: "destructive" });
     },
   });
 
@@ -281,6 +328,41 @@ export default function JobsPage() {
                               <UserPlus className="w-3 h-3 mr-1" />
                               Assign
                             </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="icon" data-testid={`button-sms-menu-${job.id}`}>
+                                  <MoreVertical className="w-4 h-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuLabel>SMS Notifications</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => sendReminderMutation.mutate(job.id)}
+                                  disabled={sendReminderMutation.isPending}
+                                  data-testid={`button-send-reminder-${job.id}`}
+                                >
+                                  <Bell className="w-4 h-4 mr-2" />
+                                  Send Reminder
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => sendEnRouteSMSMutation.mutate(job.id)}
+                                  disabled={sendEnRouteSMSMutation.isPending}
+                                  data-testid={`button-send-enroute-${job.id}`}
+                                >
+                                  <Truck className="w-4 h-4 mr-2" />
+                                  Send En Route SMS
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => sendCompleteSMSMutation.mutate(job.id)}
+                                  disabled={sendCompleteSMSMutation.isPending}
+                                  data-testid={`button-send-complete-${job.id}`}
+                                >
+                                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                                  Send Job Complete SMS
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </TableCell>
                       </TableRow>
