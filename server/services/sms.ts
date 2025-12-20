@@ -1,4 +1,4 @@
-import { RestClient } from "@signalwire/compatibility-api";
+import twilio from "twilio";
 
 interface SMSResult {
   success: boolean;
@@ -6,44 +6,69 @@ interface SMSResult {
   error?: string;
 }
 
-const projectId = process.env.SIGNALWIRE_PROJECT_ID;
-const apiToken = process.env.SIGNALWIRE_API_TOKEN;
-const spaceUrl = process.env.SIGNALWIRE_SPACE_URL;
-const fromNumber = process.env.SIGNALWIRE_PHONE_NUMBER;
+// Twilio credentials
+const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
+const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
+const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
 
-function getClient(): ReturnType<typeof RestClient> | null {
-  if (!projectId || !apiToken || !spaceUrl) {
-    console.warn("SignalWire credentials not configured");
+// SignalWire credentials (fallback)
+const signalwireProjectId = process.env.SIGNALWIRE_PROJECT_ID;
+const signalwireApiToken = process.env.SIGNALWIRE_API_TOKEN;
+const signalwireSpaceUrl = process.env.SIGNALWIRE_SPACE_URL;
+const signalwirePhoneNumber = process.env.SIGNALWIRE_PHONE_NUMBER;
+
+function getTwilioClient(): twilio.Twilio | null {
+  if (!twilioAccountSid || !twilioAuthToken) {
     return null;
   }
-  return RestClient(projectId, apiToken, { signalwireSpaceUrl: spaceUrl });
+  return twilio(twilioAccountSid, twilioAuthToken);
 }
 
 export async function sendSMS(to: string, body: string): Promise<SMSResult> {
-  const client = getClient();
+  // Try Twilio first
+  const twilioClient = getTwilioClient();
   
-  if (!client) {
-    return { success: false, error: "SMS service not configured" };
-  }
-  
-  if (!fromNumber) {
-    return { success: false, error: "From phone number not configured" };
+  if (twilioClient && twilioPhoneNumber) {
+    try {
+      const message = await twilioClient.messages.create({
+        from: twilioPhoneNumber,
+        to: to,
+        body: body,
+      });
+      
+      console.log(`SMS sent via Twilio: ${message.sid}`);
+      return { success: true, messageId: message.sid };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      console.error("Twilio SMS failed:", errorMessage);
+      return { success: false, error: errorMessage };
+    }
   }
 
-  try {
-    const message = await client.messages.create({
-      from: fromNumber,
-      to: to,
-      body: body,
-    });
-    
-    console.log(`SMS sent successfully: ${message.sid}`);
-    return { success: true, messageId: message.sid };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    console.error("Failed to send SMS:", errorMessage);
-    return { success: false, error: errorMessage };
+  // Fallback to SignalWire if Twilio not configured
+  if (signalwireProjectId && signalwireApiToken && signalwireSpaceUrl && signalwirePhoneNumber) {
+    try {
+      const { RestClient } = await import("@signalwire/compatibility-api");
+      const client = RestClient(signalwireProjectId, signalwireApiToken, { 
+        signalwireSpaceUrl: signalwireSpaceUrl 
+      });
+      
+      const message = await client.messages.create({
+        from: signalwirePhoneNumber,
+        to: to,
+        body: body,
+      });
+      
+      console.log(`SMS sent via SignalWire: ${message.sid}`);
+      return { success: true, messageId: message.sid };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      console.error("SignalWire SMS failed:", errorMessage);
+      return { success: false, error: errorMessage };
+    }
   }
+
+  return { success: false, error: "SMS service not configured" };
 }
 
 export async function sendAppointmentReminder(
@@ -110,16 +135,37 @@ export async function sendQuoteReady(
 }
 
 export function isConfigured(): boolean {
-  return !!(projectId && apiToken && spaceUrl && fromNumber);
+  const hasTwilio = !!(twilioAccountSid && twilioAuthToken && twilioPhoneNumber);
+  const hasSignalWire = !!(signalwireProjectId && signalwireApiToken && signalwireSpaceUrl && signalwirePhoneNumber);
+  return hasTwilio || hasSignalWire;
 }
 
-export function getDebugInfo(): { fromNumberFormat: string; fromNumberLength: number } {
-  if (!fromNumber) {
-    return { fromNumberFormat: "NOT SET", fromNumberLength: 0 };
+export function getActiveProvider(): string {
+  if (twilioAccountSid && twilioAuthToken && twilioPhoneNumber) {
+    return "Twilio";
   }
-  // Show first 3 chars and last 2 chars for debugging
+  if (signalwireProjectId && signalwireApiToken && signalwireSpaceUrl && signalwirePhoneNumber) {
+    return "SignalWire";
+  }
+  return "None";
+}
+
+export function getDebugInfo(): { fromNumberFormat: string; fromNumberLength: number; provider: string } {
+  const provider = getActiveProvider();
+  let fromNumber: string | undefined;
+  
+  if (provider === "Twilio") {
+    fromNumber = twilioPhoneNumber;
+  } else if (provider === "SignalWire") {
+    fromNumber = signalwirePhoneNumber;
+  }
+  
+  if (!fromNumber) {
+    return { fromNumberFormat: "NOT SET", fromNumberLength: 0, provider };
+  }
+  
   const masked = fromNumber.length > 5 
     ? `${fromNumber.slice(0, 3)}***${fromNumber.slice(-2)}`
     : "***";
-  return { fromNumberFormat: masked, fromNumberLength: fromNumber.length };
+  return { fromNumberFormat: masked, fromNumberLength: fromNumber.length, provider };
 }

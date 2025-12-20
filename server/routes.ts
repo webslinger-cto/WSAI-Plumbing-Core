@@ -1876,7 +1876,7 @@ export async function registerRoutes(
     const debug = smsService.getDebugInfo();
     res.json({ 
       configured: smsService.isConfigured(),
-      provider: "SignalWire",
+      provider: debug.provider,
       fromNumberFormat: debug.fromNumberFormat,
       fromNumberLength: debug.fromNumberLength
     });
