@@ -1,9 +1,11 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import KPICard from "@/components/KPICard";
 import QuoteBuilder from "@/components/QuoteBuilder";
 import JobTimeline from "@/components/JobTimeline";
+import JobAttachments from "@/components/JobAttachments";
+import JobChecklist from "@/components/JobChecklist";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +41,8 @@ import {
   Loader2,
   Hand,
   Briefcase,
+  Camera,
+  ListChecks,
 } from "lucide-react";
 import type { Job, Notification } from "@shared/schema";
 import { formatDistanceToNow, format } from "date-fns";
@@ -678,8 +682,16 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
           </DialogHeader>
           {selectedJob && (
             <Tabs defaultValue="details" className="mt-4">
-              <TabsList>
+              <TabsList className="flex-wrap">
                 <TabsTrigger value="details" data-testid="tab-details">Details</TabsTrigger>
+                <TabsTrigger value="photos" data-testid="tab-photos">
+                  <Camera className="w-4 h-4 mr-1" />
+                  Photos
+                </TabsTrigger>
+                <TabsTrigger value="checklist" data-testid="tab-checklist">
+                  <ListChecks className="w-4 h-4 mr-1" />
+                  Checklist
+                </TabsTrigger>
                 <TabsTrigger value="timeline" data-testid="tab-timeline">Timeline</TabsTrigger>
                 <TabsTrigger value="quote" data-testid="tab-quote">Quote</TabsTrigger>
               </TabsList>
@@ -752,6 +764,19 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
                     Call Customer
                   </Button>
                 </div>
+              </TabsContent>
+              <TabsContent value="photos" className="mt-4">
+                <JobAttachments 
+                  jobId={selectedJob.id} 
+                  technicianId={technicianId} 
+                />
+              </TabsContent>
+              <TabsContent value="checklist" className="mt-4">
+                <JobChecklist 
+                  jobId={selectedJob.id} 
+                  technicianId={technicianId}
+                  serviceType={selectedJob.serviceType || undefined}
+                />
               </TabsContent>
               <TabsContent value="timeline" className="mt-4">
                 <JobTimeline job={selectedJob} />

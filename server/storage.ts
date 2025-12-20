@@ -2039,8 +2039,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateJobChecklist(id: string, updates: Partial<JobChecklist>): Promise<JobChecklist | undefined> {
+    // Convert completedAt string to Date if provided
+    const cleanedUpdates = { ...updates };
+    if (cleanedUpdates.completedAt !== undefined) {
+      cleanedUpdates.completedAt = cleanedUpdates.completedAt ? new Date(cleanedUpdates.completedAt) : null;
+    }
     const [updated] = await db.update(jobChecklists)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...cleanedUpdates, updatedAt: new Date() })
       .where(eq(jobChecklists.id, id))
       .returning();
     return updated;
