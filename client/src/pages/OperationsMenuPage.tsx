@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
 import { 
   Phone, 
   Mail, 
@@ -14,7 +15,8 @@ import {
   FileText,
   TrendingUp,
   AlertCircle,
-  Zap
+  Zap,
+  Download
 } from "lucide-react";
 
 interface OperationsMenuPageProps {
@@ -180,6 +182,40 @@ function AdminOperationsContent() {
                 <tr><td className="py-2 px-3">Zapier</td><td className="py-2 px-3 font-mono text-xs">/api/webhooks/zapier/lead</td><td className="py-2 px-3">None</td></tr>
               </tbody>
             </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Download className="w-5 h-5 text-primary" />
+            Documentation Downloads
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground mb-4">
+            Download PDF documentation for offline reference or sharing with stakeholders:
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <a href="/api/documentation/pdf" download>
+              <Button variant="outline" className="w-full justify-start gap-2" data-testid="button-download-docs">
+                <Download className="w-4 h-4" />
+                <div className="text-left">
+                  <p className="font-medium">CRM Documentation</p>
+                  <p className="text-xs text-muted-foreground">Complete system guide</p>
+                </div>
+              </Button>
+            </a>
+            <a href="/api/docs/comparison" download>
+              <Button variant="outline" className="w-full justify-start gap-2" data-testid="button-download-comparison">
+                <Download className="w-4 h-4" />
+                <div className="text-left">
+                  <p className="font-medium">HomeAdvisor Comparison</p>
+                  <p className="text-xs text-muted-foreground">Feature comparison PDF</p>
+                </div>
+              </Button>
+            </a>
           </div>
         </CardContent>
       </Card>
