@@ -169,6 +169,15 @@ export function generateComparisonPDF(): PDFKit.PDFDocument {
   doc.fontSize(10).font("Helvetica-Oblique").text(`Generated: ${new Date().toLocaleDateString()}`, { align: "center" });
   doc.moveDown(1.5);
 
+  // System Overview from README
+  doc.fontSize(12).font("Helvetica-Bold").text("CSE CRM System Overview");
+  doc.moveDown(0.3);
+  doc.fontSize(9).font("Helvetica");
+  doc.text("Four user roles: Admin (leads, technicians, analytics), Dispatcher (jobs, assignments), Technician (field work, quotes), Salesperson (sales, commissions)");
+  doc.text("Lead sources: eLocal, Networx, Angi, Thumbtack, Inquirly, Zapier webhooks");
+  doc.text("Email notifications via Resend API with two-tier routing (office + technician)");
+  doc.moveDown(1);
+
   // Comparison table header
   const col1 = 40;
   const col2 = 260;
@@ -186,31 +195,28 @@ export function generateComparisonPDF(): PDFKit.PDFDocument {
   doc.moveDown(0.5);
 
   const features = [
-    { feature: "Built-in CRM", cse: "Yes - Full CRM", ha: "No - External required" },
-    { feature: "Lead Management", cse: "Yes", ha: "Yes" },
-    { feature: "Multi-Source Lead Intake", cse: "Yes (6+ sources)", ha: "HomeAdvisor only" },
-    { feature: "Webhook Integration", cse: "Yes - All sources", ha: "Limited" },
-    { feature: "Job Lifecycle Tracking", cse: "Yes - Full workflow", ha: "No" },
-    { feature: "Cost Tracking (Labor/Materials)", cse: "Yes - Detailed", ha: "No" },
-    { feature: "Profit Calculation", cse: "Yes - Automatic", ha: "No" },
-    { feature: "Technician Management", cse: "Yes", ha: "No" },
-    { feature: "Real-Time GPS Tracking", cse: "Yes", ha: "No" },
-    { feature: "Automated Dispatch", cse: "Yes", ha: "No" },
-    { feature: "Salesperson Management", cse: "Yes", ha: "No" },
-    { feature: "Commission Tracking", cse: "Yes - NET profit based", ha: "No" },
-    { feature: "Quote Generation", cse: "Yes - Mobile ready", ha: "No" },
-    { feature: "Public Quote Links", cse: "Yes", ha: "No" },
-    { feature: "Photo/Video Capture", cse: "Yes - GPS tagged", ha: "No" },
-    { feature: "Job Checklists", cse: "Yes", ha: "No" },
-    { feature: "Email Notifications", cse: "Yes - Automated", ha: "Basic alerts" },
-    { feature: "SMS Notifications*", cse: "Yes - With Twilio", ha: "No" },
-    { feature: "Analytics Dashboard", cse: "Yes - Comprehensive", ha: "Basic" },
-    { feature: "CSV Export", cse: "Yes - All data", ha: "Limited" },
-    { feature: "Role-Based Access", cse: "Yes - 4 roles", ha: "Single user" },
-    { feature: "Lead Scoring", cse: "Yes", ha: "No" },
-    { feature: "Duplicate Detection", cse: "Yes", ha: "No" },
-    { feature: "Appointment Reminders", cse: "Yes - Email/SMS", ha: "No" },
-    { feature: "Customer Reviews Integration", cse: "Yelp link ready", ha: "Yes - Built-in" },
+    { feature: "Built-in CRM", cse: "Yes - PostgreSQL backed", ha: "No - External required" },
+    { feature: "Lead Management", cse: "Full lifecycle tracking", ha: "Basic lead list" },
+    { feature: "Multi-Source Lead Intake", cse: "6 sources (eLocal, Networx, Angi, Thumbtack, Inquirly, Zapier)", ha: "HomeAdvisor only" },
+    { feature: "Webhook Integration", cse: "All sources + Zapier", ha: "None" },
+    { feature: "User Roles", cse: "4 roles (Admin, Dispatcher, Tech, Sales)", ha: "Single user" },
+    { feature: "Job Lifecycle Tracking", cse: "Full workflow with status", ha: "No" },
+    { feature: "Cost Tracking", cse: "5 categories (Labor, Materials, Travel, Equipment, Other)", ha: "No" },
+    { feature: "Profit Calculation", cse: "Automatic per-job P&L", ha: "No" },
+    { feature: "Technician Management", cse: "Skills, rates, availability", ha: "No" },
+    { feature: "Real-Time GPS Tracking", cse: "Technician + Salesperson", ha: "No" },
+    { feature: "Automated Dispatch", cse: "Auto-assign by location", ha: "No" },
+    { feature: "Salesperson Management", cse: "Commission rates, priority routing", ha: "No" },
+    { feature: "Commission Tracking", cse: "NET profit based (default 15%)", ha: "No" },
+    { feature: "Quote Generation", cse: "Line items + public links", ha: "No" },
+    { feature: "Photo/Video Capture", cse: "GPS tagged, before/during/after", ha: "No" },
+    { feature: "Job Checklists", cse: "Templates by service type", ha: "No" },
+    { feature: "Email Notifications", cse: "Two-tier routing (Resend API)", ha: "Basic alerts" },
+    { feature: "SMS Notifications*", cse: "Twilio/SignalWire ready", ha: "No" },
+    { feature: "Analytics Dashboard", cse: "Role-specific with charts", ha: "Basic" },
+    { feature: "Data Export", cse: "CSV for all entities", ha: "Limited" },
+    { feature: "Appointment Reminders", cse: "Email + SMS automated", ha: "No" },
+    { feature: "Cancellation Tracking", cse: "Reason + expenses logged", ha: "No" },
   ];
 
   doc.fontSize(9).font("Helvetica");
@@ -312,74 +318,76 @@ export function generateHouseCallProComparisonPDF(): PDFKit.PDFDocument {
   doc.fontSize(18).text("vs HouseCall Pro", { align: "center" });
   doc.moveDown(0.5);
   doc.fontSize(12).font("Helvetica").text("Comprehensive Feature & Pricing Comparison", { align: "center" });
-  doc.moveDown(2);
+  doc.moveDown(1);
+
+  // System Overview from README
+  doc.fontSize(11).font("Helvetica-Bold").text("CSE CRM Architecture (from system documentation):");
+  doc.moveDown(0.3);
+  doc.fontSize(9).font("Helvetica");
+  doc.text("Backend: Express.js + PostgreSQL with Drizzle ORM");
+  doc.text("Frontend: React + TypeScript with Vite, TanStack Query, Radix UI/shadcn");
+  doc.text("Authentication: Session-based with Passport.js (4 demo accounts)");
+  doc.text("Email: Resend API with rate limiting (800ms between sends)");
+  doc.text("SMS: Twilio/SignalWire ready (pending A2P verification)");
+  doc.moveDown(1);
 
   // HouseCall Pro Pricing Section
-  doc.fontSize(16).font("Helvetica-Bold").text("HouseCall Pro Pricing (2024-2025)");
+  doc.fontSize(14).font("Helvetica-Bold").text("HouseCall Pro Pricing (2024-2025)");
   doc.moveDown(0.5);
   doc.fontSize(10).font("Helvetica");
   
   doc.text("Basic Plan: $79/month ($59/month billed annually)");
-  doc.text("  - Solo operators & small businesses");
-  doc.text("  - Limited features, no QuickBooks integration");
-  doc.moveDown(0.5);
+  doc.text("  - Solo operators, limited features, no QuickBooks");
+  doc.moveDown(0.3);
   
   doc.text("Essentials Plan: $189/month ($149/month billed annually)");
-  doc.text("  - Up to 5 users");
-  doc.text("  - QuickBooks integration, GPS tracking");
-  doc.moveDown(0.5);
+  doc.text("  - Up to 5 users, QuickBooks integration, GPS tracking");
+  doc.moveDown(0.3);
   
   doc.text("MAX Plan: $299+/month (custom pricing)");
-  doc.text("  - Unlimited users");
-  doc.text("  - Full API access, advanced analytics");
-  doc.moveDown(1);
+  doc.text("  - Unlimited users, API access, advanced analytics");
+  doc.moveDown(0.5);
 
   doc.font("Helvetica-Bold").text("Common Add-On Costs:");
   doc.font("Helvetica");
-  doc.text("  Sales Proposal Tool: +$40/month");
-  doc.text("  Recurring Service Plans: +$40/month");
-  doc.text("  Flat-Rate Price Book: +$149/month");
-  doc.text("  Vehicle GPS Tracking: +$20/vehicle/month");
-  doc.text("  VoIP/Call Tracking: Custom quote");
-  doc.moveDown(1.5);
+  doc.text("  GPS Tracking: +$20/vehicle/month | Sales Proposals: +$40/month");
+  doc.text("  Recurring Service Plans: +$40/month | Flat-Rate Price Book: +$149/month");
+  doc.moveDown(1);
 
-  // CSE CRM Pricing
-  doc.fontSize(16).font("Helvetica-Bold").text("Chicago Sewer Experts CRM - All-Inclusive");
+  // CSE CRM Features from README
+  doc.fontSize(14).font("Helvetica-Bold").text("Chicago Sewer Experts CRM - All-Inclusive");
   doc.moveDown(0.5);
   doc.fontSize(10).font("Helvetica");
-  doc.text("Single Plan: Custom pricing (contact for quote)");
-  doc.text("  - Unlimited users across all roles");
-  doc.text("  - No per-user fees");
-  doc.text("  - All features included - no add-ons required");
-  doc.text("  - No hidden costs or surprise charges");
-  doc.moveDown(1.5);
+  doc.text("Self-hosted solution with unlimited users across 4 role types");
+  doc.text("No per-user fees, no add-on charges, no per-vehicle GPS costs");
+  doc.moveDown(1);
 
-  // Feature Comparison Table
-  doc.fontSize(16).font("Helvetica-Bold").text("Feature Comparison");
+  // Feature Comparison Table from README
+  doc.fontSize(14).font("Helvetica-Bold").text("Feature Comparison");
   doc.moveDown(0.5);
 
   const features = [
-    { feature: "Lead Management", hcp: "Basic only", cse: "Full CRM with sources" },
-    { feature: "Multi-Source Webhooks", hcp: "Limited", cse: "eLocal, Networx, Angi, Thumbtack, Zapier" },
-    { feature: "Auto Lead Contact", hcp: "No", cse: "Yes - Email + SMS" },
-    { feature: "Job Scheduling", hcp: "Yes", cse: "Yes" },
-    { feature: "Technician Dispatch", hcp: "Yes", cse: "Yes - with GPS auto-assign" },
-    { feature: "Real-Time GPS Tracking", hcp: "+$20/vehicle", cse: "Included" },
-    { feature: "Quote Generation", hcp: "+$40/month", cse: "Included + public links" },
-    { feature: "Commission Tracking", hcp: "No", cse: "Yes - NET profit based" },
-    { feature: "Salesperson Management", hcp: "No", cse: "Full role with analytics" },
-    { feature: "Cost Tracking (5 categories)", hcp: "Limited", cse: "Labor, Materials, Travel, Equipment, Other" },
-    { feature: "Profit Calculation", hcp: "Basic", cse: "Detailed per-job P&L" },
-    { feature: "Photo/Video Attachments", hcp: "Yes", cse: "Yes - with GPS tags" },
-    { feature: "Job Checklists", hcp: "Essentials+", cse: "Included" },
-    { feature: "Customer Portal", hcp: "Yes", cse: "Yes" },
-    { feature: "Mobile App", hcp: "Yes", cse: "Progressive Web App" },
-    { feature: "Analytics Dashboard", hcp: "MAX only", cse: "Included for all roles" },
-    { feature: "Appointment Reminders", hcp: "Yes", cse: "Yes - Email + SMS" },
-    { feature: "Role-Based Access", hcp: "Basic", cse: "4 roles: Admin, Dispatcher, Tech, Sales" },
+    { feature: "User Roles", hcp: "Basic roles", cse: "4 distinct: Admin, Dispatcher, Technician, Salesperson" },
+    { feature: "Lead Sources", hcp: "Manual entry", cse: "6 webhooks: eLocal, Networx, Angi, Thumbtack, Inquirly, Zapier" },
+    { feature: "Auto Lead Contact", hcp: "No", cse: "Yes - autoContactLead automation" },
+    { feature: "Job Creation", hcp: "Manual", cse: "Automated from lead (createJobFromLead)" },
+    { feature: "Technician Dispatch", hcp: "Manual", cse: "Auto-assign by GPS (autoAssignTechnician)" },
+    { feature: "GPS Tracking", hcp: "+$20/vehicle/month", cse: "Included - technician_locations + salesperson_locations" },
+    { feature: "Cost Tracking", hcp: "Basic", cse: "5 categories: Labor, Materials, Travel, Equipment, Other" },
+    { feature: "Profit Calculation", hcp: "None", cse: "Auto per-job: totalRevenue - totalCost = profit" },
+    { feature: "Commission Tracking", hcp: "No", cse: "NET profit based (default 15%), pending/approved/paid status" },
+    { feature: "Salesperson Management", hcp: "No", cse: "Full: commission rates, priority routing, max daily leads" },
+    { feature: "Quote Generation", hcp: "+$40/month", cse: "Included with line items + public links" },
+    { feature: "Photo/Video Capture", hcp: "Yes", cse: "GPS tagged, categories: before/during/after" },
+    { feature: "Job Checklists", hcp: "Essentials+", cse: "Included with templates by service type" },
+    { feature: "Email Notifications", hcp: "Basic", cse: "Two-tier: Office (leads/jobs) + Tech (assignments)" },
+    { feature: "SMS Notifications", hcp: "Limited", cse: "Twilio/SignalWire ready (A2P verification pending)" },
+    { feature: "Analytics Dashboard", hcp: "MAX only ($299+)", cse: "Role-specific dashboards with Recharts" },
+    { feature: "Cancellation Tracking", hcp: "No", cse: "Reason + expenses logged (cancelJob automation)" },
+    { feature: "Appointment Reminders", hcp: "Yes", cse: "sendAppointmentReminder via Resend API" },
   ];
 
-  doc.fontSize(9).font("Helvetica");
+  doc.fontSize(8).font("Helvetica");
   features.forEach(f => {
     doc.font("Helvetica-Bold").text(`${f.feature}:`, { continued: true });
     doc.font("Helvetica").text(` HCP: ${f.hcp} | CSE: ${f.cse}`);
