@@ -600,15 +600,18 @@ interface NotificationConfig {
 }
 
 // Default notification recipients - configured for Chicago Sewer Experts
-const DEFAULT_EMAIL_RECIPIENTS = ["CSEINTAKETEST@webslingerai.com"];
-const DEFAULT_SMS_RECIPIENTS = process.env.NOTIFICATION_SMS_NUMBERS 
-  ? process.env.NOTIFICATION_SMS_NUMBERS.split(",").map(n => n.trim())
-  : [];
+// Main office/dispatch email - receives all leads, quotes, and jobs
+const OFFICE_EMAIL = "CSEINTAKETEST@webslingerai.com";
+// Technician email - receives approved/assigned job notifications
+const TECHNICIAN_EMAIL = "techtest@webslingerai.com";
 
-// Default notification settings - can be customized
+const DEFAULT_EMAIL_RECIPIENTS = [OFFICE_EMAIL];
+const DEFAULT_SMS_RECIPIENTS: string[] = []; // SMS disabled until Twilio verified
+
+// Default notification settings - EMAIL ONLY for now (SMS pending verification)
 const DEFAULT_NOTIFICATION_CONFIG: NotificationConfig = {
   notifyByEmail: true,
-  notifyBySms: true,
+  notifyBySms: false, // Disabled until Twilio A2P verification complete
   emailRecipients: DEFAULT_EMAIL_RECIPIENTS,
   smsRecipients: DEFAULT_SMS_RECIPIENTS,
 };
@@ -704,5 +707,183 @@ export async function notifyLeadRecipients(
     console.error("Lead notification error:", error);
     errors.push(String(error));
     return { emailsSent, smsSent, errors };
+  }
+}
+
+// Notify office when a new quote is created
+export async function notifyQuoteCreated(
+  quote: { id: string; customerName: string; jobId?: string; total: string; lineItems?: any[] },
+  quoteUrl?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px;">
+        <div style="background: #b22222; color: white; padding: 15px; border-radius: 8px 8px 0 0;">
+          <h2 style="margin: 0;">New Quote Created</h2>
+        </div>
+        <div style="background: #f5f5f5; padding: 20px; border: 1px solid #ddd;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 8px 0;"><strong>Quote ID:</strong></td><td>${quote.id}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Customer:</strong></td><td>${quote.customerName}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Total:</strong></td><td style="font-weight: bold; color: #2e7d32;">$${quote.total}</td></tr>
+            ${quote.jobId ? `<tr><td style="padding: 8px 0;"><strong>Job ID:</strong></td><td>${quote.jobId}</td></tr>` : ''}
+          </table>
+          ${quoteUrl ? `<p style="margin-top: 15px;"><a href="${quoteUrl}" style="background: #b22222; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">View Quote</a></p>` : ''}
+        </div>
+        <div style="background: #1a1a2e; color: #888; padding: 10px; text-align: center; font-size: 12px; border-radius: 0 0 8px 8px;">
+          Chicago Sewer Experts CRM
+        </div>
+      </div>
+    `;
+
+    const result = await sendEmail({
+      to: OFFICE_EMAIL,
+      subject: `New Quote: ${quote.customerName} - $${quote.total}`,
+      html: emailHtml,
+    });
+
+    console.log(`[Quote Notification] Quote ${quote.id}: email ${result.success ? 'sent' : 'failed'}`);
+    return result;
+  } catch (error) {
+    console.error("Quote notification error:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
+// Notify office when a new job is created
+export async function notifyJobCreated(job: Job): Promise<{ success: boolean; error?: string }> {
+  try {
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px;">
+        <div style="background: #1976d2; color: white; padding: 15px; border-radius: 8px 8px 0 0;">
+          <h2 style="margin: 0;">New Job Created</h2>
+        </div>
+        <div style="background: #f5f5f5; padding: 20px; border: 1px solid #ddd;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 8px 0;"><strong>Job ID:</strong></td><td>${job.id}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Customer:</strong></td><td>${job.customerName}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Phone:</strong></td><td><a href="tel:${job.customerPhone}">${job.customerPhone}</a></td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Address:</strong></td><td>${job.address || 'Not provided'}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Service:</strong></td><td>${job.serviceType || 'General'}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Status:</strong></td><td>${job.status}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Priority:</strong></td><td style="color: ${job.priority === 'urgent' ? '#b22222' : job.priority === 'high' ? '#f97316' : '#333'}">${(job.priority || 'normal').toUpperCase()}</td></tr>
+          </table>
+          ${job.description ? `<hr style="margin: 15px 0;"><p><strong>Description:</strong><br>${job.description}</p>` : ''}
+        </div>
+        <div style="background: #1a1a2e; color: #888; padding: 10px; text-align: center; font-size: 12px; border-radius: 0 0 8px 8px;">
+          Chicago Sewer Experts CRM
+        </div>
+      </div>
+    `;
+
+    const result = await sendEmail({
+      to: OFFICE_EMAIL,
+      subject: `New Job: ${job.customerName} - ${job.serviceType || 'Service'}`,
+      html: emailHtml,
+    });
+
+    console.log(`[Job Notification] Job ${job.id}: email ${result.success ? 'sent' : 'failed'}`);
+    return result;
+  } catch (error) {
+    console.error("Job notification error:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
+// Notify technician when a job is assigned to them
+export async function notifyJobAssigned(
+  job: Job,
+  technicianName: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const scheduledInfo = job.scheduledDate 
+      ? `Scheduled: ${new Date(job.scheduledDate).toLocaleDateString()} ${job.scheduledTimeStart || ''} - ${job.scheduledTimeEnd || ''}`
+      : 'Schedule: TBD';
+
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px;">
+        <div style="background: #2e7d32; color: white; padding: 15px; border-radius: 8px 8px 0 0;">
+          <h2 style="margin: 0;">Job Assigned to ${technicianName}</h2>
+        </div>
+        <div style="background: #f5f5f5; padding: 20px; border: 1px solid #ddd;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 8px 0;"><strong>Job ID:</strong></td><td>${job.id}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Technician:</strong></td><td style="font-weight: bold;">${technicianName}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Customer:</strong></td><td>${job.customerName}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Phone:</strong></td><td><a href="tel:${job.customerPhone}">${job.customerPhone}</a></td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Address:</strong></td><td>${job.address || 'Not provided'}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Service:</strong></td><td>${job.serviceType || 'General'}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>${scheduledInfo}</strong></td><td></td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Priority:</strong></td><td style="color: ${job.priority === 'urgent' ? '#b22222' : job.priority === 'high' ? '#f97316' : '#333'}">${(job.priority || 'normal').toUpperCase()}</td></tr>
+          </table>
+          ${job.description ? `<hr style="margin: 15px 0;"><p><strong>Description:</strong><br>${job.description}</p>` : ''}
+        </div>
+        <div style="background: #1a1a2e; color: #888; padding: 10px; text-align: center; font-size: 12px; border-radius: 0 0 8px 8px;">
+          Chicago Sewer Experts CRM - Technician Assignment
+        </div>
+      </div>
+    `;
+
+    // Send to technician email
+    const techResult = await sendEmail({
+      to: TECHNICIAN_EMAIL,
+      subject: `Job Assigned: ${job.customerName} - ${job.address || job.serviceType}`,
+      html: emailHtml,
+    });
+
+    console.log(`[Job Assignment] Job ${job.id} assigned to ${technicianName}: email ${techResult.success ? 'sent' : 'failed'}`);
+    return techResult;
+  } catch (error) {
+    console.error("Job assignment notification error:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
+// Notify technician when job is approved/in_progress
+export async function notifyJobApproved(
+  job: Job,
+  technicianName?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const scheduledInfo = job.scheduledDate 
+      ? `Scheduled: ${new Date(job.scheduledDate).toLocaleDateString()} ${job.scheduledTimeStart || ''} - ${job.scheduledTimeEnd || ''}`
+      : 'Schedule: TBD';
+
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px;">
+        <div style="background: #2e7d32; color: white; padding: 15px; border-radius: 8px 8px 0 0;">
+          <h2 style="margin: 0;">Job Approved - Ready for Work</h2>
+        </div>
+        <div style="background: #f5f5f5; padding: 20px; border: 1px solid #ddd;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 8px 0;"><strong>Job ID:</strong></td><td>${job.id}</td></tr>
+            ${technicianName ? `<tr><td style="padding: 8px 0;"><strong>Assigned To:</strong></td><td style="font-weight: bold;">${technicianName}</td></tr>` : ''}
+            <tr><td style="padding: 8px 0;"><strong>Customer:</strong></td><td>${job.customerName}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Phone:</strong></td><td><a href="tel:${job.customerPhone}">${job.customerPhone}</a></td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Address:</strong></td><td>${job.address || 'Not provided'}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Service:</strong></td><td>${job.serviceType || 'General'}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>${scheduledInfo}</strong></td><td></td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Priority:</strong></td><td style="color: ${job.priority === 'urgent' ? '#b22222' : job.priority === 'high' ? '#f97316' : '#333'}">${(job.priority || 'normal').toUpperCase()}</td></tr>
+          </table>
+          ${job.description ? `<hr style="margin: 15px 0;"><p><strong>Description:</strong><br>${job.description}</p>` : ''}
+        </div>
+        <div style="background: #1a1a2e; color: #888; padding: 10px; text-align: center; font-size: 12px; border-radius: 0 0 8px 8px;">
+          Chicago Sewer Experts CRM - Job Approved
+        </div>
+      </div>
+    `;
+
+    // Send to technician email
+    const result = await sendEmail({
+      to: TECHNICIAN_EMAIL,
+      subject: `Job Approved: ${job.customerName} - ${job.address || job.serviceType}`,
+      html: emailHtml,
+    });
+
+    console.log(`[Job Approved] Job ${job.id}: email ${result.success ? 'sent' : 'failed'}`);
+    return result;
+  } catch (error) {
+    console.error("Job approved notification error:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 }
