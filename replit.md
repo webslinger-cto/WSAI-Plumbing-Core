@@ -196,10 +196,30 @@ Tests cover:
 - Webhook logs
 - Export data validation
 
-## Pending Integrations
+## Notification Configuration
 
-### Twilio SMS Integration (Not Configured)
-The Twilio integration for SMS notifications has not been set up. To enable SMS appointment reminders:
-1. The user needs to provide Twilio credentials (Account SID, Auth Token, and Phone Number)
-2. These should be stored as secrets: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
-3. Once credentials are available, implement the SMS sending logic in server/routes.ts using the twilio npm package
+### Email Notifications (Active)
+Two-tier email routing system via Resend API:
+
+**Office Email (CSEINTAKETEST@webslingerai.com):**
+- All new leads
+- All new jobs created
+- All new quotes
+
+**Technician Email (techtest@webslingerai.com):**
+- Job assignments
+- Job approvals/in-progress notifications
+
+Rate limiting: 800ms delay after each email to comply with Resend 2 req/sec limit.
+
+### SMS Notifications (Disabled)
+SMS is currently disabled pending A2P carrier verification:
+- Twilio toll-free numbers require verification before sending to carriers
+- SignalWire numbers have similar restrictions
+- AT&T email-to-SMS gateways discontinued June 2025
+- Verizon carrier gateway configured as fallback (312-369-9850@vtext.com)
+
+To re-enable SMS after verification:
+1. Complete Twilio/SignalWire A2P verification
+2. Update `server/services/sms.ts` to use verified number
+3. Enable SMS flags in `server/services/automation.ts`

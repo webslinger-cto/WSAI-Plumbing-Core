@@ -159,6 +159,34 @@
 | `sendAppointmentReminder` | Email reminder to customer | Before scheduled appointment |
 | `calculateJobROI` | Compute profit metrics | Analytics and reporting |
 
+### Email Notification Routing (Two-Tier System)
+
+The system uses a two-tier email notification system:
+
+**Office Email (CSEINTAKETEST@webslingerai.com):**
+- All new leads received
+- All new jobs created
+- All new quotes created
+- General system notifications
+
+**Technician Email (techtest@webslingerai.com):**
+- Job assignments
+- Job approvals/start notifications
+- Field-specific notifications
+
+| Event | Recipients | When |
+|-------|-----------|------|
+| New Lead | Office | Lead created via webhook or form |
+| New Job | Office | Job created from lead or manually |
+| Job Assigned | Technician | Tech assigned to job |
+| Job Started | Technician | Tech starts work |
+| New Quote | Office | Quote created by tech |
+
+**Important Notes:**
+- SMS notifications are currently DISABLED pending carrier A2P verification
+- All notifications are email-only via Resend API
+- Rate limited to 2 requests/second to comply with Resend limits
+
 ---
 
 ## 4. Job Management
