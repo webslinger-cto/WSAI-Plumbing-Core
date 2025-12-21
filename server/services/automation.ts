@@ -590,3 +590,123 @@ export function calculateJobROI(job: Job): {
     profitMargin,
   };
 }
+
+// Configuration for lead notifications
+interface NotificationConfig {
+  emailRecipients?: string[];  // Email addresses to notify
+  smsRecipients?: string[];    // Phone numbers to notify
+  notifyByEmail?: boolean;
+  notifyBySms?: boolean;
+}
+
+// Default notification settings - can be customized
+const DEFAULT_NOTIFICATION_CONFIG: NotificationConfig = {
+  notifyByEmail: true,
+  notifyBySms: true,
+};
+
+// Notify team members when a new lead comes in
+export async function notifyLeadRecipients(
+  lead: Lead,
+  config?: NotificationConfig
+): Promise<{ emailsSent: number; smsSent: number; errors: string[] }> {
+  const settings = { ...DEFAULT_NOTIFICATION_CONFIG, ...config };
+  const errors: string[] = [];
+  let emailsSent = 0;
+  let smsSent = 0;
+
+  try {
+    // Get recipients
+    let emailRecipients = settings.emailRecipients || [];
+    let smsRecipients = settings.smsRecipients || [];
+
+    // If no recipients specified, get from technicians/users
+    if (emailRecipients.length === 0 || smsRecipients.length === 0) {
+      const technicians = await storage.getTechnicians();
+      
+      if (emailRecipients.length === 0) {
+        emailRecipients = technicians
+          .filter(t => t.email)
+          .slice(0, 5)
+          .map(t => t.email!);
+      }
+      
+      if (smsRecipients.length === 0) {
+        smsRecipients = technicians
+          .filter(t => t.phone)
+          .slice(0, 3)
+          .map(t => t.phone!);
+      }
+    }
+
+    // Format lead info
+    const leadInfo = {
+      name: lead.customerName || "Unknown",
+      phone: lead.customerPhone || "Not provided",
+      email: lead.customerEmail || "Not provided",
+      address: lead.address || "Not provided",
+      service: lead.serviceType || "Not specified",
+      source: lead.source || "Direct",
+      priority: lead.priority || "normal",
+    };
+
+    // Send email notifications
+    if (settings.notifyByEmail && emailRecipients.length > 0) {
+      const emailSubject = `🔔 New Lead: ${leadInfo.name} - ${leadInfo.service}`;
+      const emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px;">
+          <div style="background: #b22222; color: white; padding: 15px; border-radius: 8px 8px 0 0;">
+            <h2 style="margin: 0;">New Lead Alert</h2>
+          </div>
+          <div style="background: #f5f5f5; padding: 20px; border: 1px solid #ddd;">
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr><td style="padding: 8px 0;"><strong>Customer:</strong></td><td>${leadInfo.name}</td></tr>
+              <tr><td style="padding: 8px 0;"><strong>Phone:</strong></td><td><a href="tel:${leadInfo.phone}">${leadInfo.phone}</a></td></tr>
+              <tr><td style="padding: 8px 0;"><strong>Email:</strong></td><td><a href="mailto:${leadInfo.email}">${leadInfo.email}</a></td></tr>
+              <tr><td style="padding: 8px 0;"><strong>Address:</strong></td><td>${leadInfo.address}</td></tr>
+              <tr><td style="padding: 8px 0;"><strong>Service:</strong></td><td>${leadInfo.service}</td></tr>
+              <tr><td style="padding: 8px 0;"><strong>Source:</strong></td><td>${leadInfo.source}</td></tr>
+              <tr><td style="padding: 8px 0;"><strong>Priority:</strong></td><td style="color: ${leadInfo.priority === 'urgent' ? '#b22222' : leadInfo.priority === 'high' ? '#f97316' : '#333'}">${leadInfo.priority.toUpperCase()}</td></tr>
+            </table>
+            ${lead.description ? `<hr style="margin: 15px 0;"><p><strong>Description:</strong><br>${lead.description}</p>` : ''}
+          </div>
+          <div style="background: #1a1a2e; color: #888; padding: 10px; text-align: center; font-size: 12px; border-radius: 0 0 8px 8px;">
+            Chicago Sewer Experts CRM
+          </div>
+        </div>
+      `;
+
+      for (const email of emailRecipients) {
+        try {
+          const result = await sendEmail({ to: email, subject: emailSubject, html: emailHtml });
+          if (result.success) emailsSent++;
+          else errors.push(`Email to ${email}: ${result.error}`);
+        } catch (err) {
+          errors.push(`Email to ${email}: ${err}`);
+        }
+      }
+    }
+
+    // Send SMS notifications
+    if (settings.notifyBySms && smsRecipients.length > 0 && smsService.isConfigured()) {
+      const smsMessage = `NEW LEAD from ${leadInfo.source}:\n${leadInfo.name}\n${leadInfo.phone}\n${leadInfo.service}\nPriority: ${leadInfo.priority.toUpperCase()}`;
+
+      for (const phone of smsRecipients) {
+        try {
+          const result = await smsService.sendSMS(phone, smsMessage);
+          if (result.success) smsSent++;
+          else errors.push(`SMS to ${phone}: ${result.error}`);
+        } catch (err) {
+          errors.push(`SMS to ${phone}: ${err}`);
+        }
+      }
+    }
+
+    console.log(`[Lead Notification] Lead ${lead.id}: ${emailsSent} emails, ${smsSent} SMS sent`);
+    return { emailsSent, smsSent, errors };
+  } catch (error) {
+    console.error("Lead notification error:", error);
+    errors.push(String(error));
+    return { emailsSent, smsSent, errors };
+  }
+}

@@ -31,7 +31,8 @@ import {
   sendAppointmentReminder,
   sendTechnicianEnRouteSMS,
   sendJobCompleteSMS,
-  calculateJobROI
+  calculateJobROI,
+  notifyLeadRecipients
 } from "./services/automation";
 import * as smsService from "./services/sms";
 
@@ -229,6 +230,14 @@ export async function registerRoutes(
       duplicateOfId,
       status: isDuplicate ? "duplicate" : (result.data.status || "new"),
     });
+    
+    // Notify team members about new lead (skip duplicates)
+    if (!isDuplicate) {
+      notifyLeadRecipients(lead).catch(err => 
+        console.error(`Team notification failed for lead ${lead.id}:`, err)
+      );
+    }
+    
     res.status(201).json({ ...lead, wasDuplicateDetected: isDuplicate });
   });
   
@@ -1217,6 +1226,11 @@ export async function registerRoutes(
         console.error(`Auto-contact failed for lead ${lead.id}:`, err)
       );
       
+      // Notify team members
+      notifyLeadRecipients(lead).catch(err => 
+        console.error(`Team notification failed for lead ${lead.id}:`, err)
+      );
+      
       res.status(200).json({ success: true, leadId: lead.id });
     } catch (error) {
       console.error("eLocal webhook error:", error);
@@ -1267,6 +1281,11 @@ export async function registerRoutes(
       // Trigger auto-contact
       autoContactLead(lead.id).catch(err => 
         console.error(`Auto-contact failed for lead ${lead.id}:`, err)
+      );
+      
+      // Notify team members
+      notifyLeadRecipients(lead).catch(err => 
+        console.error(`Team notification failed for lead ${lead.id}:`, err)
       );
       
       res.status(200).json({ success: true, leadId: lead.id });
@@ -1331,6 +1350,12 @@ export async function registerRoutes(
 
       const lead = await storage.createLead(validation.data);
       console.log(`[Webhook] Thumbtack lead created: ${lead.id} (Thumbtack ID: ${leadID})`);
+      
+      // Notify team members
+      notifyLeadRecipients(lead).catch(err => 
+        console.error(`Team notification failed for lead ${lead.id}:`, err)
+      );
+      
       res.status(200).json({ success: true, leadId: lead.id, thumbtackLeadId: leadID });
     } catch (error) {
       console.error("Thumbtack webhook error:", error);
@@ -1370,6 +1395,11 @@ export async function registerRoutes(
       // Trigger auto-contact
       autoContactLead(lead.id).catch(err => 
         console.error(`Auto-contact failed for lead ${lead.id}:`, err)
+      );
+      
+      // Notify team members
+      notifyLeadRecipients(lead).catch(err => 
+        console.error(`Team notification failed for lead ${lead.id}:`, err)
       );
       
       res.status(200).json({ success: true, leadId: lead.id });
@@ -1509,6 +1539,14 @@ export async function registerRoutes(
         }
       }
       
+      // Notify team members about new lead
+      let teamNotification = { emailsSent: 0, smsSent: 0, errors: [] as string[] };
+      try {
+        teamNotification = await notifyLeadRecipients(lead);
+      } catch (err) {
+        console.error("Team notification error:", err);
+      }
+      
       // Log successful webhook
       await storage.createWebhookLog({
         source: "zapier",
@@ -1526,6 +1564,10 @@ export async function registerRoutes(
         leadId: lead.id,
         emailSent,
         emailError,
+        teamNotifications: {
+          emailsSent: teamNotification.emailsSent,
+          smsSent: teamNotification.smsSent,
+        },
       });
     } catch (error) {
       console.error("Zapier webhook error:", error);
@@ -1680,6 +1722,11 @@ export async function registerRoutes(
       // Trigger auto-contact
       autoContactLead(lead.id).catch(err => 
         console.error(`Auto-contact failed for lead ${lead.id}:`, err)
+      );
+      
+      // Notify team members
+      notifyLeadRecipients(lead).catch(err => 
+        console.error(`Team notification failed for lead ${lead.id}:`, err)
       );
       
       res.status(200).json({ success: true, leadId: lead.id });
