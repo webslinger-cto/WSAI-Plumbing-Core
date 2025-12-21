@@ -599,10 +599,18 @@ interface NotificationConfig {
   notifyBySms?: boolean;
 }
 
+// Default notification recipients - configured for Chicago Sewer Experts
+const DEFAULT_EMAIL_RECIPIENTS = ["CSEINTAKETEST@webslingerai.com"];
+const DEFAULT_SMS_RECIPIENTS = process.env.NOTIFICATION_SMS_NUMBERS 
+  ? process.env.NOTIFICATION_SMS_NUMBERS.split(",").map(n => n.trim())
+  : [];
+
 // Default notification settings - can be customized
 const DEFAULT_NOTIFICATION_CONFIG: NotificationConfig = {
   notifyByEmail: true,
   notifyBySms: true,
+  emailRecipients: DEFAULT_EMAIL_RECIPIENTS,
+  smsRecipients: DEFAULT_SMS_RECIPIENTS,
 };
 
 // Notify team members when a new lead comes in
@@ -616,28 +624,9 @@ export async function notifyLeadRecipients(
   let smsSent = 0;
 
   try {
-    // Get recipients
-    let emailRecipients = settings.emailRecipients || [];
-    let smsRecipients = settings.smsRecipients || [];
-
-    // If no recipients specified, get from technicians/users
-    if (emailRecipients.length === 0 || smsRecipients.length === 0) {
-      const technicians = await storage.getTechnicians();
-      
-      if (emailRecipients.length === 0) {
-        emailRecipients = technicians
-          .filter(t => t.email)
-          .slice(0, 5)
-          .map(t => t.email!);
-      }
-      
-      if (smsRecipients.length === 0) {
-        smsRecipients = technicians
-          .filter(t => t.phone)
-          .slice(0, 3)
-          .map(t => t.phone!);
-      }
-    }
+    // Get recipients from config or defaults
+    const emailRecipients = settings.emailRecipients || DEFAULT_EMAIL_RECIPIENTS;
+    const smsRecipients = settings.smsRecipients || DEFAULT_SMS_RECIPIENTS;
 
     // Format lead info
     const leadInfo = {
