@@ -9,7 +9,8 @@ interface SMSResult {
 
 // Carrier email-to-SMS gateways (fallback when Twilio unavailable)
 const CARRIER_GATEWAYS: Record<string, string> = {
-  "6306661640": "txt.att.net",  // AT&T
+  "6306661640": "txt.att.net",      // AT&T
+  "3123699850": "vtext.com",        // Xfinity Mobile (uses Verizon network)
 };
 
 // Get carrier gateway for a phone number (if known)
