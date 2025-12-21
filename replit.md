@@ -2,7 +2,7 @@
 
 ## Overview
 
-Chicago Sewer Experts CRM is a lead management and customer relationship management system designed for a sewer and plumbing services business. The application provides two primary user roles: administrators who manage leads, technicians, and analytics, and field technicians who access job information and create customer quotes. The system emphasizes efficient lead tracking from multiple sources (eLocal, Networx, direct calls), quote generation, and revenue analytics with a focus on conversion metrics and cost analysis.
+Chicago Sewer Experts CRM is a lead management and customer relationship management system designed for a sewer and plumbing services business. The application provides four user roles: administrators who manage leads, technicians, salespersons, and analytics; dispatchers who coordinate jobs and technician assignments; field technicians who perform on-site work and create quotes; and salespersons who handle sales, lead conversion, and earn commission on completed jobs. The system emphasizes efficient lead tracking from multiple sources (eLocal, Networx, direct calls), quote generation, commission tracking, and revenue analytics with a focus on conversion metrics and cost analysis.
 
 ## User Preferences
 
@@ -14,9 +14,11 @@ Preferred communication style: Simple, everyday language.
 
 **Framework**: React with TypeScript using Vite as the build tool and development server.
 
-**Routing**: Client-side routing implemented with Wouter, a lightweight React router alternative. The application has two distinct routing contexts:
+**Routing**: Client-side routing implemented with Wouter, a lightweight React router alternative. The application has four distinct routing contexts:
 - Admin routes: Dashboard, leads management, technicians, analytics, import functionality, and outreach campaigns
+- Dispatcher routes: Dispatch center, jobs, quotes, technician map, staffing pool, leads
 - Technician routes: Personal dashboard, quote builder, job listings, and earnings tracking
+- Salesperson routes: Sales dashboard with commission tracking, leads, jobs, quotes, quote tool
 
 **State Management**: TanStack Query (React Query) for server state management with custom query client configuration. Local component state managed with React hooks. No global state management library implemented.
 
@@ -47,6 +49,7 @@ Preferred communication style: Simple, everyday language.
 - Admin: admin / demo123
 - Dispatcher: dispatcher / demo123
 - Technicians: mike / demo123, carlos / demo123, james / demo123
+- Salesperson: sarah / demo123
 
 **Automation Service**: Located in `server/services/automation.ts`, provides automated dispatcher functionality:
 - autoContactLead: Sends acknowledgment email/text when leads arrive
@@ -66,10 +69,13 @@ Preferred communication style: Simple, everyday language.
 **ORM**: Drizzle ORM configured for PostgreSQL dialect.
 
 **Schema Definition**: Located in `shared/schema.ts`. Defines the following tables:
-- **users**: UUID primary key, username, password, role (admin/dispatcher/technician)
+- **users**: UUID primary key, username, password, role (admin/dispatcher/technician/salesperson)
 - **leads**: Lead tracking with source, status, contact info, notes
 - **technicians**: Employee records with hourly rates, skills, availability, last known GPS location
-- **jobs**: Full job lifecycle with labor tracking (laborHours, laborRate, laborCost), expenses (materialsCost, travelExpense, equipmentCost, otherExpenses), revenue (totalRevenue, totalCost, profit), and cancellation tracking (cancelledAt, cancellationReason, cancelledBy)
+- **salespersons**: Sales team records with commission rates (default 15%), hourly rates, Twilio routing priority, max daily leads
+- **sales_commissions**: Commission records tracking job revenue, all costs (labor, materials, travel, equipment, other), net profit, and calculated commission amounts with pending/approved/paid status
+- **salesperson_locations**: GPS tracking history for salesperson field visits
+- **jobs**: Full job lifecycle with labor tracking (laborHours, laborRate, laborCost), expenses (materialsCost, travelExpense, equipmentCost, otherExpenses), revenue (totalRevenue, totalCost, profit), cancellation tracking (cancelledAt, cancellationReason, cancelledBy), and assignedSalespersonId for commission attribution
 - **quotes**: Customer quotes with line items
 - **contact_attempts**: Audit log for all customer contact attempts
 - **webhook_logs**: Logging for external webhook integrations
@@ -167,6 +173,12 @@ Each user role has access to a role-specific Operations Guide in the sidebar (`/
 - Field work focus with job status actions
 - Cost tracking guide (labor hours, materials, travel, equipment)
 - Workflow showing technician-relevant steps (assignment through completion)
+
+**Salesperson View:**
+- Commission structure explanation (based on NET profit)
+- Lead management and quote creation guide
+- Commission calculation breakdown (revenue - costs = profit, then apply rate)
+- Job tracking for commission attribution
 
 ### OPERATIONS_MENU.md
 Complete reference for all CRM functions including:

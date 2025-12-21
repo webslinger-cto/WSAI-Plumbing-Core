@@ -4,7 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // User roles enum
-export const userRoles = ["admin", "dispatcher", "technician"] as const;
+export const userRoles = ["admin", "dispatcher", "technician", "salesperson"] as const;
 export type UserRole = typeof userRoles[number];
 
 // Users table with role
@@ -60,6 +60,81 @@ export const technicians = pgTable("technicians", {
 export const insertTechnicianSchema = createInsertSchema(technicians).omit({ id: true });
 export type InsertTechnician = z.infer<typeof insertTechnicianSchema>;
 export type Technician = typeof technicians.$inferSelect;
+
+// Salespersons table (similar to technicians but for sales role with commission tracking)
+export const salespersons = pgTable("salespersons", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id),
+  fullName: text("full_name").notNull(),
+  phone: text("phone").notNull(),
+  email: text("email"),
+  status: text("status").notNull().default("available"), // available, busy, off_duty, on_break
+  commissionRate: decimal("commission_rate").default("0.15"), // default 15% of NET profit
+  hourlyRate: decimal("hourly_rate").default("20.00"), // base hourly rate if applicable
+  maxDailyLeads: integer("max_daily_leads").default(20),
+  handledLeadsToday: integer("handled_leads_today").default(0),
+  lastLocationLat: decimal("last_location_lat"),
+  lastLocationLng: decimal("last_location_lng"),
+  lastLocationUpdate: timestamp("last_location_update"),
+  twilioRoutingPriority: integer("twilio_routing_priority").default(1), // lower = higher priority (sales first)
+  coverageZones: text("coverage_zones").array(), // zip codes or areas covered
+  specializations: text("specializations").array(), // types of sales they specialize in
+  isActive: boolean("is_active").notNull().default(true),
+});
+
+export const insertSalespersonSchema = createInsertSchema(salespersons).omit({ id: true });
+export type InsertSalesperson = z.infer<typeof insertSalespersonSchema>;
+export type Salesperson = typeof salespersons.$inferSelect;
+
+// Sales commissions tracking (calculated from NET profit)
+export const salesCommissions = pgTable("sales_commissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  salespersonId: varchar("salesperson_id").notNull().references(() => salespersons.id),
+  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  leadId: varchar("lead_id").references(() => leads.id),
+  jobRevenue: decimal("job_revenue"), // total revenue from job
+  laborCost: decimal("labor_cost"),
+  materialsCost: decimal("materials_cost"),
+  travelExpense: decimal("travel_expense"),
+  equipmentCost: decimal("equipment_cost"),
+  otherExpenses: decimal("other_expenses"),
+  totalCosts: decimal("total_costs"), // sum of all costs
+  netProfit: decimal("net_profit"), // revenue - total costs
+  commissionRate: decimal("commission_rate").notNull(), // rate at time of calculation
+  commissionAmount: decimal("commission_amount").notNull(), // netProfit * commissionRate
+  status: text("status").notNull().default("pending"), // pending, approved, paid
+  calculatedAt: timestamp("calculated_at").notNull().default(sql`now()`),
+  approvedAt: timestamp("approved_at"),
+  approvedBy: varchar("approved_by"),
+  paidAt: timestamp("paid_at"),
+  payrollPeriod: text("payroll_period"), // e.g., "2024-01-15" for pay period reference
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertSalesCommissionSchema = createInsertSchema(salesCommissions).omit({ id: true, createdAt: true, calculatedAt: true });
+export type InsertSalesCommission = z.infer<typeof insertSalesCommissionSchema>;
+export type SalesCommission = typeof salesCommissions.$inferSelect;
+
+// Salesperson location history for GPS tracking
+export const salespersonLocations = pgTable("salesperson_locations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  salespersonId: varchar("salesperson_id").notNull().references(() => salespersons.id),
+  latitude: decimal("latitude").notNull(),
+  longitude: decimal("longitude").notNull(),
+  accuracy: decimal("accuracy"), // meters
+  speed: decimal("speed"), // m/s
+  heading: decimal("heading"), // degrees
+  altitude: decimal("altitude"),
+  batteryLevel: integer("battery_level"), // percentage
+  isMoving: boolean("is_moving"),
+  leadId: varchar("lead_id").references(() => leads.id), // current lead if any
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertSalespersonLocationSchema = createInsertSchema(salespersonLocations).omit({ id: true, createdAt: true });
+export type InsertSalespersonLocation = z.infer<typeof insertSalespersonLocationSchema>;
+export type SalespersonLocation = typeof salespersonLocations.$inferSelect;
 
 // Lead sources
 export const leadSources = ["eLocal", "Networx", "Angi", "HomeAdvisor", "Thumbtack", "Inquirly", "Direct", "Referral", "Website"] as const;
@@ -146,6 +221,7 @@ export const jobs = pgTable("jobs", {
   scheduledTimeEnd: text("scheduled_time_end"), // e.g. "11:00"
   estimatedDuration: integer("estimated_duration"), // minutes
   assignedTechnicianId: varchar("assigned_technician_id").references(() => technicians.id),
+  assignedSalespersonId: varchar("assigned_salesperson_id").references(() => salespersons.id), // salesperson who originated/sold this job
   dispatcherId: varchar("dispatcher_id"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),

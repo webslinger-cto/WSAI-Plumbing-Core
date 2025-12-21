@@ -26,15 +26,17 @@ import JobsPage from "@/pages/JobsPage";
 import QuotesPage from "@/pages/QuotesPage";
 import OperationsMenuPage from "@/pages/OperationsMenuPage";
 import TechnicianMapPage from "@/pages/TechnicianMapPage";
+import SalesDashboard from "@/pages/SalesDashboard";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 
 interface AuthState {
   isAuthenticated: boolean;
-  role: "admin" | "dispatcher" | "technician" | null;
+  role: "admin" | "dispatcher" | "technician" | "salesperson" | null;
   username: string;
   userId: string;
   technicianId: string | null;
+  salespersonId: string | null;
   fullName: string;
 }
 
@@ -105,12 +107,35 @@ function TechnicianRouter({ technicianId, userId, fullName }: { technicianId: st
   );
 }
 
+function SalespersonRouter({ salespersonId, userId, fullName }: { salespersonId: string; userId: string; fullName: string }) {
+  return (
+    <Switch>
+      <Route path="/">
+        {() => <SalesDashboard salespersonId={salespersonId} userId={userId} fullName={fullName} />}
+      </Route>
+      <Route path="/quote" component={QuotePage} />
+      <Route path="/leads" component={LeadsPage} />
+      <Route path="/jobs" component={JobsPage} />
+      <Route path="/quotes" component={QuotesPage} />
+      <Route path="/earnings" component={() => (
+        <div className="space-y-4">
+          <h1 className="text-2xl font-bold">My Commissions</h1>
+          <p className="text-muted-foreground">Detailed commission report coming soon.</p>
+        </div>
+      )} />
+      <Route path="/operations">{() => <OperationsMenuPage role="salesperson" username={fullName} />}</Route>
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
+
 interface LoginResponse {
   id: string;
   username: string;
-  role: "admin" | "dispatcher" | "technician";
+  role: "admin" | "dispatcher" | "technician" | "salesperson";
   fullName: string | null;
   technicianId: string | null;
+  salespersonId: string | null;
 }
 
 function App() {
@@ -121,6 +146,7 @@ function App() {
     username: "",
     userId: "",
     technicianId: null,
+    salespersonId: null,
     fullName: "",
   });
 
@@ -136,6 +162,7 @@ function App() {
       username: loginData.username,
       userId: loginData.id,
       technicianId: loginData.technicianId,
+      salespersonId: loginData.salespersonId,
       fullName: loginData.fullName || loginData.username,
     });
     setLocation("/");
@@ -148,6 +175,7 @@ function App() {
       username: "",
       userId: "",
       technicianId: null,
+      salespersonId: null,
       fullName: "",
     });
   };
@@ -202,6 +230,12 @@ function App() {
                   <AdminRouter />
                 ) : auth.role === "dispatcher" ? (
                   <DispatcherRouter />
+                ) : auth.role === "salesperson" ? (
+                  <SalespersonRouter 
+                    salespersonId={auth.salespersonId || ""} 
+                    userId={auth.userId}
+                    fullName={auth.fullName}
+                  />
                 ) : (
                   <TechnicianRouter 
                     technicianId={auth.technicianId || ""} 

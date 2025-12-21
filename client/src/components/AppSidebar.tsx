@@ -37,7 +37,7 @@ import {
 import cseMascot from "@assets/cse-mascot.png";
 
 interface AppSidebarProps {
-  role: "admin" | "dispatcher" | "technician";
+  role: "admin" | "dispatcher" | "technician" | "salesperson";
   username: string;
   onLogout: () => void;
 }
@@ -76,13 +76,25 @@ const techMenuItems = [
   { title: "Operations Guide", url: "/operations", icon: BookOpen },
 ];
 
+const salesMenuItems = [
+  { title: "My Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Leads", url: "/leads", icon: Users },
+  { title: "Jobs", url: "/jobs", icon: Briefcase },
+  { title: "Quotes", url: "/quotes", icon: Receipt },
+  { title: "Quote Tool", url: "/quote", icon: FileText },
+  { title: "Commissions", url: "/earnings", icon: DollarSign },
+  { title: "Operations Guide", url: "/operations", icon: BookOpen },
+];
+
 export default function AppSidebar({ role, username, onLogout }: AppSidebarProps) {
   const [location] = useLocation();
   const menuItems = role === "admin" 
     ? adminMenuItems 
     : role === "dispatcher" 
       ? dispatcherMenuItems 
-      : techMenuItems;
+      : role === "salesperson"
+        ? salesMenuItems
+        : techMenuItems;
 
   const getInitials = (name: string) => {
     return name
@@ -113,7 +125,7 @@ export default function AppSidebar({ role, username, onLogout }: AppSidebarProps
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel className="uppercase text-xs tracking-wider">
-            {role === "admin" ? "Administration" : role === "dispatcher" ? "Dispatch Operations" : "Technician Portal"}
+            {role === "admin" ? "Administration" : role === "dispatcher" ? "Dispatch Operations" : role === "salesperson" ? "Sales Portal" : "Technician Portal"}
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>

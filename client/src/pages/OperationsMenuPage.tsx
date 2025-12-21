@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 
 interface OperationsMenuPageProps {
-  role: "admin" | "dispatcher" | "technician";
+  role: "admin" | "dispatcher" | "technician" | "salesperson";
   username?: string;
 }
 
@@ -31,13 +31,14 @@ export default function OperationsMenuPage({ role, username }: OperationsMenuPag
           Your role-specific guide to Chicago Sewer Experts CRM
         </p>
         <Badge variant="outline" className="mt-3 text-sm">
-          {role === "admin" ? "Administrator" : role === "dispatcher" ? "Dispatcher" : "Technician"} View
+          {role === "admin" ? "Administrator" : role === "dispatcher" ? "Dispatcher" : role === "salesperson" ? "Sales" : "Technician"} View
         </Badge>
       </div>
 
       {role === "admin" && <AdminOperationsContent />}
       {role === "dispatcher" && <DispatcherOperationsContent />}
       {role === "technician" && <TechnicianOperationsContent username={username} />}
+      {role === "salesperson" && <SalespersonOperationsContent username={username} />}
 
       <WorkflowDiagram role={role} />
     </div>
@@ -470,7 +471,115 @@ function TechnicianOperationsContent({ username }: { username?: string }) {
   );
 }
 
-function WorkflowDiagram({ role }: { role: "admin" | "dispatcher" | "technician" }) {
+function SalespersonOperationsContent({ username }: { username?: string }) {
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-primary" />
+            Your Role: Sales Representative
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground">
+            As a sales representative, you generate and nurture leads, create quotes, 
+            and close deals. Your commission is calculated from net profit on closed jobs.
+          </p>
+          
+          <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
+            <h4 className="font-semibold mb-2 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-primary" />
+              Commission Structure
+            </h4>
+            <p className="text-sm text-muted-foreground">
+              You earn commission on the NET profit of completed jobs. Net profit = 
+              Revenue minus all costs (labor, materials, travel, equipment, and other expenses).
+              Your commission rate is shown on your dashboard.
+            </p>
+          </div>
+          
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <h4 className="font-semibold flex items-center gap-2">
+                <Users className="w-4 h-4" /> Lead Management
+              </h4>
+              <ul className="text-sm text-muted-foreground space-y-1 ml-6">
+                <li>View and manage incoming leads</li>
+                <li>Follow up with potential customers</li>
+                <li>Convert leads to jobs</li>
+                <li>Track lead sources and conversions</li>
+              </ul>
+            </div>
+            
+            <div className="space-y-2">
+              <h4 className="font-semibold flex items-center gap-2">
+                <FileText className="w-4 h-4" /> Quote Creation
+              </h4>
+              <ul className="text-sm text-muted-foreground space-y-1 ml-6">
+                <li>Create professional quotes</li>
+                <li>Use quote templates for consistency</li>
+                <li>Send quotes to customers</li>
+                <li>Track quote status</li>
+              </ul>
+            </div>
+            
+            <div className="space-y-2">
+              <h4 className="font-semibold flex items-center gap-2">
+                <Briefcase className="w-4 h-4" /> Job Tracking
+              </h4>
+              <ul className="text-sm text-muted-foreground space-y-1 ml-6">
+                <li>Monitor assigned jobs</li>
+                <li>Track job completion</li>
+                <li>View revenue and costs</li>
+                <li>See commission calculations</li>
+              </ul>
+            </div>
+            
+            <div className="space-y-2">
+              <h4 className="font-semibold flex items-center gap-2">
+                <TrendingUp className="w-4 h-4" /> Commissions
+              </h4>
+              <ul className="text-sm text-muted-foreground space-y-1 ml-6">
+                <li>View pending commissions</li>
+                <li>Track paid commissions</li>
+                <li>See commission history</li>
+                <li>Monitor performance metrics</li>
+              </ul>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Commission Calculation</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground mb-4">
+            Your commission is calculated when a job is completed:
+          </p>
+          <div className="space-y-3">
+            <div className="p-3 rounded-md bg-muted/50">
+              <p className="font-medium">Step 1: Calculate Total Costs</p>
+              <p className="text-sm text-muted-foreground">Labor + Materials + Travel + Equipment + Other Expenses</p>
+            </div>
+            <div className="p-3 rounded-md bg-muted/50">
+              <p className="font-medium">Step 2: Calculate Net Profit</p>
+              <p className="text-sm text-muted-foreground">Job Revenue - Total Costs = Net Profit</p>
+            </div>
+            <div className="p-3 rounded-md bg-muted/50">
+              <p className="font-medium">Step 3: Apply Commission Rate</p>
+              <p className="text-sm text-muted-foreground">Net Profit x Your Rate (e.g., 15%) = Your Commission</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function WorkflowDiagram({ role }: { role: "admin" | "dispatcher" | "technician" | "salesperson" }) {
   const steps = [
     { 
       id: 1, 

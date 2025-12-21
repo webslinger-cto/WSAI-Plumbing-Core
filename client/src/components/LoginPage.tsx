@@ -15,9 +15,10 @@ const BIRDEYE_REVIEW_URL = "https://reviews.birdeye.com/chicago-sewer-experts-16
 interface LoginResponse {
   id: string;
   username: string;
-  role: "admin" | "dispatcher" | "technician";
+  role: "admin" | "dispatcher" | "technician" | "salesperson";
   fullName: string | null;
   technicianId: string | null;
+  salespersonId: string | null;
 }
 
 interface LoginPageProps {

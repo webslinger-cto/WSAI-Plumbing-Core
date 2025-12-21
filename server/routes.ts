@@ -9,6 +9,7 @@ import {
   insertQuoteSchema,
   insertNotificationSchema,
   insertTechnicianSchema,
+  insertSalespersonSchema,
   insertShiftLogSchema,
   insertQuoteTemplateSchema,
   insertContactAttemptSchema,
@@ -81,12 +82,24 @@ export async function registerRoutes(
         }
       }
 
+      // If salesperson, get the salesperson record and verify linkage
+      let salesperson = null;
+      if (user.role === "salesperson") {
+        salesperson = await storage.getSalespersonByUserId(user.id);
+        if (!salesperson) {
+          return res.status(400).json({ 
+            error: "Salesperson account not properly configured. Please contact an administrator." 
+          });
+        }
+      }
+
       res.json({
         id: user.id,
         username: user.username,
         role: user.role,
         fullName: user.fullName,
         technicianId: technician?.id || null,
+        salespersonId: salesperson?.id || null,
       });
     } catch (error) {
       console.error("Login error:", error);
@@ -127,6 +140,215 @@ export async function registerRoutes(
     const tech = await storage.updateTechnician(req.params.id, req.body);
     if (!tech) return res.status(404).json({ error: "Technician not found" });
     res.json(tech);
+  });
+
+  // Salespersons
+  app.get("/api/salespersons", async (req, res) => {
+    try {
+      const salespersons = await storage.getSalespersons();
+      res.json(salespersons);
+    } catch (error) {
+      console.error("Error fetching salespersons:", error);
+      res.status(500).json({ error: "Failed to fetch salespersons" });
+    }
+  });
+
+  app.get("/api/salespersons/available", async (req, res) => {
+    const salespersons = await storage.getAvailableSalespersons();
+    res.json(salespersons);
+  });
+
+  app.get("/api/salespersons/:id", async (req, res) => {
+    const sp = await storage.getSalesperson(req.params.id);
+    if (!sp) return res.status(404).json({ error: "Salesperson not found" });
+    res.json(sp);
+  });
+
+  app.get("/api/salespersons/:id/commissions", async (req, res) => {
+    try {
+      const commissions = await storage.getSalesCommissionsBySalesperson(req.params.id);
+      res.json(commissions);
+    } catch (error) {
+      console.error("Error fetching salesperson commissions:", error);
+      res.status(500).json({ error: "Failed to fetch commissions" });
+    }
+  });
+
+  app.post("/api/salespersons", async (req, res) => {
+    const result = insertSalespersonSchema.safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: result.error });
+    try {
+      const sp = await storage.createSalesperson(result.data);
+      res.status(201).json(sp);
+    } catch (error) {
+      console.error("Error creating salesperson:", error);
+      res.status(500).json({ error: "Failed to create salesperson" });
+    }
+  });
+
+  app.patch("/api/salespersons/:id", async (req, res) => {
+    const sp = await storage.updateSalesperson(req.params.id, req.body);
+    if (!sp) return res.status(404).json({ error: "Salesperson not found" });
+    res.json(sp);
+  });
+
+  // Sales Commissions
+  app.get("/api/sales-commissions", async (req, res) => {
+    try {
+      const { salespersonId, status } = req.query;
+      let commissions;
+      if (salespersonId) {
+        commissions = await storage.getSalesCommissionsBySalesperson(salespersonId as string);
+      } else if (status) {
+        commissions = await storage.getSalesCommissionsByStatus(status as string);
+      } else {
+        commissions = await storage.getSalesCommissionsByStatus("pending");
+      }
+      res.json(commissions);
+    } catch (error) {
+      console.error("Error fetching commissions:", error);
+      res.status(500).json({ error: "Failed to fetch commissions" });
+    }
+  });
+
+  app.get("/api/sales-commissions/:id", async (req, res) => {
+    const commission = await storage.getSalesCommission(req.params.id);
+    if (!commission) return res.status(404).json({ error: "Commission not found" });
+    res.json(commission);
+  });
+
+  app.post("/api/sales-commissions/calculate/:jobId", async (req, res) => {
+    try {
+      const { salespersonId } = req.body;
+      if (!salespersonId) {
+        return res.status(400).json({ error: "salespersonId is required" });
+      }
+      const commission = await storage.calculateJobCommission(req.params.jobId, salespersonId);
+      if (!commission) {
+        return res.status(400).json({ error: "Could not calculate commission - job may not be completed or has no profit" });
+      }
+      res.status(201).json(commission);
+    } catch (error) {
+      console.error("Error calculating commission:", error);
+      res.status(500).json({ error: "Failed to calculate commission" });
+    }
+  });
+
+  app.patch("/api/sales-commissions/:id", async (req, res) => {
+    const commission = await storage.updateSalesCommission(req.params.id, req.body);
+    if (!commission) return res.status(404).json({ error: "Commission not found" });
+    res.json(commission);
+  });
+
+  // Salesperson Location Tracking
+  app.get("/api/salespersons/:id/locations", async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 100;
+      const locations = await storage.getSalespersonLocations(req.params.id, limit);
+      res.json(locations);
+    } catch (error) {
+      console.error("Error fetching salesperson locations:", error);
+      res.status(500).json({ error: "Failed to fetch locations" });
+    }
+  });
+
+  app.get("/api/salespersons/locations/all", async (req, res) => {
+    try {
+      const locations = await storage.getAllSalespersonsLatestLocations();
+      res.json(locations);
+    } catch (error) {
+      console.error("Error fetching all salesperson locations:", error);
+      res.status(500).json({ error: "Failed to fetch locations" });
+    }
+  });
+
+  app.post("/api/salespersons/:id/location", async (req, res) => {
+    try {
+      const { latitude, longitude, accuracy, speed, heading, altitude, batteryLevel, isMoving, leadId } = req.body;
+      
+      if (!latitude || !longitude) {
+        return res.status(400).json({ error: "latitude and longitude are required" });
+      }
+      
+      const location = await storage.createSalespersonLocation({
+        salespersonId: req.params.id,
+        latitude: String(latitude),
+        longitude: String(longitude),
+        accuracy: accuracy ? String(accuracy) : null,
+        speed: speed ? String(speed) : null,
+        heading: heading ? String(heading) : null,
+        altitude: altitude ? String(altitude) : null,
+        batteryLevel: batteryLevel || null,
+        isMoving: isMoving ?? null,
+        leadId: leadId || null,
+      });
+      
+      res.status(201).json(location);
+    } catch (error) {
+      console.error("Error creating salesperson location:", error);
+      res.status(500).json({ error: "Failed to save location" });
+    }
+  });
+
+  // Sales Analytics
+  app.get("/api/sales-analytics/:salespersonId", async (req, res) => {
+    try {
+      const { salespersonId } = req.params;
+      const salesperson = await storage.getSalesperson(salespersonId);
+      if (!salesperson) {
+        return res.status(404).json({ error: "Salesperson not found" });
+      }
+
+      const commissions = await storage.getSalesCommissionsBySalesperson(salespersonId);
+      const allJobs = await storage.getJobs();
+      const jobs = allJobs.filter(j => j.assignedSalespersonId === salespersonId);
+      const quotes = await storage.getAllQuotes();
+      const salespersonQuotes = quotes.filter(q => {
+        const job = allJobs.find(j => j.id === q.jobId);
+        return job?.assignedSalespersonId === salespersonId;
+      });
+
+      const totalCommissionEarned = commissions
+        .filter(c => c.status === "paid")
+        .reduce((sum, c) => sum + parseFloat(String(c.commissionAmount || 0)), 0);
+      
+      const pendingCommission = commissions
+        .filter(c => c.status === "pending" || c.status === "approved")
+        .reduce((sum, c) => sum + parseFloat(String(c.commissionAmount || 0)), 0);
+      
+      const totalJobsHandled = jobs.length;
+      const completedJobs = jobs.filter(j => j.status === "completed").length;
+      const totalQuotesSent = salespersonQuotes.filter(q => q.status !== "draft").length;
+      const acceptedQuotes = salespersonQuotes.filter(q => q.status === "accepted").length;
+      const conversionRate = totalQuotesSent > 0 ? (acceptedQuotes / totalQuotesSent) * 100 : 0;
+      
+      const totalRevenue = jobs
+        .filter(j => j.status === "completed")
+        .reduce((sum, j) => sum + parseFloat(String(j.totalRevenue || 0)), 0);
+
+      res.json({
+        salesperson: {
+          id: salesperson.id,
+          fullName: salesperson.fullName,
+          commissionRate: salesperson.commissionRate,
+        },
+        summary: {
+          totalCommissionEarned,
+          pendingCommission,
+          totalJobsHandled,
+          completedJobs,
+          totalQuotesSent,
+          acceptedQuotes,
+          conversionRate: conversionRate.toFixed(1),
+          totalRevenue,
+        },
+        recentCommissions: commissions.slice(0, 10),
+        recentJobs: jobs.slice(0, 10),
+      });
+    } catch (error) {
+      console.error("Error fetching sales analytics:", error);
+      res.status(500).json({ error: "Failed to fetch analytics" });
+    }
   });
 
   // Dispatch to closest technician

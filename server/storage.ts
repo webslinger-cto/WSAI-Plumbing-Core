@@ -1,6 +1,9 @@
 import {
   type User, type InsertUser,
   type Technician, type InsertTechnician,
+  type Salesperson, type InsertSalesperson,
+  type SalesCommission, type InsertSalesCommission,
+  type SalespersonLocation, type InsertSalespersonLocation,
   type Lead, type InsertLead,
   type Call, type InsertCall,
   type Job, type InsertJob,
@@ -15,7 +18,8 @@ import {
   type JobChecklist, type InsertJobChecklist,
   type TechnicianLocation, type InsertTechnicianLocation,
   type ChecklistTemplate, type InsertChecklistTemplate,
-  users, technicians, leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
+  users, technicians, salespersons, salesCommissions, salespersonLocations,
+  leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
@@ -90,6 +94,29 @@ export interface IStorage {
   getAvailableTechnicians(): Promise<Technician[]>;
   createTechnician(tech: InsertTechnician): Promise<Technician>;
   updateTechnician(id: string, updates: Partial<Technician>): Promise<Technician | undefined>;
+
+  // Salespersons
+  getSalesperson(id: string): Promise<Salesperson | undefined>;
+  getSalespersonByUserId(userId: string): Promise<Salesperson | undefined>;
+  getSalespersons(): Promise<Salesperson[]>;
+  getAvailableSalespersons(): Promise<Salesperson[]>;
+  createSalesperson(sp: InsertSalesperson): Promise<Salesperson>;
+  updateSalesperson(id: string, updates: Partial<Salesperson>): Promise<Salesperson | undefined>;
+
+  // Sales Commissions
+  getSalesCommission(id: string): Promise<SalesCommission | undefined>;
+  getSalesCommissionsByJob(jobId: string): Promise<SalesCommission[]>;
+  getSalesCommissionsBySalesperson(salespersonId: string): Promise<SalesCommission[]>;
+  getSalesCommissionsByStatus(status: string): Promise<SalesCommission[]>;
+  createSalesCommission(commission: InsertSalesCommission): Promise<SalesCommission>;
+  updateSalesCommission(id: string, updates: Partial<SalesCommission>): Promise<SalesCommission | undefined>;
+  calculateJobCommission(jobId: string, salespersonId: string): Promise<SalesCommission | undefined>;
+
+  // Salesperson Locations (GPS tracking)
+  getSalespersonLocations(salespersonId: string, limit?: number): Promise<SalespersonLocation[]>;
+  getLatestSalespersonLocation(salespersonId: string): Promise<SalespersonLocation | undefined>;
+  getAllSalespersonsLatestLocations(): Promise<SalespersonLocation[]>;
+  createSalespersonLocation(location: InsertSalespersonLocation): Promise<SalespersonLocation>;
 
   // Leads
   getLead(id: string): Promise<Lead | undefined>;
@@ -456,6 +483,77 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
+  // Salespersons (stub implementations for MemStorage)
+  async getSalesperson(_id: string): Promise<Salesperson | undefined> {
+    return undefined;
+  }
+
+  async getSalespersonByUserId(_userId: string): Promise<Salesperson | undefined> {
+    return undefined;
+  }
+
+  async getSalespersons(): Promise<Salesperson[]> {
+    return [];
+  }
+
+  async getAvailableSalespersons(): Promise<Salesperson[]> {
+    return [];
+  }
+
+  async createSalesperson(_sp: InsertSalesperson): Promise<Salesperson> {
+    throw new Error("Not implemented in MemStorage - use DatabaseStorage");
+  }
+
+  async updateSalesperson(_id: string, _updates: Partial<Salesperson>): Promise<Salesperson | undefined> {
+    return undefined;
+  }
+
+  // Sales Commissions (stub implementations for MemStorage)
+  async getSalesCommission(_id: string): Promise<SalesCommission | undefined> {
+    return undefined;
+  }
+
+  async getSalesCommissionsByJob(_jobId: string): Promise<SalesCommission[]> {
+    return [];
+  }
+
+  async getSalesCommissionsBySalesperson(_salespersonId: string): Promise<SalesCommission[]> {
+    return [];
+  }
+
+  async getSalesCommissionsByStatus(_status: string): Promise<SalesCommission[]> {
+    return [];
+  }
+
+  async createSalesCommission(_commission: InsertSalesCommission): Promise<SalesCommission> {
+    throw new Error("Not implemented in MemStorage - use DatabaseStorage");
+  }
+
+  async updateSalesCommission(_id: string, _updates: Partial<SalesCommission>): Promise<SalesCommission | undefined> {
+    return undefined;
+  }
+
+  async calculateJobCommission(_jobId: string, _salespersonId: string): Promise<SalesCommission | undefined> {
+    return undefined;
+  }
+
+  // Salesperson Locations (stub implementations for MemStorage)
+  async getSalespersonLocations(_salespersonId: string, _limit?: number): Promise<SalespersonLocation[]> {
+    return [];
+  }
+
+  async getLatestSalespersonLocation(_salespersonId: string): Promise<SalespersonLocation | undefined> {
+    return undefined;
+  }
+
+  async getAllSalespersonsLatestLocations(): Promise<SalespersonLocation[]> {
+    return [];
+  }
+
+  async createSalespersonLocation(_location: InsertSalespersonLocation): Promise<SalespersonLocation> {
+    throw new Error("Not implemented in MemStorage - use DatabaseStorage");
+  }
+
   // Leads
   async getLead(id: string): Promise<Lead | undefined> {
     return this.leads.get(id);
@@ -622,6 +720,7 @@ export class MemStorage implements IStorage {
       scheduledTimeEnd: insertJob.scheduledTimeEnd || null,
       estimatedDuration: insertJob.estimatedDuration || null,
       assignedTechnicianId: insertJob.assignedTechnicianId || null,
+      assignedSalespersonId: insertJob.assignedSalespersonId || null,
       dispatcherId: insertJob.dispatcherId || null,
       createdAt: now,
       updatedAt: now,
@@ -635,6 +734,20 @@ export class MemStorage implements IStorage {
       arrivalDistance: insertJob.arrivalDistance || null,
       startedAt: insertJob.startedAt || null,
       completedAt: insertJob.completedAt || null,
+      laborHours: insertJob.laborHours || null,
+      laborRate: insertJob.laborRate || null,
+      laborCost: insertJob.laborCost || null,
+      materialsCost: insertJob.materialsCost || null,
+      travelExpense: insertJob.travelExpense || null,
+      equipmentCost: insertJob.equipmentCost || null,
+      otherExpenses: insertJob.otherExpenses || null,
+      expenseNotes: insertJob.expenseNotes || null,
+      totalCost: insertJob.totalCost || null,
+      totalRevenue: insertJob.totalRevenue || null,
+      profit: insertJob.profit || null,
+      cancelledAt: insertJob.cancelledAt || null,
+      cancellationReason: insertJob.cancellationReason || null,
+      cancelledBy: insertJob.cancelledBy || null,
     };
     this.jobs.set(id, job);
     
@@ -1360,6 +1473,7 @@ export class DatabaseStorage implements IStorage {
       { id: "user-tech-1", username: "mike", password: "demo123", role: "technician" as const, fullName: "Mike Johnson" },
       { id: "user-tech-2", username: "carlos", password: "demo123", role: "technician" as const, fullName: "Carlos Rodriguez" },
       { id: "user-tech-3", username: "james", password: "demo123", role: "technician" as const, fullName: "James Williams" },
+      { id: "user-sales-1", username: "sarah", password: "demo123", role: "salesperson" as const, fullName: "Sarah Mitchell" },
     ];
 
     for (const u of userData) {
@@ -1402,6 +1516,26 @@ export class DatabaseStorage implements IStorage {
       } catch (err) {
         console.log(`Technician ${t.fullName} may already exist, skipping`);
       }
+    }
+
+    // Seed salesperson
+    try {
+      await db.insert(salespersons).values({
+        id: "sales-1",
+        fullName: "Sarah Mitchell",
+        phone: "(708) 555-0201",
+        email: "sarah@chicagosewerexperts.com",
+        status: "available",
+        commissionRate: "0.15",
+        hourlyRate: "20.00",
+        maxDailyLeads: 20,
+        handledLeadsToday: 0,
+        userId: "user-sales-1",
+        twilioRoutingPriority: 1,
+        isActive: true,
+      }).onConflictDoNothing();
+    } catch (err) {
+      console.log("Salesperson may already exist, skipping");
     }
 
     console.log("Database seeding complete");
@@ -1454,6 +1588,148 @@ export class DatabaseStorage implements IStorage {
   async updateTechnician(id: string, updates: Partial<Technician>): Promise<Technician | undefined> {
     const [tech] = await db.update(technicians).set(updates).where(eq(technicians.id, id)).returning();
     return tech;
+  }
+
+  // Salespersons
+  async getSalesperson(id: string): Promise<Salesperson | undefined> {
+    const [sp] = await db.select().from(salespersons).where(eq(salespersons.id, id));
+    return sp;
+  }
+
+  async getSalespersonByUserId(userId: string): Promise<Salesperson | undefined> {
+    const [sp] = await db.select().from(salespersons).where(eq(salespersons.userId, userId));
+    return sp;
+  }
+
+  async getSalespersons(): Promise<Salesperson[]> {
+    return await db.select().from(salespersons);
+  }
+
+  async getAvailableSalespersons(): Promise<Salesperson[]> {
+    return await db.select().from(salespersons).where(
+      and(eq(salespersons.status, "available"), eq(salespersons.isActive, true))
+    );
+  }
+
+  async createSalesperson(insertSp: InsertSalesperson): Promise<Salesperson> {
+    const [sp] = await db.insert(salespersons).values(insertSp).returning();
+    return sp;
+  }
+
+  async updateSalesperson(id: string, updates: Partial<Salesperson>): Promise<Salesperson | undefined> {
+    const [sp] = await db.update(salespersons).set(updates).where(eq(salespersons.id, id)).returning();
+    return sp;
+  }
+
+  // Sales Commissions
+  async getSalesCommission(id: string): Promise<SalesCommission | undefined> {
+    const [commission] = await db.select().from(salesCommissions).where(eq(salesCommissions.id, id));
+    return commission;
+  }
+
+  async getSalesCommissionsByJob(jobId: string): Promise<SalesCommission[]> {
+    return await db.select().from(salesCommissions).where(eq(salesCommissions.jobId, jobId));
+  }
+
+  async getSalesCommissionsBySalesperson(salespersonId: string): Promise<SalesCommission[]> {
+    return await db.select().from(salesCommissions)
+      .where(eq(salesCommissions.salespersonId, salespersonId))
+      .orderBy(desc(salesCommissions.createdAt));
+  }
+
+  async getSalesCommissionsByStatus(status: string): Promise<SalesCommission[]> {
+    return await db.select().from(salesCommissions).where(eq(salesCommissions.status, status));
+  }
+
+  async createSalesCommission(insertCommission: InsertSalesCommission): Promise<SalesCommission> {
+    const [commission] = await db.insert(salesCommissions).values(insertCommission).returning();
+    return commission;
+  }
+
+  async updateSalesCommission(id: string, updates: Partial<SalesCommission>): Promise<SalesCommission | undefined> {
+    const [commission] = await db.update(salesCommissions).set(updates).where(eq(salesCommissions.id, id)).returning();
+    return commission;
+  }
+
+  async calculateJobCommission(jobId: string, salespersonId: string): Promise<SalesCommission | undefined> {
+    const existingCommissions = await this.getSalesCommissionsByJob(jobId);
+    const existing = existingCommissions.find(c => c.salespersonId === salespersonId);
+    if (existing) return existing;
+
+    const job = await this.getJob(jobId);
+    if (!job || !job.totalRevenue || job.status !== "completed") return undefined;
+
+    const salesperson = await this.getSalesperson(salespersonId);
+    if (!salesperson) return undefined;
+
+    const revenue = parseFloat(String(job.totalRevenue || 0));
+    const laborCost = parseFloat(String(job.laborCost || 0));
+    const materialsCost = parseFloat(String(job.materialsCost || 0));
+    const travelExpense = parseFloat(String(job.travelExpense || 0));
+    const equipmentCost = parseFloat(String(job.equipmentCost || 0));
+    const otherExpenses = parseFloat(String(job.otherExpenses || 0));
+    const totalCosts = laborCost + materialsCost + travelExpense + equipmentCost + otherExpenses;
+    const netProfit = revenue - totalCosts;
+
+    if (netProfit <= 0) return undefined;
+
+    const commissionRate = parseFloat(String(salesperson.commissionRate || "0.15"));
+    const commissionAmount = netProfit * commissionRate;
+
+    const commission = await this.createSalesCommission({
+      salespersonId,
+      jobId,
+      leadId: job.leadId,
+      jobRevenue: revenue.toFixed(2),
+      laborCost: laborCost.toFixed(2),
+      materialsCost: materialsCost.toFixed(2),
+      travelExpense: travelExpense.toFixed(2),
+      equipmentCost: equipmentCost.toFixed(2),
+      otherExpenses: otherExpenses.toFixed(2),
+      totalCosts: totalCosts.toFixed(2),
+      netProfit: netProfit.toFixed(2),
+      commissionRate: commissionRate.toFixed(4),
+      commissionAmount: commissionAmount.toFixed(2),
+      status: "pending",
+    });
+
+    return commission;
+  }
+
+  // Salesperson Locations (GPS tracking)
+  async getSalespersonLocations(salespersonId: string, limit: number = 100): Promise<SalespersonLocation[]> {
+    return await db.select().from(salespersonLocations)
+      .where(eq(salespersonLocations.salespersonId, salespersonId))
+      .orderBy(desc(salespersonLocations.createdAt))
+      .limit(limit);
+  }
+
+  async getLatestSalespersonLocation(salespersonId: string): Promise<SalespersonLocation | undefined> {
+    const [location] = await db.select().from(salespersonLocations)
+      .where(eq(salespersonLocations.salespersonId, salespersonId))
+      .orderBy(desc(salespersonLocations.createdAt))
+      .limit(1);
+    return location;
+  }
+
+  async getAllSalespersonsLatestLocations(): Promise<SalespersonLocation[]> {
+    const allSalespersons = await this.getSalespersons();
+    const locations: SalespersonLocation[] = [];
+    for (const sp of allSalespersons) {
+      const loc = await this.getLatestSalespersonLocation(sp.id);
+      if (loc) locations.push(loc);
+    }
+    return locations;
+  }
+
+  async createSalespersonLocation(location: InsertSalespersonLocation): Promise<SalespersonLocation> {
+    const [created] = await db.insert(salespersonLocations).values(location).returning();
+    await db.update(salespersons).set({
+      lastLocationLat: location.latitude,
+      lastLocationLng: location.longitude,
+      lastLocationUpdate: new Date(),
+    }).where(eq(salespersons.id, location.salespersonId));
+    return created;
   }
 
   // Leads
