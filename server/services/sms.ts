@@ -8,9 +8,8 @@ interface SMSResult {
 }
 
 // Carrier email-to-SMS gateways (fallback when Twilio unavailable)
-// Using MMS gateways which tend to be more reliable
+// NOTE: AT&T discontinued email-to-SMS gateways in June 2025
 const CARRIER_GATEWAYS: Record<string, string> = {
-  "6306661640": "mms.att.net",      // AT&T (MMS gateway - more reliable than txt.att.net)
   "3123699850": "vtext.com",        // Xfinity Mobile (uses Verizon network)
 };
 
@@ -113,27 +112,7 @@ export async function sendSMS(to: string, body: string): Promise<SMSResult> {
     console.log(`SMS: Carrier gateway failed, trying Twilio as fallback`);
   }
   
-  // Try Twilio 
-  const twilioClient = getTwilioClient();
-  
-  if (twilioClient && twilioPhoneNumber) {
-    try {
-      const message = await twilioClient.messages.create({
-        from: twilioPhoneNumber,
-        to: normalizedTo,
-        body: body,
-      });
-      
-      console.log(`SMS sent via Twilio: ${message.sid}`);
-      return { success: true, messageId: message.sid };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      console.error("Twilio SMS failed:", errorMessage);
-      return { success: false, error: errorMessage };
-    }
-  }
-
-  // Fallback to SignalWire if Twilio not configured
+  // Try SignalWire first (Twilio A2P verification pending)
   if (signalwireProjectId && signalwireApiToken && signalwireSpaceUrl && signalwirePhoneNumber) {
     try {
       const { RestClient } = await import("@signalwire/compatibility-api");
@@ -152,7 +131,27 @@ export async function sendSMS(to: string, body: string): Promise<SMSResult> {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       console.error("SignalWire SMS failed:", errorMessage);
-      // Fall through to carrier gateway
+      // Fall through to Twilio
+    }
+  }
+
+  // Fallback to Twilio if SignalWire fails
+  const twilioClient = getTwilioClient();
+  
+  if (twilioClient && twilioPhoneNumber) {
+    try {
+      const message = await twilioClient.messages.create({
+        from: twilioPhoneNumber,
+        to: normalizedTo,
+        body: body,
+      });
+      
+      console.log(`SMS sent via Twilio: ${message.sid}`);
+      return { success: true, messageId: message.sid };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      console.error("Twilio SMS failed:", errorMessage);
+      return { success: false, error: errorMessage };
     }
   }
 
