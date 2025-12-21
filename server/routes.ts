@@ -32,7 +32,11 @@ import {
   sendTechnicianEnRouteSMS,
   sendJobCompleteSMS,
   calculateJobROI,
-  notifyLeadRecipients
+  notifyLeadRecipients,
+  notifyJobCreated,
+  notifyJobAssigned,
+  notifyJobApproved,
+  notifyQuoteCreated,
 } from "./services/automation";
 import * as smsService from "./services/sms";
 
@@ -466,6 +470,12 @@ export async function registerRoutes(
       const result = insertJobSchema.safeParse(body);
       if (!result.success) return res.status(400).json({ error: result.error });
       const job = await storage.createJob(result.data);
+      
+      // Notify office about new job
+      notifyJobCreated(job).catch(err => 
+        console.error(`Job creation notification failed for job ${job.id}:`, err)
+      );
+      
       res.status(201).json(job);
     } catch (error) {
       console.error("Error creating job:", error);
@@ -576,6 +586,11 @@ export async function registerRoutes(
         actionUrl: `/technician/jobs/${req.params.id}`,
       });
     }
+    
+    // Send email notification to technician
+    notifyJobAssigned(updated!, tech.fullName).catch(err => 
+      console.error(`Job assignment notification failed for job ${req.params.id}:`, err)
+    );
     
     res.json(updated);
   });
@@ -706,6 +721,14 @@ export async function registerRoutes(
       createdBy: technicianId,
     });
     
+    // Notify technician email that job is now in progress
+    if (technicianId) {
+      const tech = await storage.getTechnician(technicianId);
+      notifyJobApproved(updated!, tech?.fullName).catch(err => 
+        console.error(`Job in-progress notification failed for job ${req.params.id}:`, err)
+      );
+    }
+    
     res.json(updated);
   });
 
@@ -822,6 +845,16 @@ export async function registerRoutes(
         description: `Quote created for $${result.data.total}`,
         createdBy: result.data.technicianId || undefined,
       });
+      
+      // Notify office about new quote
+      notifyQuoteCreated({
+        id: quote.id,
+        customerName: quote.customerName,
+        jobId: quote.jobId || undefined,
+        total: quote.total,
+      }).catch(err => 
+        console.error(`Quote notification failed for quote ${quote.id}:`, err)
+      );
       
       res.status(201).json(quote);
     } catch (error) {
