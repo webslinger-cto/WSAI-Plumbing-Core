@@ -1,3 +1,4 @@
+import twilio from "twilio";
 import { sendEmail } from "./email";
 
 interface SMSResult {
@@ -53,38 +54,53 @@ async function sendViaCarrierGateway(to: string, body: string): Promise<SMSResul
   }
 }
 
-// SignalWire credentials
+// Twilio credentials
+const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
+const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
+const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
+
+// SignalWire credentials (fallback)
 const signalwireProjectId = process.env.SIGNALWIRE_PROJECT_ID;
 const signalwireApiToken = process.env.SIGNALWIRE_API_TOKEN;
 const signalwireSpaceUrl = process.env.SIGNALWIRE_SPACE_URL;
 const signalwirePhoneNumber = process.env.SIGNALWIRE_PHONE_NUMBER;
 
+// Status callback URLs - use environment variable or construct from REPLIT_DEV_DOMAIN
+function getStatusCallbackUrl(provider: "twilio" | "signalwire"): string | undefined {
+  const baseUrl = process.env.APP_BASE_URL || 
+    (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : undefined);
+  
+  if (!baseUrl) return undefined;
+  return `${baseUrl}/api/webhooks/${provider}/status`;
+}
+
+function getTwilioClient(): twilio.Twilio | null {
+  if (!twilioAccountSid || !twilioAuthToken) {
+    return null;
+  }
+  return twilio(twilioAccountSid, twilioAuthToken);
+}
+
 // Normalize phone number to E.164 format (+1XXXXXXXXXX)
 function normalizePhoneNumber(phone: string): string {
-  // Remove all non-digit characters
   const digits = phone.replace(/\D/g, "");
   
-  // If already has country code (11 digits starting with 1)
   if (digits.length === 11 && digits.startsWith("1")) {
     return `+${digits}`;
   }
   
-  // If 10 digits, assume US number and add +1
   if (digits.length === 10) {
     return `+1${digits}`;
   }
   
-  // If already formatted with + sign, return as-is
   if (phone.startsWith("+")) {
     return phone;
   }
   
-  // Return original if we can't normalize
   return phone;
 }
 
 export async function sendSMS(to: string, body: string): Promise<SMSResult> {
-  // Normalize phone number to E.164 format
   const normalizedTo = normalizePhoneNumber(to);
   console.log(`SMS: Normalizing ${to} -> ${normalizedTo}`);
   
@@ -96,10 +112,31 @@ export async function sendSMS(to: string, body: string): Promise<SMSResult> {
     if (gatewayResult.success) {
       return gatewayResult;
     }
-    console.log(`SMS: Carrier gateway failed, trying SignalWire as fallback`);
+    console.log(`SMS: Carrier gateway failed, trying Twilio/SignalWire as fallback`);
   }
   
-  // Use SignalWire for SMS
+  // Try Twilio first (with status callback)
+  const twilioClient = getTwilioClient();
+  if (twilioClient && twilioPhoneNumber) {
+    try {
+      const twilioCallbackUrl = getStatusCallbackUrl("twilio");
+      const message = await twilioClient.messages.create({
+        from: twilioPhoneNumber,
+        to: normalizedTo,
+        body: body,
+        ...(twilioCallbackUrl && { statusCallback: twilioCallbackUrl }),
+      });
+      
+      console.log(`SMS sent via Twilio: ${message.sid}`);
+      return { success: true, messageId: message.sid };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      console.error("Twilio SMS failed:", errorMessage);
+      // Fall through to SignalWire
+    }
+  }
+  
+  // Try SignalWire as fallback (with status callback)
   if (signalwireProjectId && signalwireApiToken && signalwireSpaceUrl && signalwirePhoneNumber) {
     try {
       const { RestClient } = await import("@signalwire/compatibility-api");
@@ -107,10 +144,12 @@ export async function sendSMS(to: string, body: string): Promise<SMSResult> {
         signalwireSpaceUrl: signalwireSpaceUrl 
       });
       
+      const signalwireCallbackUrl = getStatusCallbackUrl("signalwire");
       const message = await client.messages.create({
         from: signalwirePhoneNumber,
         to: normalizedTo,
         body: body,
+        ...(signalwireCallbackUrl && { statusCallback: signalwireCallbackUrl }),
       });
       
       console.log(`SMS sent via SignalWire: ${message.sid}`);
@@ -122,7 +161,7 @@ export async function sendSMS(to: string, body: string): Promise<SMSResult> {
     }
   }
 
-  return { success: false, error: "SMS service not configured (SignalWire credentials missing)" };
+  return { success: false, error: "SMS service not configured (no Twilio or SignalWire credentials)" };
 }
 
 export async function sendAppointmentReminder(
@@ -189,10 +228,15 @@ export async function sendQuoteReady(
 }
 
 export function isConfigured(): boolean {
-  return !!(signalwireProjectId && signalwireApiToken && signalwireSpaceUrl && signalwirePhoneNumber);
+  const hasTwilio = !!(twilioAccountSid && twilioAuthToken && twilioPhoneNumber);
+  const hasSignalWire = !!(signalwireProjectId && signalwireApiToken && signalwireSpaceUrl && signalwirePhoneNumber);
+  return hasTwilio || hasSignalWire;
 }
 
 export function getActiveProvider(): string {
+  if (twilioAccountSid && twilioAuthToken && twilioPhoneNumber) {
+    return "Twilio";
+  }
   if (signalwireProjectId && signalwireApiToken && signalwireSpaceUrl && signalwirePhoneNumber) {
     return "SignalWire";
   }

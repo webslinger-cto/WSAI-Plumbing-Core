@@ -1187,6 +1187,94 @@ export async function registerRoutes(
   });
 
   // ==========================================
+  // SMS Status Callback Webhooks
+  // ==========================================
+
+  // Twilio SMS status callback - tracks delivery status
+  app.post("/api/webhooks/twilio/status", async (req, res) => {
+    try {
+      const {
+        MessageSid,
+        MessageStatus,
+        To,
+        From,
+        ErrorCode,
+        ErrorMessage,
+      } = req.body;
+
+      const logEntry = {
+        timestamp: new Date().toISOString(),
+        provider: "Twilio",
+        messageSid: MessageSid,
+        status: MessageStatus,
+        to: To,
+        from: From,
+        errorCode: ErrorCode || null,
+        errorMessage: ErrorMessage || null,
+      };
+
+      console.log(`[Twilio Status] ${MessageStatus} for ${To}:`, JSON.stringify(logEntry));
+
+      // Log to webhook_logs table for tracking
+      await storage.createWebhookLog({
+        source: "twilio-status",
+        payload: logEntry,
+        status: MessageStatus === "delivered" ? "success" : 
+                MessageStatus === "failed" || MessageStatus === "undelivered" ? "error" : "pending",
+        errorMessage: ErrorCode ? `${ErrorCode}: ${ErrorMessage || "Unknown error"}` : null,
+      });
+
+      // Return 200 OK - Twilio expects this
+      res.status(200).send("OK");
+    } catch (error) {
+      console.error("Twilio status webhook error:", error);
+      // Still return 200 to prevent Twilio from retrying
+      res.status(200).send("OK");
+    }
+  });
+
+  // SignalWire SMS status callback - tracks delivery status  
+  app.post("/api/webhooks/signalwire/status", async (req, res) => {
+    try {
+      const {
+        MessageSid,
+        MessageStatus,
+        To,
+        From,
+        ErrorCode,
+        ErrorMessage,
+      } = req.body;
+
+      const logEntry = {
+        timestamp: new Date().toISOString(),
+        provider: "SignalWire",
+        messageSid: MessageSid,
+        status: MessageStatus,
+        to: To,
+        from: From,
+        errorCode: ErrorCode || null,
+        errorMessage: ErrorMessage || null,
+      };
+
+      console.log(`[SignalWire Status] ${MessageStatus} for ${To}:`, JSON.stringify(logEntry));
+
+      // Log to webhook_logs table for tracking
+      await storage.createWebhookLog({
+        source: "signalwire-status",
+        payload: logEntry,
+        status: MessageStatus === "delivered" ? "success" : 
+                MessageStatus === "failed" || MessageStatus === "undelivered" ? "error" : "pending",
+        errorMessage: ErrorCode ? `${ErrorCode}: ${ErrorMessage || "Unknown error"}` : null,
+      });
+
+      res.status(200).send("OK");
+    } catch (error) {
+      console.error("SignalWire status webhook error:", error);
+      res.status(200).send("OK");
+    }
+  });
+
+  // ==========================================
   // Lead Provider Webhooks
   // ==========================================
 
