@@ -39,6 +39,7 @@ import {
   notifyQuoteCreated,
 } from "./services/automation";
 import * as smsService from "./services/sms";
+import { dispatchToClosestTechnician } from "./services/dispatch";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -125,6 +126,39 @@ export async function registerRoutes(
     const tech = await storage.updateTechnician(req.params.id, req.body);
     if (!tech) return res.status(404).json({ error: "Technician not found" });
     res.json(tech);
+  });
+
+  // Dispatch to closest technician
+  app.post("/api/dispatch/closest-technician", async (req, res) => {
+    try {
+      const { address, jobId, customerName, serviceType } = req.body;
+      
+      if (!address) {
+        return res.status(400).json({ error: "Address is required" });
+      }
+      
+      const result = await dispatchToClosestTechnician(address, jobId, customerName, serviceType);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      res.json({
+        success: true,
+        technician: {
+          id: result.technician?.technician.id,
+          name: result.technician?.technician.fullName,
+          phone: result.technician?.technician.phone,
+          email: result.technician?.technician.email,
+          distanceMiles: result.technician?.distanceMiles,
+        },
+        coordinates: result.coordinates,
+        emailSent: result.emailSent,
+      });
+    } catch (error) {
+      console.error("Dispatch error:", error);
+      res.status(500).json({ error: "Dispatch failed" });
+    }
   });
 
   // Leads
