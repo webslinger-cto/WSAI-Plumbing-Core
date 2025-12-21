@@ -41,7 +41,7 @@ import {
 } from "./services/automation";
 import * as smsService from "./services/sms";
 import { dispatchToClosestTechnician } from "./services/dispatch";
-import { generateApplicationPDF, generateComparisonPDF } from "./services/pdf-generator";
+import { generateApplicationPDF, generateComparisonPDF, generateTestResultsPDF } from "./services/pdf-generator";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -2854,6 +2854,21 @@ ${emailContent}
     } catch (error) {
       console.error("Comparison PDF generation error:", error);
       res.status(500).json({ error: "Failed to generate comparison PDF" });
+    }
+  });
+
+  app.get("/api/docs/test-results", async (req, res) => {
+    try {
+      const doc = generateTestResultsPDF();
+      
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", "attachment; filename=CSE-CRM-Test-Results.pdf");
+      
+      doc.pipe(res);
+      doc.end();
+    } catch (error) {
+      console.error("Test results PDF generation error:", error);
+      res.status(500).json({ error: "Failed to generate test results PDF" });
     }
   });
 

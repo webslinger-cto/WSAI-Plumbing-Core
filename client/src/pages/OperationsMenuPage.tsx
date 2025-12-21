@@ -197,7 +197,7 @@ function AdminOperationsContent() {
           <p className="text-muted-foreground mb-4">
             Download PDF documentation for offline reference or sharing with stakeholders:
           </p>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-3">
             <a href="/api/documentation/pdf" download>
               <Button variant="outline" className="w-full justify-start gap-2" data-testid="button-download-docs">
                 <Download className="w-4 h-4" />
@@ -213,6 +213,15 @@ function AdminOperationsContent() {
                 <div className="text-left">
                   <p className="font-medium">HomeAdvisor Comparison</p>
                   <p className="text-xs text-muted-foreground">Feature comparison PDF</p>
+                </div>
+              </Button>
+            </a>
+            <a href="/api/docs/test-results" download>
+              <Button variant="outline" className="w-full justify-start gap-2" data-testid="button-download-test-results">
+                <Download className="w-4 h-4" />
+                <div className="text-left">
+                  <p className="font-medium">Test Results</p>
+                  <p className="text-xs text-muted-foreground">QA checklist PDF</p>
                 </div>
               </Button>
             </a>
