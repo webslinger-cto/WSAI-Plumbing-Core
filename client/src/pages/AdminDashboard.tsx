@@ -15,7 +15,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Users, DollarSign, Phone, TrendingUp, Percent, FileText, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { Users, DollarSign, Phone, TrendingUp, Percent, FileText, CheckCircle2, Clock, XCircle, Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { Quote, Technician } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
 
@@ -228,17 +229,28 @@ export default function AdminDashboard() {
             Overview of your lead generation and business performance
           </p>
         </div>
-        <Select value={timeRange} onValueChange={setTimeRange}>
-          <SelectTrigger className="w-[150px]" data-testid="select-time-range">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="week">This Week</SelectItem>
-            <SelectItem value="month">This Month</SelectItem>
-            <SelectItem value="quarter">This Quarter</SelectItem>
-            <SelectItem value="year">This Year</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.open("/api/documentation/pdf", "_blank")}
+            data-testid="button-download-docs"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Documentation
+          </Button>
+          <Select value={timeRange} onValueChange={setTimeRange}>
+            <SelectTrigger className="w-[150px]" data-testid="select-time-range">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="week">This Week</SelectItem>
+              <SelectItem value="month">This Month</SelectItem>
+              <SelectItem value="quarter">This Quarter</SelectItem>
+              <SelectItem value="year">This Year</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">

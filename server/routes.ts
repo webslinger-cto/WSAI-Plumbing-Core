@@ -40,6 +40,7 @@ import {
 } from "./services/automation";
 import * as smsService from "./services/sms";
 import { dispatchToClosestTechnician } from "./services/dispatch";
+import { generateApplicationPDF } from "./services/pdf-generator";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -2597,6 +2598,25 @@ ${emailContent}
       }
 
       res.status(500).json({ error: "Failed to process incoming email" });
+    }
+  });
+
+  // ========================================
+  // PDF DOCUMENTATION DOWNLOAD
+  // ========================================
+
+  app.get("/api/documentation/pdf", async (req, res) => {
+    try {
+      const doc = generateApplicationPDF();
+      
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", "attachment; filename=Chicago-Sewer-Experts-CRM-Documentation.pdf");
+      
+      doc.pipe(res);
+      doc.end();
+    } catch (error) {
+      console.error("PDF generation error:", error);
+      res.status(500).json({ error: "Failed to generate PDF" });
     }
   });
 
