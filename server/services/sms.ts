@@ -24,7 +24,35 @@ function getTwilioClient(): twilio.Twilio | null {
   return twilio(twilioAccountSid, twilioAuthToken);
 }
 
+// Normalize phone number to E.164 format (+1XXXXXXXXXX)
+function normalizePhoneNumber(phone: string): string {
+  // Remove all non-digit characters
+  const digits = phone.replace(/\D/g, "");
+  
+  // If already has country code (11 digits starting with 1)
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `+${digits}`;
+  }
+  
+  // If 10 digits, assume US number and add +1
+  if (digits.length === 10) {
+    return `+1${digits}`;
+  }
+  
+  // If already formatted with + sign, return as-is
+  if (phone.startsWith("+")) {
+    return phone;
+  }
+  
+  // Return original if we can't normalize
+  return phone;
+}
+
 export async function sendSMS(to: string, body: string): Promise<SMSResult> {
+  // Normalize phone number to E.164 format
+  const normalizedTo = normalizePhoneNumber(to);
+  console.log(`SMS: Normalizing ${to} -> ${normalizedTo}`);
+  
   // Try Twilio first
   const twilioClient = getTwilioClient();
   
@@ -32,7 +60,7 @@ export async function sendSMS(to: string, body: string): Promise<SMSResult> {
     try {
       const message = await twilioClient.messages.create({
         from: twilioPhoneNumber,
-        to: to,
+        to: normalizedTo,
         body: body,
       });
       
@@ -55,7 +83,7 @@ export async function sendSMS(to: string, body: string): Promise<SMSResult> {
       
       const message = await client.messages.create({
         from: signalwirePhoneNumber,
-        to: to,
+        to: normalizedTo,
         body: body,
       });
       
