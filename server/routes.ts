@@ -2228,7 +2228,77 @@ export async function registerRoutes(
   // INCOMING EMAIL FORWARDING (via Zapier)
   // ========================================
   
-  // Webhook endpoint to receive emails from Zapier and forward to team
+  // Webhook endpoint to receive emails from Zapier and send SMS to team
+  // Zapier setup: Email by Zapier (trigger) -> Webhooks POST (action)
+  app.post("/api/webhooks/incoming-email-to-sms", async (req, res) => {
+    try {
+      const { 
+        from, 
+        subject, 
+        body_plain,
+        recipients // Phone numbers to text (comma-separated or array)
+      } = req.body;
+
+      console.log(`[Incoming Email -> SMS] From: ${from}, Subject: ${subject}`);
+
+      // Get team member phone numbers
+      let phoneNumbers: string[] = [];
+      
+      if (recipients) {
+        phoneNumbers = Array.isArray(recipients) 
+          ? recipients 
+          : recipients.split(',').map((p: string) => p.trim());
+      } else {
+        // Default: get technician phone numbers
+        const technicians = await storage.getTechnicians();
+        phoneNumbers = technicians
+          .filter(t => t.phone)
+          .slice(0, 3) // Limit to 3 team members for SMS
+          .map(t => t.phone!);
+      }
+
+      if (phoneNumbers.length === 0) {
+        return res.status(400).json({ error: "No phone numbers configured for SMS alerts" });
+      }
+
+      // Truncate message for SMS (160 char limit)
+      const truncatedBody = body_plain && body_plain.length > 100 
+        ? body_plain.substring(0, 97) + "..." 
+        : body_plain || "(No message)";
+      
+      const smsMessage = `New email from ${from || "Unknown"}:\n${subject || "(No subject)"}\n\n${truncatedBody}`;
+
+      // Send SMS to each team member
+      const smsPromises = phoneNumbers.map(phone => 
+        smsService.sendSMS(phone, smsMessage)
+      );
+
+      const results = await Promise.allSettled(smsPromises);
+      const successCount = results.filter(r => r.status === 'fulfilled' && (r.value as any).success).length;
+      
+      console.log(`[Incoming Email -> SMS] Sent to ${successCount}/${phoneNumbers.length} team members`);
+
+      await storage.createWebhookLog({
+        source: "zapier",
+        endpoint: "/api/webhooks/incoming-email-to-sms",
+        method: "POST",
+        payload: JSON.stringify({ from, subject, recipientCount: phoneNumbers.length }),
+        status: "success",
+        responseCode: 200,
+      });
+
+      res.json({ 
+        success: true, 
+        message: `SMS sent to ${successCount} team members`,
+        sentTo: phoneNumbers 
+      });
+    } catch (error) {
+      console.error("Incoming email to SMS webhook error:", error);
+      res.status(500).json({ error: "Failed to send SMS notifications" });
+    }
+  });
+
+  // Webhook endpoint to receive emails from Zapier and forward to team via email
   // Zapier setup: Email by Zapier (trigger) -> Webhooks POST (action)
   app.post("/api/webhooks/incoming-email", async (req, res) => {
     try {
