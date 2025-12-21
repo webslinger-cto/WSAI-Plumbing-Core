@@ -13,11 +13,11 @@ interface TechnicianLocation {
   technicianId: string;
   latitude: string;
   longitude: string;
-  accuracy: number | null;
-  timestamp: string;
+  accuracy: string | null;
+  createdAt: string;
   technicianName: string;
   technicianStatus: string;
-  currentJobId: string | null;
+  jobId: string | null;
 }
 
 const technicianIcon = new Icon({
@@ -215,11 +215,11 @@ export function TechnicianMap({ refreshInterval = 30000 }: TechnicianMapProps) {
                     </div>
                     <div className="flex items-center gap-1 text-sm text-muted-foreground">
                       <Clock className="h-3 w-3" />
-                      <span>Updated {formatTimestamp(location.timestamp)}</span>
+                      <span>Updated {formatTimestamp(location.createdAt)}</span>
                     </div>
                     {location.accuracy && (
                       <div className="text-xs text-muted-foreground mt-1">
-                        Accuracy: {Math.round(location.accuracy)}m
+                        Accuracy: {Math.round(parseFloat(location.accuracy))}m
                       </div>
                     )}
                   </div>

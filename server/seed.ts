@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { users, technicians, leads, calls, jobs, jobTimelineEvents, notifications } from "@shared/schema";
+import { users, technicians, leads, calls, jobs, jobTimelineEvents, notifications, technicianLocations } from "@shared/schema";
 
 async function seed() {
   console.log("Seeding database...");
@@ -189,6 +189,79 @@ async function seed() {
   ];
   await db.insert(notifications).values(notificationData);
   console.log("Inserted notifications");
+
+  // Seed technician locations (Chicago area coordinates)
+  const techLocationData = [
+    {
+      id: "loc-1",
+      technicianId: "tech-1",
+      latitude: "41.8827",
+      longitude: "-87.6233",
+      accuracy: "10",
+      isMoving: false,
+      jobId: "job-1",
+    },
+    {
+      id: "loc-2",
+      technicianId: "tech-2",
+      latitude: "41.8955",
+      longitude: "-87.6540",
+      accuracy: "15",
+      isMoving: true,
+      jobId: null,
+    },
+    {
+      id: "loc-3",
+      technicianId: "tech-3",
+      latitude: "41.8675",
+      longitude: "-87.6170",
+      accuracy: "8",
+      isMoving: false,
+      jobId: "job-5",
+    },
+    {
+      id: "loc-4",
+      technicianId: "tech-4",
+      latitude: "41.9100",
+      longitude: "-87.6850",
+      accuracy: "12",
+      isMoving: false,
+      jobId: null,
+    },
+  ];
+  await db.insert(technicianLocations).values(techLocationData);
+  console.log("Inserted technician locations");
+
+  // Update technicians with last known locations
+  await db.execute(`
+    UPDATE technicians SET 
+      last_location_lat = '41.8827', 
+      last_location_lng = '-87.6233',
+      last_location_update = NOW()
+    WHERE id = 'tech-1'
+  `);
+  await db.execute(`
+    UPDATE technicians SET 
+      last_location_lat = '41.8955', 
+      last_location_lng = '-87.6540',
+      last_location_update = NOW()
+    WHERE id = 'tech-2'
+  `);
+  await db.execute(`
+    UPDATE technicians SET 
+      last_location_lat = '41.8675', 
+      last_location_lng = '-87.6170',
+      last_location_update = NOW()
+    WHERE id = 'tech-3'
+  `);
+  await db.execute(`
+    UPDATE technicians SET 
+      last_location_lat = '41.9100', 
+      last_location_lng = '-87.6850',
+      last_location_update = NOW()
+    WHERE id = 'tech-4'
+  `);
+  console.log("Updated technicians with last known locations");
 
   console.log("Database seeding completed!");
 }

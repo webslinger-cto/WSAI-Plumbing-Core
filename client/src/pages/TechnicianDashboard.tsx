@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import KPICard from "@/components/KPICard";
@@ -22,6 +22,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import {
   ClipboardList,
@@ -43,6 +48,8 @@ import {
   Briefcase,
   Camera,
   ListChecks,
+  Radio,
+  WifiOff,
 } from "lucide-react";
 import type { Job, Notification } from "@shared/schema";
 import { formatDistanceToNow, format } from "date-fns";
@@ -109,6 +116,11 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
   const [showQuoteBuilder, setShowQuoteBuilder] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [arrivingJobId, setArrivingJobId] = useState<string | null>(null);
+  const [isLocationTrackingEnabled, setIsLocationTrackingEnabled] = useState(() => {
+    const saved = localStorage.getItem(`locationTracking_${technicianId}`);
+    return saved === "true";
+  });
+  const locationIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
     queryKey: ["/api/jobs", { technicianId }],
@@ -142,6 +154,72 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
     },
     enabled: !!technicianId,
   });
+
+  const locationUpdateMutation = useMutation({
+    mutationFn: async (data: { latitude: number; longitude: number; accuracy?: number; speed?: number; heading?: number }) => {
+      const activeJob = jobs.find(j => ["en_route", "on_site", "in_progress"].includes(j.status));
+      return apiRequest("POST", `/api/technicians/${technicianId}/location`, {
+        latitude: String(data.latitude),
+        longitude: String(data.longitude),
+        accuracy: data.accuracy !== undefined ? String(data.accuracy) : undefined,
+        speed: data.speed !== undefined ? String(data.speed) : undefined,
+        heading: data.heading !== undefined ? String(data.heading) : undefined,
+        isMoving: (data.speed || 0) > 0.5,
+        jobId: activeJob?.id || null,
+      });
+    },
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`locationTracking_${technicianId}`, String(isLocationTrackingEnabled));
+    
+    if (isLocationTrackingEnabled && technicianId) {
+      const updateLocation = () => {
+        if (!navigator.geolocation) return;
+        
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            locationUpdateMutation.mutate({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+              speed: position.coords.speed || undefined,
+              heading: position.coords.heading || undefined,
+            });
+          },
+          (error) => {
+            console.log("Location update failed:", error.message);
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+        );
+      };
+
+      updateLocation();
+      locationIntervalRef.current = setInterval(updateLocation, 30000);
+
+      return () => {
+        if (locationIntervalRef.current) {
+          clearInterval(locationIntervalRef.current);
+        }
+      };
+    } else {
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+    }
+  }, [isLocationTrackingEnabled, technicianId, jobs]);
+
+  const toggleLocationTracking = () => {
+    const newValue = !isLocationTrackingEnabled;
+    setIsLocationTrackingEnabled(newValue);
+    toast({
+      title: newValue ? "Location Sharing Enabled" : "Location Sharing Disabled",
+      description: newValue 
+        ? "Your location is now being shared with dispatch."
+        : "Location sharing has been turned off.",
+    });
+  };
 
   const claimMutation = useMutation({
     mutationFn: async (jobId: string) => {
@@ -434,6 +512,22 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={isLocationTrackingEnabled ? "default" : "outline"}
+                size="icon"
+                onClick={toggleLocationTracking}
+                data-testid="button-location-toggle"
+                className={isLocationTrackingEnabled ? "bg-emerald-600 hover:bg-emerald-700" : ""}
+              >
+                {isLocationTrackingEnabled ? <Radio className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{isLocationTrackingEnabled ? "Location sharing ON" : "Location sharing OFF"}</p>
+            </TooltipContent>
+          </Tooltip>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" size="icon" className="relative" data-testid="button-notifications">
