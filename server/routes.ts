@@ -2198,9 +2198,12 @@ export async function registerRoutes(
 
   app.post("/api/jobs/:id/attachments", async (req, res) => {
     try {
+      const { fileData, ...rest } = req.body;
+      
       const result = insertJobAttachmentSchema.safeParse({
-        ...req.body,
+        ...rest,
         jobId: req.params.id,
+        url: fileData || rest.url,
       });
       if (!result.success) return res.status(400).json({ error: result.error });
       

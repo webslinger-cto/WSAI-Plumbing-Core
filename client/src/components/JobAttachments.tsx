@@ -51,6 +51,7 @@ export default function JobAttachments({ jobId, technicianId }: JobAttachmentsPr
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
 
   const { data: attachments = [], isLoading } = useQuery<JobAttachment[]>({
     queryKey: ["/api/jobs", jobId, "attachments"],
@@ -69,13 +70,13 @@ export default function JobAttachments({ jobId, technicianId }: JobAttachmentsPr
       category: string;
       mimeType: string;
       fileSize: number;
+      fileData: string;
       latitude?: string;
       longitude?: string;
     }) => {
       const res = await apiRequest("POST", `/api/jobs/${jobId}/attachments`, {
         ...data,
         technicianId,
-        url: `/uploads/${data.filename}`,
       });
       if (!res.ok) throw new Error("Failed to upload attachment");
       return res.json();
@@ -118,6 +119,15 @@ export default function JobAttachments({ jobId, technicianId }: JobAttachmentsPr
     }
   };
 
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+    });
+  };
+
   const handleUpload = async () => {
     if (!selectedFile) return;
 
@@ -141,6 +151,8 @@ export default function JobAttachments({ jobId, technicianId }: JobAttachmentsPr
     }
 
     const isVideo = selectedFile.type.startsWith("video/");
+    const fileData = await fileToBase64(selectedFile);
+    
     uploadMutation.mutate({
       type: isVideo ? "video" : "photo",
       filename: `${Date.now()}-${selectedFile.name}`,
@@ -148,6 +160,7 @@ export default function JobAttachments({ jobId, technicianId }: JobAttachmentsPr
       category,
       mimeType: selectedFile.type,
       fileSize: selectedFile.size,
+      fileData,
       latitude,
       longitude,
     });
@@ -172,15 +185,24 @@ export default function JobAttachments({ jobId, technicianId }: JobAttachmentsPr
           <h3 className="font-semibold">Photos & Videos</h3>
           <Badge variant="secondary">{attachments.length}</Badge>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <input
             ref={cameraInputRef}
             type="file"
-            accept="image/*,video/*"
+            accept="image/*"
             capture="environment"
             className="hidden"
             onChange={handleFileSelect}
             data-testid="input-camera-capture"
+          />
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept="video/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleFileSelect}
+            data-testid="input-video-capture"
           />
           <input
             ref={fileInputRef}
@@ -197,7 +219,16 @@ export default function JobAttachments({ jobId, technicianId }: JobAttachmentsPr
             data-testid="button-take-photo"
           >
             <Camera className="w-4 h-4 mr-2" />
-            Camera
+            Photo
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => videoInputRef.current?.click()}
+            data-testid="button-record-video"
+          >
+            <Video className="w-4 h-4 mr-2" />
+            Video
           </Button>
           <Button
             variant="outline"
@@ -245,7 +276,21 @@ export default function JobAttachments({ jobId, technicianId }: JobAttachmentsPr
                         data-testid={`attachment-${attachment.id}`}
                       >
                         <div className="aspect-video bg-muted relative flex items-center justify-center">
-                          {attachment.type === "photo" ? (
+                          {attachment.url ? (
+                            attachment.type === "video" ? (
+                              <video 
+                                src={attachment.url} 
+                                className="w-full h-full object-cover"
+                                controls
+                              />
+                            ) : (
+                              <img 
+                                src={attachment.url} 
+                                alt={attachment.caption || "Job photo"}
+                                className="w-full h-full object-cover"
+                              />
+                            )
+                          ) : attachment.type === "photo" ? (
                             <FileImage className="w-12 h-12 text-muted-foreground" />
                           ) : (
                             <FileVideo className="w-12 h-12 text-muted-foreground" />
@@ -253,7 +298,7 @@ export default function JobAttachments({ jobId, technicianId }: JobAttachmentsPr
                           <Button
                             variant="destructive"
                             size="icon"
-                            className="absolute top-2 right-2 h-7 w-7"
+                            className="absolute top-2 right-2"
                             onClick={() => deleteMutation.mutate(attachment.id)}
                             disabled={deleteMutation.isPending}
                             data-testid={`button-delete-attachment-${attachment.id}`}
