@@ -1441,25 +1441,11 @@ export async function registerRoutes(
       const customerService = service_type || serviceType;
       const customerDescription = description || notes;
       
-      if (!customerPhone) {
-        await storage.createWebhookLog({
-          source: "zapier",
-          endpoint: "/api/webhooks/zapier/lead",
-          method: "POST",
-          headers: JSON.stringify(req.headers),
-          payload: JSON.stringify(req.body),
-          responseStatus: 400,
-          responseBody: JSON.stringify({ error: "Phone number is required" }),
-          processingTimeMs: Date.now() - startTime,
-          error: "Missing phone number",
-        });
-        return res.status(400).json({ error: "Phone number is required" });
-      }
-
+      // Phone is optional for email leads
       const leadData = {
         source: source || "Zapier",
         customerName,
-        customerPhone,
+        customerPhone: customerPhone || "No phone provided",
         customerEmail: customerEmail || undefined,
         address: address || undefined,
         city: city || undefined,
