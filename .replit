@@ -40,3 +40,8 @@ waitForPort = 5000
 
 [agent]
 integrations = ["javascript_log_in_with_replit:1.0.0", "javascript_database:1.0.0", "resend:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+NOTIFICATION_SMS_NUMBERS = "6306661640,5737958857,3123699850"
