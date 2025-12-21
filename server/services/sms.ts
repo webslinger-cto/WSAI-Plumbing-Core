@@ -36,6 +36,7 @@ async function sendViaCarrierGateway(to: string, body: string): Promise<SMSResul
     const result = await sendEmail({
       to: emailAddress,
       subject: "",
+      html: body,
       text: body,
     });
     
@@ -98,7 +99,18 @@ export async function sendSMS(to: string, body: string): Promise<SMSResult> {
   const normalizedTo = normalizePhoneNumber(to);
   console.log(`SMS: Normalizing ${to} -> ${normalizedTo}`);
   
-  // Try Twilio first
+  // Check if this number has a carrier gateway - use it FIRST (bypasses Twilio verification issues)
+  const gateway = getCarrierGateway(to);
+  if (gateway) {
+    console.log(`SMS: Using carrier email gateway for ${to} (bypassing Twilio)`);
+    const gatewayResult = await sendViaCarrierGateway(to, body);
+    if (gatewayResult.success) {
+      return gatewayResult;
+    }
+    console.log(`SMS: Carrier gateway failed, trying Twilio as fallback`);
+  }
+  
+  // Try Twilio 
   const twilioClient = getTwilioClient();
   
   if (twilioClient && twilioPhoneNumber) {
@@ -141,14 +153,7 @@ export async function sendSMS(to: string, body: string): Promise<SMSResult> {
     }
   }
 
-  // Final fallback: carrier email-to-SMS gateway
-  const gateway = getCarrierGateway(to);
-  if (gateway) {
-    console.log(`SMS: Trying carrier email gateway for ${to}`);
-    return sendViaCarrierGateway(to, body);
-  }
-
-  return { success: false, error: "SMS service not configured and no carrier gateway available" };
+  return { success: false, error: "SMS service not configured" };
 }
 
 export async function sendAppointmentReminder(
