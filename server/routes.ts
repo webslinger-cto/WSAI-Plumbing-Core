@@ -41,7 +41,7 @@ import {
 } from "./services/automation";
 import * as smsService from "./services/sms";
 import { dispatchToClosestTechnician } from "./services/dispatch";
-import { generateApplicationPDF } from "./services/pdf-generator";
+import { generateApplicationPDF, generateComparisonPDF } from "./services/pdf-generator";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -2839,6 +2839,21 @@ ${emailContent}
     } catch (error) {
       console.error("PDF generation error:", error);
       res.status(500).json({ error: "Failed to generate PDF" });
+    }
+  });
+
+  app.get("/api/docs/comparison", async (req, res) => {
+    try {
+      const doc = generateComparisonPDF();
+      
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", "attachment; filename=CSE-CRM-vs-HomeAdvisor-Pro-Comparison.pdf");
+      
+      doc.pipe(res);
+      doc.end();
+    } catch (error) {
+      console.error("Comparison PDF generation error:", error);
+      res.status(500).json({ error: "Failed to generate comparison PDF" });
     }
   });
 

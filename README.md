@@ -76,6 +76,13 @@ This application provides complete lead-to-job lifecycle management with role-ba
 - Capture photos/videos
 - Track earnings
 
+### Salesperson
+- Manage leads and customer relationships
+- Create and send quotes
+- Track commissions (based on NET profit)
+- View sales analytics and conversion rates
+- GPS location tracking for field visits
+
 ## Demo Credentials
 
 | Role | Username | Password |
@@ -85,6 +92,7 @@ This application provides complete lead-to-job lifecycle management with role-ba
 | Technician | mike | demo123 |
 | Technician | carlos | demo123 |
 | Technician | james | demo123 |
+| Salesperson | sarah | demo123 |
 
 ## API Endpoints
 
@@ -119,6 +127,17 @@ This application provides complete lead-to-job lifecycle management with role-ba
 - `GET /api/quotes/:id` - Get quote details
 - `GET /api/quotes/public/:token` - Public quote view
 
+### Salespersons
+- `GET /api/salespersons` - List all salespersons
+- `GET /api/salespersons/:id` - Get salesperson details
+- `GET /api/salespersons/:id/commissions` - Get commission history
+- `POST /api/salespersons/:id/location` - Update GPS location
+
+### Sales Commissions
+- `GET /api/sales-commissions` - List commissions
+- `POST /api/sales-commissions/calculate/:jobId` - Calculate commission for job
+- `PATCH /api/sales-commissions/:id` - Update commission status
+
 ### Webhooks
 - `POST /api/webhooks/elocal` - eLocal lead intake
 - `POST /api/webhooks/networx` - Networx lead intake
@@ -126,6 +145,10 @@ This application provides complete lead-to-job lifecycle management with role-ba
 - `POST /api/webhooks/thumbtack` - Thumbtack lead intake
 - `POST /api/webhooks/inquirly` - Inquirly lead intake
 - `POST /api/webhooks/zapier` - Zapier integration
+
+### Documentation
+- `GET /api/docs/pdf` - Download application documentation
+- `GET /api/docs/comparison` - Download HomeAdvisor Pro comparison PDF
 
 ## Technology Stack
 

@@ -157,3 +157,148 @@ export function generateApplicationPDF(): PDFKit.PDFDocument {
 
   return doc;
 }
+
+export function generateComparisonPDF(): PDFKit.PDFDocument {
+  const doc = new PDFDocument({ margin: 40 });
+
+  // Title
+  doc.fontSize(22).font("Helvetica-Bold").text("Chicago Sewer Experts CRM", { align: "center" });
+  doc.moveDown(0.3);
+  doc.fontSize(14).font("Helvetica").text("vs HomeAdvisor Pro Feature Comparison", { align: "center" });
+  doc.moveDown(0.5);
+  doc.fontSize(10).font("Helvetica-Oblique").text(`Generated: ${new Date().toLocaleDateString()}`, { align: "center" });
+  doc.moveDown(1.5);
+
+  // Comparison table header
+  const col1 = 40;
+  const col2 = 260;
+  const col3 = 400;
+  const rowHeight = 18;
+
+  doc.fontSize(11).font("Helvetica-Bold");
+  doc.text("Feature", col1, doc.y);
+  doc.text("CSE CRM", col2, doc.y - rowHeight);
+  doc.text("HomeAdvisor Pro", col3, doc.y - rowHeight);
+  doc.moveDown(0.5);
+
+  // Draw header line
+  doc.moveTo(col1, doc.y).lineTo(520, doc.y).stroke();
+  doc.moveDown(0.5);
+
+  const features = [
+    { feature: "Built-in CRM", cse: "Yes - Full CRM", ha: "No - External required" },
+    { feature: "Lead Management", cse: "Yes", ha: "Yes" },
+    { feature: "Multi-Source Lead Intake", cse: "Yes (6+ sources)", ha: "HomeAdvisor only" },
+    { feature: "Webhook Integration", cse: "Yes - All sources", ha: "Limited" },
+    { feature: "Job Lifecycle Tracking", cse: "Yes - Full workflow", ha: "No" },
+    { feature: "Cost Tracking (Labor/Materials)", cse: "Yes - Detailed", ha: "No" },
+    { feature: "Profit Calculation", cse: "Yes - Automatic", ha: "No" },
+    { feature: "Technician Management", cse: "Yes", ha: "No" },
+    { feature: "Real-Time GPS Tracking", cse: "Yes", ha: "No" },
+    { feature: "Automated Dispatch", cse: "Yes", ha: "No" },
+    { feature: "Salesperson Management", cse: "Yes", ha: "No" },
+    { feature: "Commission Tracking", cse: "Yes - NET profit based", ha: "No" },
+    { feature: "Quote Generation", cse: "Yes - Mobile ready", ha: "No" },
+    { feature: "Public Quote Links", cse: "Yes", ha: "No" },
+    { feature: "Photo/Video Capture", cse: "Yes - GPS tagged", ha: "No" },
+    { feature: "Job Checklists", cse: "Yes", ha: "No" },
+    { feature: "Email Notifications", cse: "Yes - Automated", ha: "Basic alerts" },
+    { feature: "SMS Notifications*", cse: "Yes - With Twilio", ha: "No" },
+    { feature: "Analytics Dashboard", cse: "Yes - Comprehensive", ha: "Basic" },
+    { feature: "CSV Export", cse: "Yes - All data", ha: "Limited" },
+    { feature: "Role-Based Access", cse: "Yes - 4 roles", ha: "Single user" },
+    { feature: "Lead Scoring", cse: "Yes", ha: "No" },
+    { feature: "Duplicate Detection", cse: "Yes", ha: "No" },
+    { feature: "Appointment Reminders", cse: "Yes - Email/SMS", ha: "No" },
+    { feature: "Customer Reviews Integration", cse: "Yelp link ready", ha: "Yes - Built-in" },
+  ];
+
+  doc.fontSize(9).font("Helvetica");
+  let yPos = doc.y;
+
+  features.forEach((f, idx) => {
+    if (yPos > 700) {
+      doc.addPage();
+      yPos = 50;
+    }
+    
+    if (idx % 2 === 0) {
+      doc.rect(col1 - 5, yPos - 2, 490, rowHeight).fill("#f5f5f5");
+      doc.fillColor("#000000");
+    }
+    
+    doc.text(f.feature, col1, yPos, { width: 210 });
+    doc.text(f.cse, col2, yPos, { width: 130 });
+    doc.text(f.ha, col3, yPos, { width: 130 });
+    yPos += rowHeight;
+  });
+
+  doc.moveDown(2);
+
+  // Pricing comparison
+  doc.addPage();
+  doc.fontSize(16).font("Helvetica-Bold").text("Pricing Comparison");
+  doc.moveDown(0.5);
+
+  doc.fontSize(11).font("Helvetica-Bold").text("HomeAdvisor Pro Costs:");
+  doc.fontSize(10).font("Helvetica");
+  doc.text("  Annual membership: $300-$350/year");
+  doc.text("  Per-lead cost: $15-$100 per lead (varies by service)");
+  doc.text("  Leads shared with multiple contractors (high competition)");
+  doc.text("  Pay for every lead, even if you don't win the job");
+  doc.moveDown(1);
+
+  doc.fontSize(11).font("Helvetica-Bold").text("Chicago Sewer Experts CRM:");
+  doc.fontSize(10).font("Helvetica");
+  doc.text("  Self-hosted solution - No per-lead fees");
+  doc.text("  Leads from multiple sources at your negotiated rates");
+  doc.text("  Exclusive leads - No competition from shared leads");
+  doc.text("  Full control over lead qualification and follow-up");
+  doc.moveDown(1.5);
+
+  // Features Coming with Twilio Integration
+  doc.fontSize(16).font("Helvetica-Bold").text("Features Active with Twilio Integration");
+  doc.moveDown(0.5);
+  doc.fontSize(10).font("Helvetica");
+
+  const twilioFeatures = [
+    "SMS appointment reminders to customers",
+    "Two-way SMS communication with leads",
+    "Automated lead acknowledgment via text",
+    "Job status updates to customers via SMS",
+    "Technician arrival notifications",
+    "Quote delivery via SMS",
+    "Call routing to salespersons by priority",
+    "Voicemail transcription and logging",
+    "Click-to-call from CRM interface",
+    "Call recording for quality assurance",
+  ];
+
+  twilioFeatures.forEach(f => {
+    doc.text(`  [  ] ${f}`);
+  });
+
+  doc.moveDown(1.5);
+  doc.fontSize(9).font("Helvetica-Oblique").text("* SMS features require Twilio A2P carrier verification (in progress)", { align: "left" });
+
+  doc.moveDown(2);
+
+  // Summary
+  doc.fontSize(16).font("Helvetica-Bold").text("Summary");
+  doc.moveDown(0.5);
+  doc.fontSize(10).font("Helvetica");
+  doc.text(
+    "Chicago Sewer Experts CRM provides a comprehensive, all-in-one solution that HomeAdvisor Pro cannot match. " +
+    "While HomeAdvisor Pro focuses solely on lead generation (with shared leads and per-lead fees), CSE CRM offers " +
+    "complete business management including job tracking, technician dispatch, quote generation, commission tracking, " +
+    "and detailed analytics. The built-in CRM eliminates the need for expensive third-party integrations that " +
+    "HomeAdvisor Pro users typically require."
+  );
+
+  doc.moveDown(1.5);
+
+  // Footer
+  doc.fontSize(10).font("Helvetica-Oblique").text("Chicago Sewer Experts CRM - Superior Field Service Management", { align: "center" });
+
+  return doc;
+}
