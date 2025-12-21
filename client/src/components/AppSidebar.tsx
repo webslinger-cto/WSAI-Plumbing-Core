@@ -33,6 +33,8 @@ import {
   Receipt,
   BookOpen,
   MapPin,
+  BarChart3,
+  Navigation,
 } from "lucide-react";
 import cseMascot from "@assets/cse-mascot.png";
 
@@ -82,6 +84,8 @@ const salesMenuItems = [
   { title: "Jobs", url: "/jobs", icon: Briefcase },
   { title: "Quotes", url: "/quotes", icon: Receipt },
   { title: "Quote Tool", url: "/quote", icon: FileText },
+  { title: "Location Tracking", url: "/location", icon: Navigation },
+  { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Commissions", url: "/earnings", icon: DollarSign },
   { title: "Operations Guide", url: "/operations", icon: BookOpen },
 ];

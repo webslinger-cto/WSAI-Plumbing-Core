@@ -27,6 +27,8 @@ import QuotesPage from "@/pages/QuotesPage";
 import OperationsMenuPage from "@/pages/OperationsMenuPage";
 import TechnicianMapPage from "@/pages/TechnicianMapPage";
 import SalesDashboard from "@/pages/SalesDashboard";
+import SalesLocationPage from "@/pages/SalesLocationPage";
+import SalesAnalyticsPage from "@/pages/SalesAnalyticsPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 
@@ -117,6 +119,12 @@ function SalespersonRouter({ salespersonId, userId, fullName }: { salespersonId:
       <Route path="/leads" component={LeadsPage} />
       <Route path="/jobs" component={JobsPage} />
       <Route path="/quotes" component={QuotesPage} />
+      <Route path="/location">
+        {() => <SalesLocationPage salespersonId={salespersonId} fullName={fullName} />}
+      </Route>
+      <Route path="/analytics">
+        {() => <SalesAnalyticsPage salespersonId={salespersonId} fullName={fullName} />}
+      </Route>
       <Route path="/earnings" component={() => (
         <div className="space-y-4">
           <h1 className="text-2xl font-bold">My Commissions</h1>
