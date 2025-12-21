@@ -1,9 +1,54 @@
 import twilio from "twilio";
+import { sendEmail } from "./email";
 
 interface SMSResult {
   success: boolean;
   messageId?: string;
   error?: string;
+}
+
+// Carrier email-to-SMS gateways (fallback when Twilio unavailable)
+const CARRIER_GATEWAYS: Record<string, string> = {
+  "6306661640": "txt.att.net",  // AT&T
+};
+
+// Get carrier gateway for a phone number (if known)
+function getCarrierGateway(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  const last10 = digits.slice(-10);
+  return CARRIER_GATEWAYS[last10] || null;
+}
+
+// Send SMS via carrier email gateway
+async function sendViaCarrierGateway(to: string, body: string): Promise<SMSResult> {
+  const digits = to.replace(/\D/g, "");
+  const last10 = digits.slice(-10);
+  const gateway = getCarrierGateway(to);
+  
+  if (!gateway) {
+    return { success: false, error: "No carrier gateway configured for this number" };
+  }
+  
+  const emailAddress = `${last10}@${gateway}`;
+  console.log(`SMS: Sending via carrier gateway to ${emailAddress}`);
+  
+  try {
+    const result = await sendEmail({
+      to: emailAddress,
+      subject: "",
+      text: body,
+    });
+    
+    if (result.success) {
+      console.log(`SMS sent via carrier gateway: ${emailAddress}`);
+      return { success: true, messageId: `gateway-${result.messageId}` };
+    } else {
+      return { success: false, error: result.error };
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    return { success: false, error: errorMessage };
+  }
 }
 
 // Twilio credentials
@@ -92,11 +137,18 @@ export async function sendSMS(to: string, body: string): Promise<SMSResult> {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       console.error("SignalWire SMS failed:", errorMessage);
-      return { success: false, error: errorMessage };
+      // Fall through to carrier gateway
     }
   }
 
-  return { success: false, error: "SMS service not configured" };
+  // Final fallback: carrier email-to-SMS gateway
+  const gateway = getCarrierGateway(to);
+  if (gateway) {
+    console.log(`SMS: Trying carrier email gateway for ${to}`);
+    return sendViaCarrierGateway(to, body);
+  }
+
+  return { success: false, error: "SMS service not configured and no carrier gateway available" };
 }
 
 export async function sendAppointmentReminder(
