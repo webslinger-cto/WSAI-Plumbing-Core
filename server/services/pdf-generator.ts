@@ -310,88 +310,135 @@ export function generateComparisonPDF(): PDFKit.PDFDocument {
 }
 
 export function generateHouseCallProComparisonPDF(): PDFKit.PDFDocument {
-  const doc = new PDFDocument({ margin: 50 });
+  const doc = new PDFDocument({ margin: 40 });
 
   // Title
-  doc.fontSize(24).font("Helvetica-Bold").text("Chicago Sewer Experts CRM", { align: "center" });
+  doc.fontSize(22).font("Helvetica-Bold").text("Chicago Sewer Experts CRM", { align: "center" });
   doc.moveDown(0.3);
-  doc.fontSize(18).text("vs HouseCall Pro", { align: "center" });
-  doc.moveDown(0.5);
-  doc.fontSize(12).font("Helvetica").text("Comprehensive Feature & Pricing Comparison", { align: "center" });
-  doc.moveDown(1);
-
-  // System Overview from README
-  doc.fontSize(11).font("Helvetica-Bold").text("CSE CRM Architecture (from system documentation):");
+  doc.fontSize(16).text("vs HouseCall Pro", { align: "center" });
   doc.moveDown(0.3);
-  doc.fontSize(9).font("Helvetica");
-  doc.text("Backend: Express.js + PostgreSQL with Drizzle ORM");
-  doc.text("Frontend: React + TypeScript with Vite, TanStack Query, Radix UI/shadcn");
-  doc.text("Authentication: Session-based with Passport.js (4 demo accounts)");
-  doc.text("Email: Resend API with rate limiting (800ms between sends)");
-  doc.text("SMS: Twilio/SignalWire ready (pending A2P verification)");
-  doc.moveDown(1);
+  doc.fontSize(11).font("Helvetica").text("Side-by-Side Feature Comparison", { align: "center" });
+  doc.moveDown(1.5);
 
-  // HouseCall Pro Pricing Section
-  doc.fontSize(14).font("Helvetica-Bold").text("HouseCall Pro Pricing (2024-2025)");
-  doc.moveDown(0.5);
-  doc.fontSize(10).font("Helvetica");
-  
-  doc.text("Basic Plan: $79/month ($59/month billed annually)");
-  doc.text("  - Solo operators, limited features, no QuickBooks");
+  // Side-by-side Yes/No Feature Chart
+  const col1 = 40;   // Feature name
+  const col2 = 280;  // CSE CRM
+  const col3 = 380;  // HouseCall Pro
+  const rowHeight = 16;
+
+  // Table Header
+  doc.fontSize(11).font("Helvetica-Bold");
+  doc.text("Feature", col1, doc.y);
+  doc.text("CSE CRM", col2, doc.y - rowHeight);
+  doc.text("HouseCall Pro", col3, doc.y - rowHeight);
   doc.moveDown(0.3);
-  
-  doc.text("Essentials Plan: $189/month ($149/month billed annually)");
-  doc.text("  - Up to 5 users, QuickBooks integration, GPS tracking");
-  doc.moveDown(0.3);
-  
-  doc.text("MAX Plan: $299+/month (custom pricing)");
-  doc.text("  - Unlimited users, API access, advanced analytics");
+  doc.moveTo(col1, doc.y).lineTo(520, doc.y).stroke();
   doc.moveDown(0.5);
 
-  doc.font("Helvetica-Bold").text("Common Add-On Costs:");
-  doc.font("Helvetica");
-  doc.text("  GPS Tracking: +$20/vehicle/month | Sales Proposals: +$40/month");
-  doc.text("  Recurring Service Plans: +$40/month | Flat-Rate Price Book: +$149/month");
-  doc.moveDown(1);
-
-  // CSE CRM Features from README
-  doc.fontSize(14).font("Helvetica-Bold").text("Chicago Sewer Experts CRM - All-Inclusive");
-  doc.moveDown(0.5);
-  doc.fontSize(10).font("Helvetica");
-  doc.text("Self-hosted solution with unlimited users across 4 role types");
-  doc.text("No per-user fees, no add-on charges, no per-vehicle GPS costs");
-  doc.moveDown(1);
-
-  // Feature Comparison Table from README
-  doc.fontSize(14).font("Helvetica-Bold").text("Feature Comparison");
-  doc.moveDown(0.5);
-
-  const features = [
-    { feature: "User Roles", hcp: "Basic roles", cse: "4 distinct: Admin, Dispatcher, Technician, Salesperson" },
-    { feature: "Lead Sources", hcp: "Manual entry", cse: "6 webhooks: eLocal, Networx, Angi, Thumbtack, Inquirly, Zapier" },
-    { feature: "Auto Lead Contact", hcp: "No", cse: "Yes - autoContactLead automation" },
-    { feature: "Job Creation", hcp: "Manual", cse: "Automated from lead (createJobFromLead)" },
-    { feature: "Technician Dispatch", hcp: "Manual", cse: "Auto-assign by GPS (autoAssignTechnician)" },
-    { feature: "GPS Tracking", hcp: "+$20/vehicle/month", cse: "Included - technician_locations + salesperson_locations" },
-    { feature: "Cost Tracking", hcp: "Basic", cse: "5 categories: Labor, Materials, Travel, Equipment, Other" },
-    { feature: "Profit Calculation", hcp: "None", cse: "Auto per-job: totalRevenue - totalCost = profit" },
-    { feature: "Commission Tracking", hcp: "No", cse: "NET profit based (default 15%), pending/approved/paid status" },
-    { feature: "Salesperson Management", hcp: "No", cse: "Full: commission rates, priority routing, max daily leads" },
-    { feature: "Quote Generation", hcp: "+$40/month", cse: "Included with line items + public links" },
-    { feature: "Photo/Video Capture", hcp: "Yes", cse: "GPS tagged, categories: before/during/after" },
-    { feature: "Job Checklists", hcp: "Essentials+", cse: "Included with templates by service type" },
-    { feature: "Email Notifications", hcp: "Basic", cse: "Two-tier: Office (leads/jobs) + Tech (assignments)" },
-    { feature: "SMS Notifications", hcp: "Limited", cse: "Twilio/SignalWire ready (A2P verification pending)" },
-    { feature: "Analytics Dashboard", hcp: "MAX only ($299+)", cse: "Role-specific dashboards with Recharts" },
-    { feature: "Cancellation Tracking", hcp: "No", cse: "Reason + expenses logged (cancelJob automation)" },
-    { feature: "Appointment Reminders", hcp: "Yes", cse: "sendAppointmentReminder via Resend API" },
+  const yesNoFeatures = [
+    { feature: "Multi-Role Access (4+ roles)", cse: "YES", hcp: "NO" },
+    { feature: "Admin Dashboard", cse: "YES", hcp: "YES" },
+    { feature: "Dispatcher Role", cse: "YES", hcp: "NO" },
+    { feature: "Technician Role", cse: "YES", hcp: "YES" },
+    { feature: "Salesperson Role", cse: "YES", hcp: "NO" },
+    { feature: "Lead Management", cse: "YES", hcp: "YES" },
+    { feature: "Multi-Source Lead Webhooks", cse: "YES", hcp: "NO" },
+    { feature: "eLocal Integration", cse: "YES", hcp: "NO" },
+    { feature: "Networx Integration", cse: "YES", hcp: "NO" },
+    { feature: "Angi Integration", cse: "YES", hcp: "NO" },
+    { feature: "Thumbtack Integration", cse: "YES", hcp: "NO" },
+    { feature: "Zapier Integration", cse: "YES", hcp: "YES*" },
+    { feature: "Auto Lead Contact (Email)", cse: "YES", hcp: "NO" },
+    { feature: "Auto Lead Contact (SMS)", cse: "YES*", hcp: "NO" },
+    { feature: "Job Scheduling", cse: "YES", hcp: "YES" },
+    { feature: "Job Lifecycle Tracking", cse: "YES", hcp: "YES" },
+    { feature: "Automated Job Creation from Lead", cse: "YES", hcp: "NO" },
+    { feature: "Auto Technician Assignment", cse: "YES", hcp: "NO" },
+    { feature: "GPS Tracking (Included)", cse: "YES", hcp: "NO (+$20/mo)" },
+    { feature: "Real-Time Technician Map", cse: "YES", hcp: "YES*" },
+    { feature: "Salesperson GPS Tracking", cse: "YES", hcp: "NO" },
+    { feature: "Quote Generation", cse: "YES", hcp: "YES*" },
+    { feature: "Public Quote Links", cse: "YES", hcp: "NO" },
+    { feature: "Quote Line Items", cse: "YES", hcp: "YES" },
+    { feature: "Photo/Video Attachments", cse: "YES", hcp: "YES" },
+    { feature: "GPS-Tagged Media", cse: "YES", hcp: "NO" },
+    { feature: "Before/During/After Categories", cse: "YES", hcp: "NO" },
+    { feature: "Job Checklists", cse: "YES", hcp: "YES*" },
+    { feature: "Checklist Templates", cse: "YES", hcp: "NO" },
+    { feature: "Labor Cost Tracking", cse: "YES", hcp: "YES" },
+    { feature: "Materials Cost Tracking", cse: "YES", hcp: "YES" },
+    { feature: "Travel Expense Tracking", cse: "YES", hcp: "NO" },
+    { feature: "Equipment Cost Tracking", cse: "YES", hcp: "NO" },
+    { feature: "Other Expenses Tracking", cse: "YES", hcp: "NO" },
+    { feature: "Automatic Profit Calculation", cse: "YES", hcp: "NO" },
+    { feature: "Commission Tracking", cse: "YES", hcp: "NO" },
+    { feature: "NET Profit Commission", cse: "YES", hcp: "NO" },
+    { feature: "Commission Status (Pending/Approved/Paid)", cse: "YES", hcp: "NO" },
+    { feature: "Email Notifications", cse: "YES", hcp: "YES" },
+    { feature: "Two-Tier Email Routing", cse: "YES", hcp: "NO" },
+    { feature: "SMS Notifications", cse: "YES*", hcp: "YES" },
+    { feature: "Appointment Reminders", cse: "YES", hcp: "YES" },
+    { feature: "Cancellation Tracking", cse: "YES", hcp: "NO" },
+    { feature: "Analytics Dashboard", cse: "YES", hcp: "YES*" },
+    { feature: "Role-Specific Analytics", cse: "YES", hcp: "NO" },
+    { feature: "CSV Data Export", cse: "YES", hcp: "YES" },
+    { feature: "Webhook Logs", cse: "YES", hcp: "NO" },
+    { feature: "Contact Attempt Logging", cse: "YES", hcp: "NO" },
+    { feature: "No Per-User Fees", cse: "YES", hcp: "NO" },
+    { feature: "No Per-Vehicle GPS Fees", cse: "YES", hcp: "NO" },
+    { feature: "Unlimited Users", cse: "YES", hcp: "NO*" },
   ];
 
-  doc.fontSize(8).font("Helvetica");
-  features.forEach(f => {
-    doc.font("Helvetica-Bold").text(`${f.feature}:`, { continued: true });
-    doc.font("Helvetica").text(` HCP: ${f.hcp} | CSE: ${f.cse}`);
+  doc.fontSize(9).font("Helvetica");
+  let yPos = doc.y;
+
+  yesNoFeatures.forEach((f, idx) => {
+    if (yPos > 720) {
+      doc.addPage();
+      yPos = 50;
+      // Repeat header on new page
+      doc.fontSize(11).font("Helvetica-Bold");
+      doc.text("Feature", col1, yPos);
+      doc.text("CSE CRM", col2, yPos);
+      doc.text("HouseCall Pro", col3, yPos);
+      yPos += rowHeight;
+      doc.moveTo(col1, yPos).lineTo(520, yPos).stroke();
+      yPos += 8;
+      doc.fontSize(9).font("Helvetica");
+    }
+    
+    // Alternate row background
+    if (idx % 2 === 0) {
+      doc.rect(col1 - 5, yPos - 2, 490, rowHeight).fill("#f5f5f5");
+      doc.fillColor("#000000");
+    }
+    
+    doc.font("Helvetica").text(f.feature, col1, yPos, { width: 230 });
+    
+    // Color code YES/NO
+    if (f.cse === "YES") {
+      doc.fillColor("#006400").font("Helvetica-Bold").text(f.cse, col2, yPos, { width: 90 });
+    } else {
+      doc.fillColor("#8B0000").font("Helvetica-Bold").text(f.cse, col2, yPos, { width: 90 });
+    }
+    
+    if (f.hcp === "YES") {
+      doc.fillColor("#006400").font("Helvetica-Bold").text(f.hcp, col3, yPos, { width: 90 });
+    } else if (f.hcp === "NO") {
+      doc.fillColor("#8B0000").font("Helvetica-Bold").text(f.hcp, col3, yPos, { width: 90 });
+    } else {
+      doc.fillColor("#666666").font("Helvetica").text(f.hcp, col3, yPos, { width: 90 });
+    }
+    
+    doc.fillColor("#000000");
+    yPos += rowHeight;
   });
+
+  doc.moveDown(1);
+  doc.fontSize(8).font("Helvetica-Oblique").fillColor("#666666");
+  doc.text("* Feature requires add-on purchase or higher tier plan", col1);
+  doc.text("* CSE SMS pending Twilio A2P carrier verification", col1);
+  doc.fillColor("#000000");
 
   doc.addPage();
 
