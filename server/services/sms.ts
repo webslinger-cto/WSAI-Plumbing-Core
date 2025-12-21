@@ -1,4 +1,3 @@
-import twilio from "twilio";
 import { sendEmail } from "./email";
 
 interface SMSResult {
@@ -7,7 +6,7 @@ interface SMSResult {
   error?: string;
 }
 
-// Carrier email-to-SMS gateways (fallback when Twilio unavailable)
+// Carrier email-to-SMS gateways
 // NOTE: AT&T discontinued email-to-SMS gateways in June 2025
 const CARRIER_GATEWAYS: Record<string, string> = {
   "3123699850": "vtext.com",        // Xfinity Mobile (uses Verizon network)
@@ -54,23 +53,11 @@ async function sendViaCarrierGateway(to: string, body: string): Promise<SMSResul
   }
 }
 
-// Twilio credentials
-const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
-const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
-const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
-
-// SignalWire credentials (fallback)
+// SignalWire credentials
 const signalwireProjectId = process.env.SIGNALWIRE_PROJECT_ID;
 const signalwireApiToken = process.env.SIGNALWIRE_API_TOKEN;
 const signalwireSpaceUrl = process.env.SIGNALWIRE_SPACE_URL;
 const signalwirePhoneNumber = process.env.SIGNALWIRE_PHONE_NUMBER;
-
-function getTwilioClient(): twilio.Twilio | null {
-  if (!twilioAccountSid || !twilioAuthToken) {
-    return null;
-  }
-  return twilio(twilioAccountSid, twilioAuthToken);
-}
 
 // Normalize phone number to E.164 format (+1XXXXXXXXXX)
 function normalizePhoneNumber(phone: string): string {
@@ -101,18 +88,18 @@ export async function sendSMS(to: string, body: string): Promise<SMSResult> {
   const normalizedTo = normalizePhoneNumber(to);
   console.log(`SMS: Normalizing ${to} -> ${normalizedTo}`);
   
-  // Check if this number has a carrier gateway - use it FIRST (bypasses Twilio verification issues)
+  // Check if this number has a carrier gateway - use it FIRST
   const gateway = getCarrierGateway(to);
   if (gateway) {
-    console.log(`SMS: Using carrier email gateway for ${to} (bypassing Twilio)`);
+    console.log(`SMS: Using carrier email gateway for ${to}`);
     const gatewayResult = await sendViaCarrierGateway(to, body);
     if (gatewayResult.success) {
       return gatewayResult;
     }
-    console.log(`SMS: Carrier gateway failed, trying Twilio as fallback`);
+    console.log(`SMS: Carrier gateway failed, trying SignalWire as fallback`);
   }
   
-  // Try SignalWire first (Twilio A2P verification pending)
+  // Use SignalWire for SMS
   if (signalwireProjectId && signalwireApiToken && signalwireSpaceUrl && signalwirePhoneNumber) {
     try {
       const { RestClient } = await import("@signalwire/compatibility-api");
@@ -131,31 +118,11 @@ export async function sendSMS(to: string, body: string): Promise<SMSResult> {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       console.error("SignalWire SMS failed:", errorMessage);
-      // Fall through to Twilio
-    }
-  }
-
-  // Fallback to Twilio if SignalWire fails
-  const twilioClient = getTwilioClient();
-  
-  if (twilioClient && twilioPhoneNumber) {
-    try {
-      const message = await twilioClient.messages.create({
-        from: twilioPhoneNumber,
-        to: normalizedTo,
-        body: body,
-      });
-      
-      console.log(`SMS sent via Twilio: ${message.sid}`);
-      return { success: true, messageId: message.sid };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      console.error("Twilio SMS failed:", errorMessage);
       return { success: false, error: errorMessage };
     }
   }
 
-  return { success: false, error: "SMS service not configured" };
+  return { success: false, error: "SMS service not configured (SignalWire credentials missing)" };
 }
 
 export async function sendAppointmentReminder(
@@ -222,37 +189,12 @@ export async function sendQuoteReady(
 }
 
 export function isConfigured(): boolean {
-  const hasTwilio = !!(twilioAccountSid && twilioAuthToken && twilioPhoneNumber);
-  const hasSignalWire = !!(signalwireProjectId && signalwireApiToken && signalwireSpaceUrl && signalwirePhoneNumber);
-  return hasTwilio || hasSignalWire;
+  return !!(signalwireProjectId && signalwireApiToken && signalwireSpaceUrl && signalwirePhoneNumber);
 }
 
 export function getActiveProvider(): string {
-  if (twilioAccountSid && twilioAuthToken && twilioPhoneNumber) {
-    return "Twilio";
-  }
   if (signalwireProjectId && signalwireApiToken && signalwireSpaceUrl && signalwirePhoneNumber) {
     return "SignalWire";
   }
   return "None";
-}
-
-export function getDebugInfo(): { fromNumberFormat: string; fromNumberLength: number; provider: string } {
-  const provider = getActiveProvider();
-  let fromNumber: string | undefined;
-  
-  if (provider === "Twilio") {
-    fromNumber = twilioPhoneNumber;
-  } else if (provider === "SignalWire") {
-    fromNumber = signalwirePhoneNumber;
-  }
-  
-  if (!fromNumber) {
-    return { fromNumberFormat: "NOT SET", fromNumberLength: 0, provider };
-  }
-  
-  const masked = fromNumber.length > 5 
-    ? `${fromNumber.slice(0, 3)}***${fromNumber.slice(-2)}`
-    : "***";
-  return { fromNumberFormat: masked, fromNumberLength: fromNumber.length, provider };
 }
