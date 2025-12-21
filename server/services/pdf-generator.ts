@@ -303,6 +303,181 @@ export function generateComparisonPDF(): PDFKit.PDFDocument {
   return doc;
 }
 
+export function generateHouseCallProComparisonPDF(): PDFKit.PDFDocument {
+  const doc = new PDFDocument({ margin: 50 });
+
+  // Title
+  doc.fontSize(24).font("Helvetica-Bold").text("Chicago Sewer Experts CRM", { align: "center" });
+  doc.moveDown(0.3);
+  doc.fontSize(18).text("vs HouseCall Pro", { align: "center" });
+  doc.moveDown(0.5);
+  doc.fontSize(12).font("Helvetica").text("Comprehensive Feature & Pricing Comparison", { align: "center" });
+  doc.moveDown(2);
+
+  // HouseCall Pro Pricing Section
+  doc.fontSize(16).font("Helvetica-Bold").text("HouseCall Pro Pricing (2024-2025)");
+  doc.moveDown(0.5);
+  doc.fontSize(10).font("Helvetica");
+  
+  doc.text("Basic Plan: $79/month ($59/month billed annually)");
+  doc.text("  - Solo operators & small businesses");
+  doc.text("  - Limited features, no QuickBooks integration");
+  doc.moveDown(0.5);
+  
+  doc.text("Essentials Plan: $189/month ($149/month billed annually)");
+  doc.text("  - Up to 5 users");
+  doc.text("  - QuickBooks integration, GPS tracking");
+  doc.moveDown(0.5);
+  
+  doc.text("MAX Plan: $299+/month (custom pricing)");
+  doc.text("  - Unlimited users");
+  doc.text("  - Full API access, advanced analytics");
+  doc.moveDown(1);
+
+  doc.font("Helvetica-Bold").text("Common Add-On Costs:");
+  doc.font("Helvetica");
+  doc.text("  Sales Proposal Tool: +$40/month");
+  doc.text("  Recurring Service Plans: +$40/month");
+  doc.text("  Flat-Rate Price Book: +$149/month");
+  doc.text("  Vehicle GPS Tracking: +$20/vehicle/month");
+  doc.text("  VoIP/Call Tracking: Custom quote");
+  doc.moveDown(1.5);
+
+  // CSE CRM Pricing
+  doc.fontSize(16).font("Helvetica-Bold").text("Chicago Sewer Experts CRM - All-Inclusive");
+  doc.moveDown(0.5);
+  doc.fontSize(10).font("Helvetica");
+  doc.text("Single Plan: Custom pricing (contact for quote)");
+  doc.text("  - Unlimited users across all roles");
+  doc.text("  - No per-user fees");
+  doc.text("  - All features included - no add-ons required");
+  doc.text("  - No hidden costs or surprise charges");
+  doc.moveDown(1.5);
+
+  // Feature Comparison Table
+  doc.fontSize(16).font("Helvetica-Bold").text("Feature Comparison");
+  doc.moveDown(0.5);
+
+  const features = [
+    { feature: "Lead Management", hcp: "Basic only", cse: "Full CRM with sources" },
+    { feature: "Multi-Source Webhooks", hcp: "Limited", cse: "eLocal, Networx, Angi, Thumbtack, Zapier" },
+    { feature: "Auto Lead Contact", hcp: "No", cse: "Yes - Email + SMS" },
+    { feature: "Job Scheduling", hcp: "Yes", cse: "Yes" },
+    { feature: "Technician Dispatch", hcp: "Yes", cse: "Yes - with GPS auto-assign" },
+    { feature: "Real-Time GPS Tracking", hcp: "+$20/vehicle", cse: "Included" },
+    { feature: "Quote Generation", hcp: "+$40/month", cse: "Included + public links" },
+    { feature: "Commission Tracking", hcp: "No", cse: "Yes - NET profit based" },
+    { feature: "Salesperson Management", hcp: "No", cse: "Full role with analytics" },
+    { feature: "Cost Tracking (5 categories)", hcp: "Limited", cse: "Labor, Materials, Travel, Equipment, Other" },
+    { feature: "Profit Calculation", hcp: "Basic", cse: "Detailed per-job P&L" },
+    { feature: "Photo/Video Attachments", hcp: "Yes", cse: "Yes - with GPS tags" },
+    { feature: "Job Checklists", hcp: "Essentials+", cse: "Included" },
+    { feature: "Customer Portal", hcp: "Yes", cse: "Yes" },
+    { feature: "Mobile App", hcp: "Yes", cse: "Progressive Web App" },
+    { feature: "Analytics Dashboard", hcp: "MAX only", cse: "Included for all roles" },
+    { feature: "Appointment Reminders", hcp: "Yes", cse: "Yes - Email + SMS" },
+    { feature: "Role-Based Access", hcp: "Basic", cse: "4 roles: Admin, Dispatcher, Tech, Sales" },
+  ];
+
+  doc.fontSize(9).font("Helvetica");
+  features.forEach(f => {
+    doc.font("Helvetica-Bold").text(`${f.feature}:`, { continued: true });
+    doc.font("Helvetica").text(` HCP: ${f.hcp} | CSE: ${f.cse}`);
+  });
+
+  doc.addPage();
+
+  // Annual Cost Comparison
+  doc.fontSize(16).font("Helvetica-Bold").text("Annual Cost Comparison (5-Person Team)");
+  doc.moveDown(0.5);
+  doc.fontSize(10).font("Helvetica");
+
+  doc.font("Helvetica-Bold").text("HouseCall Pro (Essentials + Common Add-Ons):");
+  doc.font("Helvetica");
+  doc.text("  Base Plan (Essentials): $149/month x 12 = $1,788/year");
+  doc.text("  GPS Tracking (5 vehicles): $20 x 5 x 12 = $1,200/year");
+  doc.text("  Sales Proposals: $40/month x 12 = $480/year");
+  doc.text("  Recurring Service Plans: $40/month x 12 = $480/year");
+  doc.moveDown(0.3);
+  doc.font("Helvetica-Bold").text("  Total: $3,948/year minimum");
+  doc.moveDown(1);
+
+  doc.font("Helvetica-Bold").text("Chicago Sewer Experts CRM:");
+  doc.font("Helvetica");
+  doc.text("  All features included in base price");
+  doc.text("  No per-vehicle GPS fees");
+  doc.text("  No add-on charges");
+  doc.text("  Commission tracking included");
+  doc.text("  Multi-source lead integration included");
+  doc.moveDown(0.3);
+  doc.font("Helvetica-Bold").text("  Total: Contact for competitive quote");
+  doc.moveDown(1.5);
+
+  // Key Differentiators
+  doc.fontSize(16).font("Helvetica-Bold").text("Why Choose CSE CRM Over HouseCall Pro");
+  doc.moveDown(0.5);
+  doc.fontSize(10).font("Helvetica");
+
+  const advantages = [
+    "Built specifically for sewer and plumbing industry workflows",
+    "Commission tracking with NET profit calculation (not available in HCP)",
+    "Multi-source lead webhooks (eLocal, Networx, Angi, Thumbtack, Inquirly)",
+    "No per-user or per-vehicle fees - truly unlimited",
+    "Salesperson role with territory management and commission tracking",
+    "Automated lead contact and job creation workflow",
+    "Detailed cost tracking across 5 expense categories",
+    "Real-time technician GPS without additional fees",
+    "Public quote links for easy customer sharing",
+    "Role-specific dashboards optimized for each team member",
+  ];
+
+  advantages.forEach(a => {
+    doc.text(`  [+] ${a}`);
+  });
+
+  doc.moveDown(1.5);
+
+  // HouseCall Pro Limitations
+  doc.fontSize(14).font("Helvetica-Bold").text("HouseCall Pro Limitations");
+  doc.moveDown(0.5);
+  doc.fontSize(10).font("Helvetica");
+
+  const limitations = [
+    "No dedicated salesperson role or commission tracking",
+    "GPS tracking requires additional $20/vehicle/month fee",
+    "Limited to 5 users on Essentials plan",
+    "No multi-source webhook integration without Zapier ($$$)",
+    "No NET profit-based commission calculation",
+    "Advanced features locked behind MAX plan ($299+/month)",
+    "No industry-specific workflows for sewer/plumbing",
+  ];
+
+  limitations.forEach(l => {
+    doc.text(`  [-] ${l}`);
+  });
+
+  doc.moveDown(2);
+
+  // Summary
+  doc.fontSize(16).font("Helvetica-Bold").text("Summary");
+  doc.moveDown(0.5);
+  doc.fontSize(10).font("Helvetica");
+  doc.text(
+    "While HouseCall Pro is a well-known field service management platform, Chicago Sewer Experts CRM " +
+    "offers significant advantages for sewer and plumbing businesses. With built-in commission tracking, " +
+    "multi-source lead integration, and no per-user or per-vehicle fees, CSE CRM provides better value " +
+    "and industry-specific features. HouseCall Pro's add-on pricing model can quickly escalate costs, " +
+    "while CSE CRM includes all features in one competitive package."
+  );
+
+  doc.moveDown(1.5);
+
+  // Footer
+  doc.fontSize(10).font("Helvetica-Oblique").text("Chicago Sewer Experts CRM - Purpose-Built for Sewer & Plumbing Professionals", { align: "center" });
+
+  return doc;
+}
+
 export function generateTestResultsPDF(): PDFKit.PDFDocument {
   const doc = new PDFDocument({ margin: 50 });
   const timestamp = new Date().toLocaleString();

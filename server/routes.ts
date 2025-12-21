@@ -41,7 +41,7 @@ import {
 } from "./services/automation";
 import * as smsService from "./services/sms";
 import { dispatchToClosestTechnician } from "./services/dispatch";
-import { generateApplicationPDF, generateComparisonPDF, generateTestResultsPDF } from "./services/pdf-generator";
+import { generateApplicationPDF, generateComparisonPDF, generateHouseCallProComparisonPDF, generateTestResultsPDF } from "./services/pdf-generator";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -2869,6 +2869,21 @@ ${emailContent}
     } catch (error) {
       console.error("Test results PDF generation error:", error);
       res.status(500).json({ error: "Failed to generate test results PDF" });
+    }
+  });
+
+  app.get("/api/docs/housecall-comparison", async (req, res) => {
+    try {
+      const doc = generateHouseCallProComparisonPDF();
+      
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", "attachment; filename=CSE-CRM-vs-HouseCall-Pro.pdf");
+      
+      doc.pipe(res);
+      doc.end();
+    } catch (error) {
+      console.error("HouseCall Pro comparison PDF generation error:", error);
+      res.status(500).json({ error: "Failed to generate HouseCall Pro comparison PDF" });
     }
   });
 

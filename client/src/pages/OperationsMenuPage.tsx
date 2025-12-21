@@ -197,7 +197,7 @@ function AdminOperationsContent() {
           <p className="text-muted-foreground mb-4">
             Download PDF documentation for offline reference or sharing with stakeholders:
           </p>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <a href="/api/documentation/pdf" download>
               <Button variant="outline" className="w-full justify-start gap-2" data-testid="button-download-docs">
                 <Download className="w-4 h-4" />
@@ -211,8 +211,17 @@ function AdminOperationsContent() {
               <Button variant="outline" className="w-full justify-start gap-2" data-testid="button-download-comparison">
                 <Download className="w-4 h-4" />
                 <div className="text-left">
-                  <p className="font-medium">HomeAdvisor Comparison</p>
-                  <p className="text-xs text-muted-foreground">Feature comparison PDF</p>
+                  <p className="font-medium">vs HomeAdvisor Pro</p>
+                  <p className="text-xs text-muted-foreground">Feature comparison</p>
+                </div>
+              </Button>
+            </a>
+            <a href="/api/docs/housecall-comparison" download>
+              <Button variant="outline" className="w-full justify-start gap-2" data-testid="button-download-housecall">
+                <Download className="w-4 h-4" />
+                <div className="text-left">
+                  <p className="font-medium">vs HouseCall Pro</p>
+                  <p className="text-xs text-muted-foreground">Pricing comparison</p>
                 </div>
               </Button>
             </a>
