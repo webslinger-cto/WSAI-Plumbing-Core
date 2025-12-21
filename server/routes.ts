@@ -2224,5 +2224,120 @@ export async function registerRoutes(
     }
   });
 
+  // ========================================
+  // INCOMING EMAIL FORWARDING (via Zapier)
+  // ========================================
+  
+  // Webhook endpoint to receive emails from Zapier and forward to team
+  // Zapier setup: Email by Zapier (trigger) -> Webhooks POST (action)
+  app.post("/api/webhooks/incoming-email", async (req, res) => {
+    try {
+      const { 
+        from, 
+        subject, 
+        body, 
+        body_plain,
+        to,
+        recipients // Team member emails to forward to (comma-separated or array)
+      } = req.body;
+
+      console.log(`[Incoming Email] From: ${from}, Subject: ${subject}`);
+
+      // Get team member emails - either from request or use defaults
+      let teamEmails: string[] = [];
+      
+      if (recipients) {
+        // If recipients provided in webhook
+        teamEmails = Array.isArray(recipients) 
+          ? recipients 
+          : recipients.split(',').map((e: string) => e.trim());
+      } else {
+        // Default: get all admin/dispatcher users' emails
+        const users = await storage.getUsers();
+        const adminsAndDispatchers = users.filter(u => u.role === 'admin' || u.role === 'dispatcher');
+        // For now, we'll use technician emails as fallback since users don't have emails
+        const technicians = await storage.getTechnicians();
+        teamEmails = technicians
+          .filter(t => t.email)
+          .slice(0, 5) // Limit to 5 team members
+          .map(t => t.email!);
+      }
+
+      if (teamEmails.length === 0) {
+        console.log("[Incoming Email] No team members to forward to");
+        return res.status(400).json({ error: "No team members configured for email forwarding" });
+      }
+
+      // Forward the email to each team member
+      const emailContent = body_plain || body || "(No message content)";
+      const forwardSubject = `[Customer Email] ${subject || "(No subject)"}`;
+      
+      const emailPromises = teamEmails.map(email => 
+        sendEmail({
+          to: email,
+          subject: forwardSubject,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px;">
+              <div style="background: #1a1a2e; color: white; padding: 15px; border-radius: 8px 8px 0 0;">
+                <h2 style="margin: 0;">New Customer Email</h2>
+              </div>
+              <div style="background: #f5f5f5; padding: 20px; border: 1px solid #ddd;">
+                <p><strong>From:</strong> ${from || "Unknown"}</p>
+                <p><strong>To:</strong> ${to || "Your business email"}</p>
+                <p><strong>Subject:</strong> ${subject || "(No subject)"}</p>
+                <hr style="border: none; border-top: 1px solid #ddd; margin: 15px 0;">
+                <div style="background: white; padding: 15px; border-radius: 4px; white-space: pre-wrap;">
+${emailContent}
+                </div>
+              </div>
+              <div style="background: #1a1a2e; color: #888; padding: 10px; text-align: center; font-size: 12px; border-radius: 0 0 8px 8px;">
+                Forwarded by Chicago Sewer Experts CRM
+              </div>
+            </div>
+          `,
+        })
+      );
+
+      const results = await Promise.allSettled(emailPromises);
+      const successCount = results.filter(r => r.status === 'fulfilled').length;
+      
+      console.log(`[Incoming Email] Forwarded to ${successCount}/${teamEmails.length} team members`);
+
+      // Log the webhook
+      await storage.createWebhookLog({
+        source: "zapier",
+        endpoint: "/api/webhooks/incoming-email",
+        method: "POST",
+        payload: JSON.stringify({ from, subject, to, recipientCount: teamEmails.length }),
+        status: "success",
+        responseCode: 200,
+      });
+
+      res.json({ 
+        success: true, 
+        message: `Email forwarded to ${successCount} team members`,
+        forwardedTo: teamEmails 
+      });
+    } catch (error) {
+      console.error("Incoming email webhook error:", error);
+      
+      try {
+        await storage.createWebhookLog({
+          source: "zapier",
+          endpoint: "/api/webhooks/incoming-email",
+          method: "POST",
+          payload: JSON.stringify(req.body),
+          status: "error",
+          responseCode: 500,
+          errorMessage: String(error),
+        });
+      } catch (logError) {
+        console.error("Failed to log webhook error:", logError);
+      }
+
+      res.status(500).json({ error: "Failed to process incoming email" });
+    }
+  });
+
   return httpServer;
 }
