@@ -674,14 +674,21 @@ export async function notifyLeadRecipients(
           errors.push(`Email to ${email}: ${err}`);
         }
       }
+      // Wait after email sends to respect Resend rate limit before SMS via email gateway
+      await new Promise(resolve => setTimeout(resolve, 800));
     }
 
-    // Send SMS notifications
+    // Send SMS notifications with delay to avoid Resend rate limits (2 req/sec)
     if (settings.notifyBySms && smsRecipients.length > 0 && smsService.isConfigured()) {
       const smsMessage = `NEW LEAD from ${leadInfo.source}:\n${leadInfo.name}\n${leadInfo.phone}\n${leadInfo.service}\nPriority: ${leadInfo.priority.toUpperCase()}`;
 
-      for (const phone of smsRecipients) {
+      for (let i = 0; i < smsRecipients.length; i++) {
+        const phone = smsRecipients[i];
         try {
+          // Add 600ms delay between SMS sends to stay under rate limit
+          if (i > 0) {
+            await new Promise(resolve => setTimeout(resolve, 600));
+          }
           const result = await smsService.sendSMS(phone, smsMessage);
           if (result.success) smsSent++;
           else errors.push(`SMS to ${phone}: ${result.error}`);

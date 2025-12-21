@@ -8,8 +8,9 @@ interface SMSResult {
 }
 
 // Carrier email-to-SMS gateways (fallback when Twilio unavailable)
+// Using MMS gateways which tend to be more reliable
 const CARRIER_GATEWAYS: Record<string, string> = {
-  "6306661640": "txt.att.net",      // AT&T
+  "6306661640": "mms.att.net",      // AT&T (MMS gateway - more reliable than txt.att.net)
   "3123699850": "vtext.com",        // Xfinity Mobile (uses Verizon network)
 };
 
@@ -45,6 +46,7 @@ async function sendViaCarrierGateway(to: string, body: string): Promise<SMSResul
       console.log(`SMS sent via carrier gateway: ${emailAddress}`);
       return { success: true, messageId: `gateway-${result.messageId}` };
     } else {
+      console.log(`SMS carrier gateway error: ${result.error}`);
       return { success: false, error: result.error };
     }
   } catch (error) {
