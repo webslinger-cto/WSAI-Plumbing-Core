@@ -18,6 +18,10 @@ import {
   insertJobChecklistSchema,
   insertTechnicianLocationSchema,
   insertChecklistTemplateSchema,
+  insertPricebookItemSchema,
+  insertPricebookCategorySchema,
+  insertMarketingCampaignSchema,
+  insertMarketingSpendSchema,
   type InsertLead,
 } from "@shared/schema";
 import { sendEmail, generateLeadAcknowledgmentEmail } from "./services/email";
@@ -2566,6 +2570,241 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Delete checklist template error:", error);
       res.status(500).json({ error: "Failed to delete checklist template" });
+    }
+  });
+
+  // ========================================
+  // PRICEBOOK MANAGEMENT
+  // ========================================
+
+  // Pricebook Items
+  app.get("/api/pricebook/items", async (req, res) => {
+    try {
+      const items = await storage.getPricebookItems();
+      res.json(items);
+    } catch (error) {
+      console.error("Get pricebook items error:", error);
+      res.status(500).json({ error: "Failed to get pricebook items" });
+    }
+  });
+
+  app.get("/api/pricebook/items/:id", async (req, res) => {
+    try {
+      const item = await storage.getPricebookItem(req.params.id);
+      if (!item) return res.status(404).json({ error: "Pricebook item not found" });
+      res.json(item);
+    } catch (error) {
+      console.error("Get pricebook item error:", error);
+      res.status(500).json({ error: "Failed to get pricebook item" });
+    }
+  });
+
+  app.get("/api/pricebook/items/category/:category", async (req, res) => {
+    try {
+      const items = await storage.getPricebookItemsByCategory(req.params.category);
+      res.json(items);
+    } catch (error) {
+      console.error("Get pricebook items by category error:", error);
+      res.status(500).json({ error: "Failed to get pricebook items" });
+    }
+  });
+
+  app.post("/api/pricebook/items", async (req, res) => {
+    try {
+      const result = insertPricebookItemSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ error: result.error });
+
+      const item = await storage.createPricebookItem(result.data);
+      res.status(201).json(item);
+    } catch (error) {
+      console.error("Create pricebook item error:", error);
+      res.status(500).json({ error: "Failed to create pricebook item" });
+    }
+  });
+
+  app.patch("/api/pricebook/items/:id", async (req, res) => {
+    try {
+      const item = await storage.updatePricebookItem(req.params.id, req.body);
+      if (!item) return res.status(404).json({ error: "Pricebook item not found" });
+      res.json(item);
+    } catch (error) {
+      console.error("Update pricebook item error:", error);
+      res.status(500).json({ error: "Failed to update pricebook item" });
+    }
+  });
+
+  app.delete("/api/pricebook/items/:id", async (req, res) => {
+    try {
+      const success = await storage.deletePricebookItem(req.params.id);
+      if (!success) return res.status(404).json({ error: "Pricebook item not found" });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete pricebook item error:", error);
+      res.status(500).json({ error: "Failed to delete pricebook item" });
+    }
+  });
+
+  // Pricebook Categories
+  app.get("/api/pricebook/categories", async (req, res) => {
+    try {
+      const categories = await storage.getPricebookCategories();
+      res.json(categories);
+    } catch (error) {
+      console.error("Get pricebook categories error:", error);
+      res.status(500).json({ error: "Failed to get pricebook categories" });
+    }
+  });
+
+  app.post("/api/pricebook/categories", async (req, res) => {
+    try {
+      const result = insertPricebookCategorySchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ error: result.error });
+
+      const category = await storage.createPricebookCategory(result.data);
+      res.status(201).json(category);
+    } catch (error) {
+      console.error("Create pricebook category error:", error);
+      res.status(500).json({ error: "Failed to create pricebook category" });
+    }
+  });
+
+  app.patch("/api/pricebook/categories/:id", async (req, res) => {
+    try {
+      const category = await storage.updatePricebookCategory(req.params.id, req.body);
+      if (!category) return res.status(404).json({ error: "Pricebook category not found" });
+      res.json(category);
+    } catch (error) {
+      console.error("Update pricebook category error:", error);
+      res.status(500).json({ error: "Failed to update pricebook category" });
+    }
+  });
+
+  app.delete("/api/pricebook/categories/:id", async (req, res) => {
+    try {
+      const success = await storage.deletePricebookCategory(req.params.id);
+      if (!success) return res.status(404).json({ error: "Pricebook category not found" });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete pricebook category error:", error);
+      res.status(500).json({ error: "Failed to delete pricebook category" });
+    }
+  });
+
+  // ========================================
+  // MARKETING ROI TRACKING
+  // ========================================
+
+  // Marketing Campaigns
+  app.get("/api/marketing/campaigns", async (req, res) => {
+    try {
+      const campaigns = await storage.getMarketingCampaigns();
+      res.json(campaigns);
+    } catch (error) {
+      console.error("Get marketing campaigns error:", error);
+      res.status(500).json({ error: "Failed to get marketing campaigns" });
+    }
+  });
+
+  app.get("/api/marketing/campaigns/:id", async (req, res) => {
+    try {
+      const campaign = await storage.getMarketingCampaign(req.params.id);
+      if (!campaign) return res.status(404).json({ error: "Marketing campaign not found" });
+      res.json(campaign);
+    } catch (error) {
+      console.error("Get marketing campaign error:", error);
+      res.status(500).json({ error: "Failed to get marketing campaign" });
+    }
+  });
+
+  app.post("/api/marketing/campaigns", async (req, res) => {
+    try {
+      const result = insertMarketingCampaignSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ error: result.error });
+
+      const campaign = await storage.createMarketingCampaign(result.data);
+      res.status(201).json(campaign);
+    } catch (error) {
+      console.error("Create marketing campaign error:", error);
+      res.status(500).json({ error: "Failed to create marketing campaign" });
+    }
+  });
+
+  app.patch("/api/marketing/campaigns/:id", async (req, res) => {
+    try {
+      const campaign = await storage.updateMarketingCampaign(req.params.id, req.body);
+      if (!campaign) return res.status(404).json({ error: "Marketing campaign not found" });
+      res.json(campaign);
+    } catch (error) {
+      console.error("Update marketing campaign error:", error);
+      res.status(500).json({ error: "Failed to update marketing campaign" });
+    }
+  });
+
+  app.delete("/api/marketing/campaigns/:id", async (req, res) => {
+    try {
+      const success = await storage.deleteMarketingCampaign(req.params.id);
+      if (!success) return res.status(404).json({ error: "Marketing campaign not found" });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete marketing campaign error:", error);
+      res.status(500).json({ error: "Failed to delete marketing campaign" });
+    }
+  });
+
+  // Marketing Spend
+  app.get("/api/marketing/spend", async (req, res) => {
+    try {
+      const campaignId = req.query.campaignId as string | undefined;
+      const spend = await storage.getMarketingSpend(campaignId);
+      res.json(spend);
+    } catch (error) {
+      console.error("Get marketing spend error:", error);
+      res.status(500).json({ error: "Failed to get marketing spend" });
+    }
+  });
+
+  app.get("/api/marketing/spend/period/:period", async (req, res) => {
+    try {
+      const spend = await storage.getMarketingSpendByPeriod(req.params.period);
+      res.json(spend);
+    } catch (error) {
+      console.error("Get marketing spend by period error:", error);
+      res.status(500).json({ error: "Failed to get marketing spend" });
+    }
+  });
+
+  app.post("/api/marketing/spend", async (req, res) => {
+    try {
+      const result = insertMarketingSpendSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ error: result.error });
+
+      const spend = await storage.createMarketingSpend(result.data);
+      res.status(201).json(spend);
+    } catch (error) {
+      console.error("Create marketing spend error:", error);
+      res.status(500).json({ error: "Failed to create marketing spend" });
+    }
+  });
+
+  app.patch("/api/marketing/spend/:id", async (req, res) => {
+    try {
+      const spend = await storage.updateMarketingSpend(req.params.id, req.body);
+      if (!spend) return res.status(404).json({ error: "Marketing spend record not found" });
+      res.json(spend);
+    } catch (error) {
+      console.error("Update marketing spend error:", error);
+      res.status(500).json({ error: "Failed to update marketing spend" });
+    }
+  });
+
+  // Marketing ROI Analytics
+  app.get("/api/marketing/roi", async (req, res) => {
+    try {
+      const roi = await storage.getMarketingROI();
+      res.json(roi);
+    } catch (error) {
+      console.error("Get marketing ROI error:", error);
+      res.status(500).json({ error: "Failed to get marketing ROI" });
     }
   });
 
