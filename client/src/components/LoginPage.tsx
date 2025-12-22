@@ -127,8 +127,8 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-wide uppercase" data-testid="text-brand-title">
-              CRM Dashboard
+            <h1 className="text-base sm:text-lg md:text-xl font-bold tracking-wide" data-testid="text-brand-title">
+              Powered by WebSlingerAI
             </h1>
             <p className="text-sm text-muted-foreground mt-1 flex items-center justify-center gap-1">
               <Phone className="w-3 h-3" />
