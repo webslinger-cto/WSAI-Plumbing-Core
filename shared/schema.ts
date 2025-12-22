@@ -561,3 +561,80 @@ export const checklistTemplates = pgTable("checklist_templates", {
 export const insertChecklistTemplateSchema = createInsertSchema(checklistTemplates).omit({ id: true, createdAt: true });
 export type InsertChecklistTemplate = z.infer<typeof insertChecklistTemplateSchema>;
 export type ChecklistTemplate = typeof checklistTemplates.$inferSelect;
+
+// Pricebook - service catalog with pricing
+export const pricebookItems = pgTable("pricebook_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category").notNull(), // sewer, drain, plumbing, excavation, camera, etc.
+  serviceCode: text("service_code"), // internal code like "SEW-001"
+  basePrice: decimal("base_price").notNull(),
+  laborHours: decimal("labor_hours"), // estimated hours
+  materialsCost: decimal("materials_cost"), // estimated materials
+  unit: text("unit").default("each"), // each, per_foot, per_hour, flat_rate
+  isActive: boolean("is_active").notNull().default(true),
+  isTaxable: boolean("is_taxable").default(true),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertPricebookItemSchema = createInsertSchema(pricebookItems).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPricebookItem = z.infer<typeof insertPricebookItemSchema>;
+export type PricebookItem = typeof pricebookItems.$inferSelect;
+
+// Pricebook categories for organization
+export const pricebookCategories = pgTable("pricebook_categories", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  color: text("color"), // hex color for UI
+  icon: text("icon"), // lucide icon name
+  sortOrder: integer("sort_order").default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertPricebookCategorySchema = createInsertSchema(pricebookCategories).omit({ id: true, createdAt: true });
+export type InsertPricebookCategory = z.infer<typeof insertPricebookCategorySchema>;
+export type PricebookCategory = typeof pricebookCategories.$inferSelect;
+
+// Marketing campaigns for ROI tracking
+export const marketingCampaigns = pgTable("marketing_campaigns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  source: text("source").notNull(), // eLocal, Networx, Angi, Google Ads, etc.
+  type: text("type"), // ppc, organic, referral, direct_mail, etc.
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  budget: decimal("budget"), // planned budget
+  actualSpend: decimal("actual_spend").default("0"), // actual spent
+  costPerLead: decimal("cost_per_lead"), // calculated or manual
+  isActive: boolean("is_active").notNull().default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertMarketingCampaignSchema = createInsertSchema(marketingCampaigns).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertMarketingCampaign = z.infer<typeof insertMarketingCampaignSchema>;
+export type MarketingCampaign = typeof marketingCampaigns.$inferSelect;
+
+// Marketing spend tracking (monthly/weekly spend by source)
+export const marketingSpend = pgTable("marketing_spend", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignId: varchar("campaign_id").references(() => marketingCampaigns.id),
+  source: text("source").notNull(), // lead source name
+  period: text("period").notNull(), // "2024-01" for monthly tracking
+  amount: decimal("amount").notNull(),
+  leadsGenerated: integer("leads_generated").default(0),
+  leadsConverted: integer("leads_converted").default(0),
+  revenueGenerated: decimal("revenue_generated").default("0"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertMarketingSpendSchema = createInsertSchema(marketingSpend).omit({ id: true, createdAt: true });
+export type InsertMarketingSpend = z.infer<typeof insertMarketingSpendSchema>;
+export type MarketingSpend = typeof marketingSpend.$inferSelect;
