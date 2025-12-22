@@ -696,13 +696,13 @@ export function generateThreeWayComparisonPDF(): PDFKit.PDFDocument {
   // Title
   doc.fontSize(20).font("Helvetica-Bold").text("Field Service Management Platform Comparison", { align: "center" });
   doc.moveDown(0.3);
-  doc.fontSize(12).font("Helvetica").text("CSE CRM vs HomeAdvisor Pro vs HouseCall Pro", { align: "center" });
+  doc.fontSize(12).font("Helvetica").text("CSE CRM vs ServiceTitan vs HouseCall Pro", { align: "center" });
   doc.moveDown(1);
 
   // Column positions for landscape
   const col1 = 30;   // Feature name
   const col2 = 260;  // CSE CRM
-  const col3 = 370;  // HomeAdvisor Pro
+  const col3 = 370;  // ServiceTitan
   const col4 = 520;  // HouseCall Pro
   const rowHeight = 14;
 
@@ -710,66 +710,71 @@ export function generateThreeWayComparisonPDF(): PDFKit.PDFDocument {
   doc.fontSize(10).font("Helvetica-Bold");
   doc.text("Feature", col1, doc.y);
   doc.text("CSE CRM", col2, doc.y - rowHeight);
-  doc.text("HomeAdvisor Pro", col3, doc.y - rowHeight);
+  doc.text("ServiceTitan", col3, doc.y - rowHeight);
   doc.text("HouseCall Pro", col4, doc.y - rowHeight);
   doc.moveDown(0.3);
   doc.moveTo(col1, doc.y).lineTo(730, doc.y).stroke();
   doc.moveDown(0.4);
 
-  // 3-way comparison features
+  // 3-way comparison features (st = ServiceTitan)
   const features = [
-    { feature: "Multi-Role Access (4+ roles)", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Admin Dashboard", cse: "YES", ha: "YES", hcp: "YES" },
-    { feature: "Dispatcher Role", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Technician Role", cse: "YES", ha: "YES", hcp: "YES" },
-    { feature: "Salesperson Role", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Lead Management", cse: "YES", ha: "YES", hcp: "YES" },
-    { feature: "Multi-Source Lead Webhooks", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "eLocal Integration", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Networx Integration", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Angi Integration", cse: "YES", ha: "YES", hcp: "NO" },
-    { feature: "Thumbtack Integration", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Zapier Integration", cse: "YES", ha: "YES*", hcp: "YES*" },
-    { feature: "Auto Lead Contact (Email)", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Auto Lead Contact (SMS)", cse: "YES*", ha: "NO", hcp: "NO" },
-    { feature: "Job Scheduling", cse: "YES", ha: "YES", hcp: "YES" },
-    { feature: "Job Lifecycle Tracking", cse: "YES", ha: "YES", hcp: "YES" },
-    { feature: "Automated Job Creation", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Auto Technician Assignment", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "GPS Tracking (Included)", cse: "YES", ha: "NO", hcp: "+$20/mo" },
-    { feature: "Real-Time Technician Map", cse: "YES", ha: "NO", hcp: "YES*" },
-    { feature: "Salesperson GPS Tracking", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Quote Generation", cse: "YES", ha: "YES", hcp: "+$40/mo" },
-    { feature: "Public Quote Links", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Quote Line Items", cse: "YES", ha: "YES", hcp: "YES" },
-    { feature: "Photo/Video Attachments", cse: "YES", ha: "YES", hcp: "YES" },
-    { feature: "GPS-Tagged Media", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Before/During/After Categories", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Job Checklists", cse: "YES", ha: "YES", hcp: "YES*" },
-    { feature: "Checklist Templates", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Labor Cost Tracking", cse: "YES", ha: "YES", hcp: "YES" },
-    { feature: "Materials Cost Tracking", cse: "YES", ha: "YES", hcp: "YES" },
-    { feature: "Travel Expense Tracking", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Equipment Cost Tracking", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Other Expenses Tracking", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Automatic Profit Calculation", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Commission Tracking", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "NET Profit Commission", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Commission Status Workflow", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Email Notifications", cse: "YES", ha: "YES", hcp: "YES" },
-    { feature: "Two-Tier Email Routing", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "SMS Notifications", cse: "YES*", ha: "YES", hcp: "YES" },
-    { feature: "Appointment Reminders", cse: "YES", ha: "YES", hcp: "YES" },
-    { feature: "Cancellation Tracking", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Analytics Dashboard", cse: "YES", ha: "YES*", hcp: "+$299/mo" },
-    { feature: "Role-Specific Analytics", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "CSV Data Export", cse: "YES", ha: "YES", hcp: "YES" },
-    { feature: "Webhook Logs", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "Contact Attempt Logging", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "No Per-User Fees", cse: "YES", ha: "NO", hcp: "NO" },
-    { feature: "No Per-Vehicle GPS Fees", cse: "YES", ha: "N/A", hcp: "NO" },
-    { feature: "Unlimited Users", cse: "YES", ha: "NO", hcp: "+$299/mo" },
-    { feature: "Self-Hosted Option", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Multi-Role Access (4+ roles)", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Admin Dashboard", cse: "YES", st: "YES", hcp: "YES" },
+    { feature: "Dispatcher Role", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Technician Role", cse: "YES", st: "YES", hcp: "YES" },
+    { feature: "Salesperson Role", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Lead Management", cse: "YES", st: "YES", hcp: "YES" },
+    { feature: "Multi-Source Lead Webhooks", cse: "YES", st: "YES*", hcp: "NO" },
+    { feature: "eLocal Integration", cse: "YES", st: "NO", hcp: "NO" },
+    { feature: "Networx Integration", cse: "YES", st: "NO", hcp: "NO" },
+    { feature: "Angi Integration", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Thumbtack Integration", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Zapier Integration", cse: "YES", st: "YES*", hcp: "YES*" },
+    { feature: "Auto Lead Contact (Email)", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Auto Lead Contact (SMS)", cse: "YES*", st: "YES", hcp: "NO" },
+    { feature: "Job Scheduling", cse: "YES", st: "YES", hcp: "YES" },
+    { feature: "Job Lifecycle Tracking", cse: "YES", st: "YES", hcp: "YES" },
+    { feature: "Automated Job Creation", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Auto Technician Assignment", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "GPS Tracking (Included)", cse: "YES", st: "+$50/tech", hcp: "+$20/mo" },
+    { feature: "Real-Time Technician Map", cse: "YES", st: "YES", hcp: "YES*" },
+    { feature: "Salesperson GPS Tracking", cse: "YES", st: "NO", hcp: "NO" },
+    { feature: "Quote Generation", cse: "YES", st: "YES", hcp: "+$40/mo" },
+    { feature: "Public Quote Links", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Quote Line Items", cse: "YES", st: "YES", hcp: "YES" },
+    { feature: "Photo/Video Attachments", cse: "YES", st: "YES", hcp: "YES" },
+    { feature: "GPS-Tagged Media", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Before/During/After Categories", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Job Checklists", cse: "YES", st: "YES", hcp: "YES*" },
+    { feature: "Checklist Templates", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Labor Cost Tracking", cse: "YES", st: "YES", hcp: "YES" },
+    { feature: "Materials Cost Tracking", cse: "YES", st: "YES", hcp: "YES" },
+    { feature: "Travel Expense Tracking", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Equipment Cost Tracking", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Other Expenses Tracking", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Automatic Profit Calculation", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Commission Tracking", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "NET Profit Commission", cse: "YES", st: "NO", hcp: "NO" },
+    { feature: "Commission Status Workflow", cse: "YES", st: "YES*", hcp: "NO" },
+    { feature: "Email Notifications", cse: "YES", st: "YES", hcp: "YES" },
+    { feature: "Two-Tier Email Routing", cse: "YES", st: "NO", hcp: "NO" },
+    { feature: "SMS Notifications", cse: "YES*", st: "YES", hcp: "YES" },
+    { feature: "Appointment Reminders", cse: "YES", st: "YES", hcp: "YES" },
+    { feature: "Cancellation Tracking", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Analytics Dashboard", cse: "YES", st: "YES", hcp: "+$299/mo" },
+    { feature: "Role-Specific Analytics", cse: "YES", st: "YES*", hcp: "NO" },
+    { feature: "CSV Data Export", cse: "YES", st: "YES", hcp: "YES" },
+    { feature: "Webhook Logs", cse: "YES", st: "NO", hcp: "NO" },
+    { feature: "Contact Attempt Logging", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "No Per-User Fees", cse: "YES", st: "NO", hcp: "NO" },
+    { feature: "No Per-Vehicle GPS Fees", cse: "YES", st: "NO", hcp: "NO" },
+    { feature: "Unlimited Users", cse: "YES", st: "NO", hcp: "+$299/mo" },
+    { feature: "Self-Hosted Option", cse: "YES", st: "NO", hcp: "NO" },
+    { feature: "Flat Monthly Pricing", cse: "YES", st: "NO", hcp: "NO" },
+    { feature: "No Long-Term Contract", cse: "YES", st: "NO", hcp: "YES" },
+    { feature: "Call Recording", cse: "NO", st: "YES", hcp: "NO" },
+    { feature: "Pricebook Management", cse: "NO", st: "YES", hcp: "NO" },
+    { feature: "Marketing ROI Tracking", cse: "NO", st: "YES", hcp: "NO" },
   ];
 
   doc.fontSize(8).font("Helvetica");
@@ -782,7 +787,7 @@ export function generateThreeWayComparisonPDF(): PDFKit.PDFDocument {
       doc.fontSize(10).font("Helvetica-Bold");
       doc.text("Feature", col1, yPos);
       doc.text("CSE CRM", col2, yPos);
-      doc.text("HomeAdvisor Pro", col3, yPos);
+      doc.text("ServiceTitan", col3, yPos);
       doc.text("HouseCall Pro", col4, yPos);
       yPos += rowHeight;
       doc.moveTo(col1, yPos).lineTo(730, yPos).stroke();
@@ -806,13 +811,13 @@ export function generateThreeWayComparisonPDF(): PDFKit.PDFDocument {
       doc.fillColor("#8B0000").font("Helvetica-Bold").text(f.cse, col2, yPos, { width: 100 });
     }
     
-    // HomeAdvisor column
-    if (f.ha === "YES") {
-      doc.fillColor("#006400").font("Helvetica-Bold").text(f.ha, col3, yPos, { width: 100 });
-    } else if (f.ha === "NO" || f.ha === "N/A") {
-      doc.fillColor("#8B0000").font("Helvetica-Bold").text(f.ha, col3, yPos, { width: 100 });
+    // ServiceTitan column
+    if (f.st === "YES") {
+      doc.fillColor("#006400").font("Helvetica-Bold").text(f.st, col3, yPos, { width: 100 });
+    } else if (f.st === "NO" || f.st === "N/A") {
+      doc.fillColor("#8B0000").font("Helvetica-Bold").text(f.st, col3, yPos, { width: 100 });
     } else {
-      doc.fillColor("#666666").font("Helvetica").text(f.ha, col3, yPos, { width: 100 });
+      doc.fillColor("#666666").font("Helvetica").text(f.st, col3, yPos, { width: 100 });
     }
     
     // HouseCall Pro column
@@ -831,14 +836,14 @@ export function generateThreeWayComparisonPDF(): PDFKit.PDFDocument {
   // Summary counts
   doc.moveDown(1.5);
   const cseYes = features.filter(f => f.cse === "YES").length;
-  const haYes = features.filter(f => f.ha === "YES").length;
+  const stYes = features.filter(f => f.st === "YES").length;
   const hcpYes = features.filter(f => f.hcp === "YES").length;
   
   doc.fontSize(11).font("Helvetica-Bold").text("Feature Count Summary:", col1);
   doc.moveDown(0.3);
   doc.fontSize(10).font("Helvetica");
   doc.fillColor("#006400").text(`CSE CRM: ${cseYes} of ${features.length} features included`, col1);
-  doc.fillColor("#000000").text(`HomeAdvisor Pro: ${haYes} of ${features.length} features included`, col1);
+  doc.fillColor("#000000").text(`ServiceTitan: ${stYes} of ${features.length} features included ($500+/tech/mo)`, col1);
   doc.text(`HouseCall Pro: ${hcpYes} of ${features.length} features included (plus add-ons)`, col1);
   
   doc.moveDown(1);

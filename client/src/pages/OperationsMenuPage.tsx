@@ -212,7 +212,7 @@ function AdminOperationsContent() {
                 <Download className="w-4 h-4" />
                 <div className="text-left">
                   <p className="font-medium">Competitor Comparison</p>
-                  <p className="text-xs text-muted-foreground">CSE vs HomeAdvisor vs HouseCall</p>
+                  <p className="text-xs text-muted-foreground">CSE vs ServiceTitan vs HouseCall</p>
                 </div>
               </Button>
             </a>
