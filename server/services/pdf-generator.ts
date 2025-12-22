@@ -387,6 +387,8 @@ export function generateHouseCallProComparisonPDF(): PDFKit.PDFDocument {
     { feature: "No Per-User Fees", cse: "YES", hcp: "NO" },
     { feature: "No Per-Vehicle GPS Fees", cse: "YES", hcp: "NO" },
     { feature: "Unlimited Users", cse: "YES", hcp: "NO*" },
+    { feature: "Pricebook Management", cse: "YES", hcp: "NO" },
+    { feature: "Marketing ROI Tracking", cse: "YES", hcp: "NO" },
   ];
 
   doc.fontSize(9).font("Helvetica");
@@ -773,8 +775,8 @@ export function generateThreeWayComparisonPDF(): PDFKit.PDFDocument {
     { feature: "Flat Monthly Pricing", cse: "YES", st: "NO", hcp: "NO" },
     { feature: "No Long-Term Contract", cse: "YES", st: "NO", hcp: "YES" },
     { feature: "Call Recording", cse: "NO", st: "YES", hcp: "NO" },
-    { feature: "Pricebook Management", cse: "NO", st: "YES", hcp: "NO" },
-    { feature: "Marketing ROI Tracking", cse: "NO", st: "YES", hcp: "NO" },
+    { feature: "Pricebook Management", cse: "YES", st: "YES", hcp: "NO" },
+    { feature: "Marketing ROI Tracking", cse: "YES", st: "YES", hcp: "NO" },
   ];
 
   doc.fontSize(8).font("Helvetica");
