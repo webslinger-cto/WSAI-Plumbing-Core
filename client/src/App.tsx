@@ -256,6 +256,11 @@ function App() {
                   />
                 )}
               </main>
+              <footer className="px-4 py-2 text-center border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+                <span className="text-xs text-muted-foreground" data-testid="text-powered-by">
+                  Powered by WebSlingerAI
+                </span>
+              </footer>
             </div>
           </div>
         </SidebarProvider>
