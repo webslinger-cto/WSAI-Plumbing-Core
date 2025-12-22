@@ -689,3 +689,166 @@ export function generateTestResultsPDF(): PDFKit.PDFDocument {
 
   return doc;
 }
+
+export function generateThreeWayComparisonPDF(): PDFKit.PDFDocument {
+  const doc = new PDFDocument({ margin: 30, size: "letter", layout: "landscape" });
+
+  // Title
+  doc.fontSize(20).font("Helvetica-Bold").text("Field Service Management Platform Comparison", { align: "center" });
+  doc.moveDown(0.3);
+  doc.fontSize(12).font("Helvetica").text("CSE CRM vs HomeAdvisor Pro vs HouseCall Pro", { align: "center" });
+  doc.moveDown(1);
+
+  // Column positions for landscape
+  const col1 = 30;   // Feature name
+  const col2 = 260;  // CSE CRM
+  const col3 = 370;  // HomeAdvisor Pro
+  const col4 = 520;  // HouseCall Pro
+  const rowHeight = 14;
+
+  // Table Header
+  doc.fontSize(10).font("Helvetica-Bold");
+  doc.text("Feature", col1, doc.y);
+  doc.text("CSE CRM", col2, doc.y - rowHeight);
+  doc.text("HomeAdvisor Pro", col3, doc.y - rowHeight);
+  doc.text("HouseCall Pro", col4, doc.y - rowHeight);
+  doc.moveDown(0.3);
+  doc.moveTo(col1, doc.y).lineTo(730, doc.y).stroke();
+  doc.moveDown(0.4);
+
+  // 3-way comparison features
+  const features = [
+    { feature: "Multi-Role Access (4+ roles)", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Admin Dashboard", cse: "YES", ha: "YES", hcp: "YES" },
+    { feature: "Dispatcher Role", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Technician Role", cse: "YES", ha: "YES", hcp: "YES" },
+    { feature: "Salesperson Role", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Lead Management", cse: "YES", ha: "YES", hcp: "YES" },
+    { feature: "Multi-Source Lead Webhooks", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "eLocal Integration", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Networx Integration", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Angi Integration", cse: "YES", ha: "YES", hcp: "NO" },
+    { feature: "Thumbtack Integration", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Zapier Integration", cse: "YES", ha: "YES*", hcp: "YES*" },
+    { feature: "Auto Lead Contact (Email)", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Auto Lead Contact (SMS)", cse: "YES*", ha: "NO", hcp: "NO" },
+    { feature: "Job Scheduling", cse: "YES", ha: "YES", hcp: "YES" },
+    { feature: "Job Lifecycle Tracking", cse: "YES", ha: "YES", hcp: "YES" },
+    { feature: "Automated Job Creation", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Auto Technician Assignment", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "GPS Tracking (Included)", cse: "YES", ha: "NO", hcp: "+$20/mo" },
+    { feature: "Real-Time Technician Map", cse: "YES", ha: "NO", hcp: "YES*" },
+    { feature: "Salesperson GPS Tracking", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Quote Generation", cse: "YES", ha: "YES", hcp: "+$40/mo" },
+    { feature: "Public Quote Links", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Quote Line Items", cse: "YES", ha: "YES", hcp: "YES" },
+    { feature: "Photo/Video Attachments", cse: "YES", ha: "YES", hcp: "YES" },
+    { feature: "GPS-Tagged Media", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Before/During/After Categories", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Job Checklists", cse: "YES", ha: "YES", hcp: "YES*" },
+    { feature: "Checklist Templates", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Labor Cost Tracking", cse: "YES", ha: "YES", hcp: "YES" },
+    { feature: "Materials Cost Tracking", cse: "YES", ha: "YES", hcp: "YES" },
+    { feature: "Travel Expense Tracking", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Equipment Cost Tracking", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Other Expenses Tracking", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Automatic Profit Calculation", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Commission Tracking", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "NET Profit Commission", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Commission Status Workflow", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Email Notifications", cse: "YES", ha: "YES", hcp: "YES" },
+    { feature: "Two-Tier Email Routing", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "SMS Notifications", cse: "YES*", ha: "YES", hcp: "YES" },
+    { feature: "Appointment Reminders", cse: "YES", ha: "YES", hcp: "YES" },
+    { feature: "Cancellation Tracking", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Analytics Dashboard", cse: "YES", ha: "YES*", hcp: "+$299/mo" },
+    { feature: "Role-Specific Analytics", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "CSV Data Export", cse: "YES", ha: "YES", hcp: "YES" },
+    { feature: "Webhook Logs", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "Contact Attempt Logging", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "No Per-User Fees", cse: "YES", ha: "NO", hcp: "NO" },
+    { feature: "No Per-Vehicle GPS Fees", cse: "YES", ha: "N/A", hcp: "NO" },
+    { feature: "Unlimited Users", cse: "YES", ha: "NO", hcp: "+$299/mo" },
+    { feature: "Self-Hosted Option", cse: "YES", ha: "NO", hcp: "NO" },
+  ];
+
+  doc.fontSize(8).font("Helvetica");
+  let yPos = doc.y;
+
+  features.forEach((f, idx) => {
+    if (yPos > 540) {
+      doc.addPage();
+      yPos = 40;
+      doc.fontSize(10).font("Helvetica-Bold");
+      doc.text("Feature", col1, yPos);
+      doc.text("CSE CRM", col2, yPos);
+      doc.text("HomeAdvisor Pro", col3, yPos);
+      doc.text("HouseCall Pro", col4, yPos);
+      yPos += rowHeight;
+      doc.moveTo(col1, yPos).lineTo(730, yPos).stroke();
+      yPos += 6;
+      doc.fontSize(8).font("Helvetica");
+    }
+    
+    if (idx % 2 === 0) {
+      doc.rect(col1 - 5, yPos - 2, 710, rowHeight).fill("#f5f5f5");
+      doc.fillColor("#000000");
+    }
+    
+    doc.font("Helvetica").text(f.feature, col1, yPos, { width: 220 });
+    
+    // CSE column
+    if (f.cse === "YES") {
+      doc.fillColor("#006400").font("Helvetica-Bold").text(f.cse, col2, yPos, { width: 100 });
+    } else if (f.cse.includes("*")) {
+      doc.fillColor("#B8860B").font("Helvetica").text(f.cse, col2, yPos, { width: 100 });
+    } else {
+      doc.fillColor("#8B0000").font("Helvetica-Bold").text(f.cse, col2, yPos, { width: 100 });
+    }
+    
+    // HomeAdvisor column
+    if (f.ha === "YES") {
+      doc.fillColor("#006400").font("Helvetica-Bold").text(f.ha, col3, yPos, { width: 100 });
+    } else if (f.ha === "NO" || f.ha === "N/A") {
+      doc.fillColor("#8B0000").font("Helvetica-Bold").text(f.ha, col3, yPos, { width: 100 });
+    } else {
+      doc.fillColor("#666666").font("Helvetica").text(f.ha, col3, yPos, { width: 100 });
+    }
+    
+    // HouseCall Pro column
+    if (f.hcp === "YES") {
+      doc.fillColor("#006400").font("Helvetica-Bold").text(f.hcp, col4, yPos, { width: 100 });
+    } else if (f.hcp === "NO") {
+      doc.fillColor("#8B0000").font("Helvetica-Bold").text(f.hcp, col4, yPos, { width: 100 });
+    } else {
+      doc.fillColor("#666666").font("Helvetica").text(f.hcp, col4, yPos, { width: 100 });
+    }
+    
+    doc.fillColor("#000000");
+    yPos += rowHeight;
+  });
+
+  // Summary counts
+  doc.moveDown(1.5);
+  const cseYes = features.filter(f => f.cse === "YES").length;
+  const haYes = features.filter(f => f.ha === "YES").length;
+  const hcpYes = features.filter(f => f.hcp === "YES").length;
+  
+  doc.fontSize(11).font("Helvetica-Bold").text("Feature Count Summary:", col1);
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica");
+  doc.fillColor("#006400").text(`CSE CRM: ${cseYes} of ${features.length} features included`, col1);
+  doc.fillColor("#000000").text(`HomeAdvisor Pro: ${haYes} of ${features.length} features included`, col1);
+  doc.text(`HouseCall Pro: ${hcpYes} of ${features.length} features included (plus add-ons)`, col1);
+  
+  doc.moveDown(1);
+  doc.fontSize(8).font("Helvetica-Oblique").fillColor("#666666");
+  doc.text("* Feature requires add-on purchase, higher tier plan, or pending verification", col1);
+  doc.text("+ Price indicates monthly add-on cost required", col1);
+  doc.fillColor("#000000");
+
+  doc.moveDown(1);
+  doc.fontSize(9).font("Helvetica-Oblique").text("Chicago Sewer Experts CRM - Field Service Management Platform Comparison", { align: "center" });
+
+  return doc;
+}

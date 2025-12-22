@@ -41,7 +41,7 @@ import {
 } from "./services/automation";
 import * as smsService from "./services/sms";
 import { dispatchToClosestTechnician } from "./services/dispatch";
-import { generateApplicationPDF, generateComparisonPDF, generateHouseCallProComparisonPDF, generateTestResultsPDF } from "./services/pdf-generator";
+import { generateApplicationPDF, generateComparisonPDF, generateHouseCallProComparisonPDF, generateTestResultsPDF, generateThreeWayComparisonPDF } from "./services/pdf-generator";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -2884,6 +2884,22 @@ ${emailContent}
     } catch (error) {
       console.error("HouseCall Pro comparison PDF generation error:", error);
       res.status(500).json({ error: "Failed to generate HouseCall Pro comparison PDF" });
+    }
+  });
+
+  // 3-way comparison PDF (CSE vs HomeAdvisor vs HouseCall Pro)
+  app.get("/api/docs/three-way-comparison", async (req, res) => {
+    try {
+      const doc = generateThreeWayComparisonPDF();
+      
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", "attachment; filename=CSE-CRM-Competitor-Comparison.pdf");
+      
+      doc.pipe(res);
+      doc.end();
+    } catch (error) {
+      console.error("Three-way comparison PDF generation error:", error);
+      res.status(500).json({ error: "Failed to generate comparison PDF" });
     }
   });
 
