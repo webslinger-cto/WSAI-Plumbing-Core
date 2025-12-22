@@ -104,7 +104,7 @@ export default function MarketingROIPage() {
         name: data.name,
         source: data.source,
         type: data.type || null,
-        budget: data.budget ? parseFloat(data.budget) : null,
+        budget: data.budget || null,
         notes: data.notes || null,
         isActive: data.isActive,
       });
@@ -127,7 +127,7 @@ export default function MarketingROIPage() {
         name: data.name,
         source: data.source,
         type: data.type || null,
-        budget: data.budget ? parseFloat(data.budget) : null,
+        budget: data.budget || null,
         notes: data.notes || null,
         isActive: data.isActive,
       });
@@ -163,10 +163,10 @@ export default function MarketingROIPage() {
         campaignId: data.campaignId || null,
         source: data.source,
         period: data.period,
-        amount: parseFloat(data.amount) || 0,
+        amount: data.amount || "0",
         leadsGenerated: data.leadsGenerated ? parseInt(data.leadsGenerated) : 0,
         leadsConverted: data.leadsConverted ? parseInt(data.leadsConverted) : 0,
-        revenueGenerated: data.revenueGenerated ? parseFloat(data.revenueGenerated) : null,
+        revenueGenerated: data.revenueGenerated || null,
         notes: data.notes || null,
       });
       return response.json();

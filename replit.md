@@ -15,7 +15,7 @@ Preferred communication style: Simple, everyday language.
 **Framework**: React with TypeScript using Vite as the build tool and development server.
 
 **Routing**: Client-side routing implemented with Wouter, a lightweight React router alternative. The application has four distinct routing contexts:
-- Admin routes: Dashboard, leads management, technicians, analytics, import functionality, and outreach campaigns
+- Admin routes: Dashboard, leads management, technicians, analytics, import functionality, outreach campaigns, pricebook management, and marketing ROI tracking
 - Dispatcher routes: Dispatch center, jobs, quotes, technician map, staffing pool, leads
 - Technician routes: Personal dashboard, quote builder, job listings, and earnings tracking
 - Salesperson routes: Sales dashboard with commission tracking, leads, jobs, quotes, quote tool
@@ -83,6 +83,11 @@ Preferred communication style: Simple, everyday language.
 - **job_checklists**: Per-job checklists with item completion tracking
 - **technician_locations**: GPS tracking history for real-time location monitoring
 - **checklist_templates**: Reusable checklist templates by service type
+- **pricebook_items**: Service catalog with pricing (name, category, basePrice, laborHours, materialsCost, unit, serviceCode, isActive, isTaxable)
+- **pricebook_categories**: Service categories with color coding for organization
+- **marketing_campaigns**: Marketing campaign tracking (name, source, type, budget, actualSpend, isActive)
+- **marketing_spend**: Monthly/weekly spend tracking by source with lead generation and revenue attribution
+- **marketing_roi**: Aggregated ROI data by source showing spend, revenue, leads, and calculated ROI percentage
 
 **Migration Strategy**: Drizzle Kit configured with migrations output to `./migrations` directory. Schema changes managed through `npm run db:push` script.
 

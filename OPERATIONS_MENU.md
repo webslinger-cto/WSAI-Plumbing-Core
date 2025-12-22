@@ -19,6 +19,8 @@
 - Full access to all features
 - Lead management, job tracking, technician management
 - Analytics with ROI and cost analysis
+- Pricebook management (service catalog, pricing, labor estimates)
+- Marketing ROI tracking (campaigns, spend, ROI by source)
 - Settings and configuration
 - Data export
 
@@ -255,7 +257,93 @@ The system uses a two-tier email notification system:
 
 ---
 
-## 6. Technicians
+## 6. Pricebook Management
+
+### Overview
+Manage service catalog with standardized pricing, labor estimates, and materials costs.
+
+### Pricebook API Endpoints
+| Action | Method | Endpoint |
+|--------|--------|----------|
+| List items | GET | /api/pricebook/items |
+| Get item | GET | /api/pricebook/items/:id |
+| Create item | POST | /api/pricebook/items |
+| Update item | PATCH | /api/pricebook/items/:id |
+| Delete item | DELETE | /api/pricebook/items/:id |
+| List categories | GET | /api/pricebook/categories |
+| Create category | POST | /api/pricebook/categories |
+| Update category | PATCH | /api/pricebook/categories/:id |
+| Delete category | DELETE | /api/pricebook/categories/:id |
+
+### Pricebook Item Fields
+| Field | Description |
+|-------|-------------|
+| name | Service name |
+| category | Service category |
+| basePrice | Standard price |
+| laborHours | Estimated labor time |
+| materialsCost | Estimated materials |
+| unit | Pricing unit (each, hour, foot, etc.) |
+| serviceCode | Internal reference code |
+| isActive | Available for quoting |
+| isTaxable | Subject to tax |
+
+### Default Categories
+- Drain Cleaning
+- Sewer Repair
+- Plumbing
+- Water Heater
+- Camera Inspection
+- Hydro Jetting
+- Emergency
+- Maintenance
+
+---
+
+## 7. Marketing ROI Tracking
+
+### Overview
+Track marketing spend, lead attribution, and calculate ROI by source.
+
+### Marketing API Endpoints
+| Action | Method | Endpoint |
+|--------|--------|----------|
+| List campaigns | GET | /api/marketing/campaigns |
+| Create campaign | POST | /api/marketing/campaigns |
+| Update campaign | PATCH | /api/marketing/campaigns/:id |
+| Delete campaign | DELETE | /api/marketing/campaigns/:id |
+| List spend | GET | /api/marketing/spend |
+| Log spend | POST | /api/marketing/spend |
+| Get ROI data | GET | /api/marketing/roi |
+
+### Lead Sources
+- eLocal
+- Networx
+- Angi
+- Thumbtack
+- Direct Call
+- Website
+- Referral
+- Google Ads
+- Facebook
+- Other
+
+### ROI Calculation
+```
+ROI % = ((Revenue - Spend) / Spend) × 100
+Cost Per Lead = Total Spend / Leads Generated
+Cost Per Conversion = Total Spend / Leads Converted
+```
+
+### Analytics Dashboard
+- Total Spend by Source (Bar Chart)
+- Spend Distribution (Pie Chart)
+- ROI by Source comparison
+- Lead generation metrics
+
+---
+
+## 8. Technicians
 
 ### Technician API Endpoints
 | Action | Method | Endpoint |
@@ -273,7 +361,7 @@ The system uses a two-tier email notification system:
 
 ---
 
-## 7. Analytics
+## 9. Analytics
 
 ### Analytics Tabs
 1. **Lead Sources** - Conversion rates by source
@@ -290,7 +378,7 @@ The system uses a two-tier email notification system:
 
 ---
 
-## 8. Export & Reporting
+## 10. Export & Reporting
 
 ### Export Endpoint
 **GET /api/export**
@@ -307,7 +395,7 @@ Returns JSON with all data:
 
 ---
 
-## 9. Settings Tabs
+## 11. Settings Tabs
 
 1. **Access** - User management, role-based permissions
 2. **Notifications** - Email/SMS notification preferences
@@ -315,7 +403,7 @@ Returns JSON with all data:
 
 ---
 
-## 10. Webhook Logging
+## 12. Webhook Logging
 
 ### View Webhook Logs
 **GET /api/webhook-logs**
@@ -329,7 +417,7 @@ All incoming webhooks are logged with:
 
 ---
 
-## 11. Email Integration (Resend)
+## 13. Email Integration (Resend)
 
 ### Configured Email Types
 1. **Lead Acknowledgment** - Sent automatically when lead arrives
@@ -340,7 +428,7 @@ All incoming webhooks are logged with:
 
 ---
 
-## 12. Health Check
+## 14. Health Check
 
 **GET /api/health**
 
