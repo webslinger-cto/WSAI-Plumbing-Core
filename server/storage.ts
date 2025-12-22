@@ -18,9 +18,14 @@ import {
   type JobChecklist, type InsertJobChecklist,
   type TechnicianLocation, type InsertTechnicianLocation,
   type ChecklistTemplate, type InsertChecklistTemplate,
+  type PricebookItem, type InsertPricebookItem,
+  type PricebookCategory, type InsertPricebookCategory,
+  type MarketingCampaign, type InsertMarketingCampaign,
+  type MarketingSpend, type InsertMarketingSpend,
   users, technicians, salespersons, salesCommissions, salespersonLocations,
   leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
+  pricebookItems, pricebookCategories, marketingCampaigns, marketingSpend,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -219,6 +224,34 @@ export interface IStorage {
   createChecklistTemplate(template: InsertChecklistTemplate): Promise<ChecklistTemplate>;
   updateChecklistTemplate(id: string, updates: Partial<ChecklistTemplate>): Promise<ChecklistTemplate | undefined>;
   deleteChecklistTemplate(id: string): Promise<boolean>;
+
+  // Pricebook Items
+  getPricebookItems(): Promise<PricebookItem[]>;
+  getPricebookItem(id: string): Promise<PricebookItem | undefined>;
+  getPricebookItemsByCategory(category: string): Promise<PricebookItem[]>;
+  createPricebookItem(item: InsertPricebookItem): Promise<PricebookItem>;
+  updatePricebookItem(id: string, updates: Partial<PricebookItem>): Promise<PricebookItem | undefined>;
+  deletePricebookItem(id: string): Promise<boolean>;
+
+  // Pricebook Categories
+  getPricebookCategories(): Promise<PricebookCategory[]>;
+  createPricebookCategory(category: InsertPricebookCategory): Promise<PricebookCategory>;
+  updatePricebookCategory(id: string, updates: Partial<PricebookCategory>): Promise<PricebookCategory | undefined>;
+  deletePricebookCategory(id: string): Promise<boolean>;
+
+  // Marketing Campaigns
+  getMarketingCampaigns(): Promise<MarketingCampaign[]>;
+  getMarketingCampaign(id: string): Promise<MarketingCampaign | undefined>;
+  createMarketingCampaign(campaign: InsertMarketingCampaign): Promise<MarketingCampaign>;
+  updateMarketingCampaign(id: string, updates: Partial<MarketingCampaign>): Promise<MarketingCampaign | undefined>;
+  deleteMarketingCampaign(id: string): Promise<boolean>;
+
+  // Marketing Spend
+  getMarketingSpend(campaignId?: string): Promise<MarketingSpend[]>;
+  getMarketingSpendByPeriod(period: string): Promise<MarketingSpend[]>;
+  createMarketingSpend(spend: InsertMarketingSpend): Promise<MarketingSpend>;
+  updateMarketingSpend(id: string, updates: Partial<MarketingSpend>): Promise<MarketingSpend | undefined>;
+  getMarketingROI(): Promise<{ source: string; spend: number; leads: number; converted: number; revenue: number; roi: number }[]>;
 
   // Reset
   resetJobBoard(): Promise<void>;
@@ -2411,6 +2444,142 @@ export class DatabaseStorage implements IStorage {
   async deleteChecklistTemplate(id: string): Promise<boolean> {
     const result = await db.delete(checklistTemplates).where(eq(checklistTemplates.id, id)).returning();
     return result.length > 0;
+  }
+
+  // Pricebook Items
+  async getPricebookItems(): Promise<PricebookItem[]> {
+    return db.select().from(pricebookItems).orderBy(asc(pricebookItems.sortOrder), asc(pricebookItems.name));
+  }
+
+  async getPricebookItem(id: string): Promise<PricebookItem | undefined> {
+    const [item] = await db.select().from(pricebookItems).where(eq(pricebookItems.id, id));
+    return item;
+  }
+
+  async getPricebookItemsByCategory(category: string): Promise<PricebookItem[]> {
+    return db.select().from(pricebookItems)
+      .where(eq(pricebookItems.category, category))
+      .orderBy(asc(pricebookItems.sortOrder));
+  }
+
+  async createPricebookItem(item: InsertPricebookItem): Promise<PricebookItem> {
+    const [created] = await db.insert(pricebookItems).values(item).returning();
+    return created;
+  }
+
+  async updatePricebookItem(id: string, updates: Partial<PricebookItem>): Promise<PricebookItem | undefined> {
+    const [updated] = await db.update(pricebookItems)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(pricebookItems.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deletePricebookItem(id: string): Promise<boolean> {
+    const result = await db.delete(pricebookItems).where(eq(pricebookItems.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Pricebook Categories
+  async getPricebookCategories(): Promise<PricebookCategory[]> {
+    return db.select().from(pricebookCategories).orderBy(asc(pricebookCategories.sortOrder));
+  }
+
+  async createPricebookCategory(category: InsertPricebookCategory): Promise<PricebookCategory> {
+    const [created] = await db.insert(pricebookCategories).values(category).returning();
+    return created;
+  }
+
+  async updatePricebookCategory(id: string, updates: Partial<PricebookCategory>): Promise<PricebookCategory | undefined> {
+    const [updated] = await db.update(pricebookCategories)
+      .set(updates)
+      .where(eq(pricebookCategories.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deletePricebookCategory(id: string): Promise<boolean> {
+    const result = await db.delete(pricebookCategories).where(eq(pricebookCategories.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Marketing Campaigns
+  async getMarketingCampaigns(): Promise<MarketingCampaign[]> {
+    return db.select().from(marketingCampaigns).orderBy(desc(marketingCampaigns.createdAt));
+  }
+
+  async getMarketingCampaign(id: string): Promise<MarketingCampaign | undefined> {
+    const [campaign] = await db.select().from(marketingCampaigns).where(eq(marketingCampaigns.id, id));
+    return campaign;
+  }
+
+  async createMarketingCampaign(campaign: InsertMarketingCampaign): Promise<MarketingCampaign> {
+    const [created] = await db.insert(marketingCampaigns).values(campaign).returning();
+    return created;
+  }
+
+  async updateMarketingCampaign(id: string, updates: Partial<MarketingCampaign>): Promise<MarketingCampaign | undefined> {
+    const [updated] = await db.update(marketingCampaigns)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(marketingCampaigns.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteMarketingCampaign(id: string): Promise<boolean> {
+    const result = await db.delete(marketingCampaigns).where(eq(marketingCampaigns.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Marketing Spend
+  async getMarketingSpend(campaignId?: string): Promise<MarketingSpend[]> {
+    if (campaignId) {
+      return db.select().from(marketingSpend)
+        .where(eq(marketingSpend.campaignId, campaignId))
+        .orderBy(desc(marketingSpend.period));
+    }
+    return db.select().from(marketingSpend).orderBy(desc(marketingSpend.period));
+  }
+
+  async getMarketingSpendByPeriod(period: string): Promise<MarketingSpend[]> {
+    return db.select().from(marketingSpend).where(eq(marketingSpend.period, period));
+  }
+
+  async createMarketingSpend(spend: InsertMarketingSpend): Promise<MarketingSpend> {
+    const [created] = await db.insert(marketingSpend).values(spend).returning();
+    return created;
+  }
+
+  async updateMarketingSpend(id: string, updates: Partial<MarketingSpend>): Promise<MarketingSpend | undefined> {
+    const [updated] = await db.update(marketingSpend)
+      .set(updates)
+      .where(eq(marketingSpend.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getMarketingROI(): Promise<{ source: string; spend: number; leads: number; converted: number; revenue: number; roi: number }[]> {
+    // Get all marketing spend grouped by source
+    const spendData = await db.select({
+      source: marketingSpend.source,
+      totalSpend: sql<number>`COALESCE(SUM(${marketingSpend.amount}), 0)`,
+      totalLeads: sql<number>`COALESCE(SUM(${marketingSpend.leadsGenerated}), 0)`,
+      totalConverted: sql<number>`COALESCE(SUM(${marketingSpend.leadsConverted}), 0)`,
+      totalRevenue: sql<number>`COALESCE(SUM(${marketingSpend.revenueGenerated}), 0)`,
+    })
+    .from(marketingSpend)
+    .groupBy(marketingSpend.source);
+
+    return spendData.map(row => ({
+      source: row.source,
+      spend: Number(row.totalSpend) || 0,
+      leads: Number(row.totalLeads) || 0,
+      converted: Number(row.totalConverted) || 0,
+      revenue: Number(row.totalRevenue) || 0,
+      roi: Number(row.totalSpend) > 0 
+        ? ((Number(row.totalRevenue) - Number(row.totalSpend)) / Number(row.totalSpend)) * 100 
+        : 0,
+    }));
   }
 }
 
