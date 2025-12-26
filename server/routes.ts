@@ -1569,6 +1569,160 @@ export async function registerRoutes(
   });
 
   // ==========================================
+  // Twilio Call & SMS Forwarding Webhooks
+  // ==========================================
+
+  // Forwarding phone number for all incoming calls and texts
+  const FORWARDING_PHONE_NUMBER = "+16302515628";
+
+  // Twilio incoming voice call webhook - forwards calls to office
+  app.post("/api/webhooks/twilio/voice", async (req, res) => {
+    try {
+      const { From, To, CallSid } = req.body;
+
+      console.log(`[Twilio Voice] Incoming call from ${From} to ${To}, CallSid: ${CallSid}`);
+
+      // Log the incoming call
+      await storage.createWebhookLog({
+        source: "twilio-voice-incoming",
+        endpoint: "/api/webhooks/twilio/voice",
+        method: "POST",
+        payload: JSON.stringify({ from: From, to: To, callSid: CallSid, action: "forward" }),
+      });
+
+      // Return TwiML to forward the call
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Please hold while we connect you to Chicago Sewer Experts.</Say>
+  <Dial callerId="${To}" timeout="30" action="/api/webhooks/twilio/voice-status">
+    ${FORWARDING_PHONE_NUMBER}
+  </Dial>
+  <Say voice="alice">We're sorry, no one is available to take your call. Please leave a message after the beep.</Say>
+  <Record maxLength="120" action="/api/webhooks/twilio/voicemail" />
+</Response>`;
+
+      res.type("text/xml").send(twiml);
+    } catch (error) {
+      console.error("Twilio voice webhook error:", error);
+      // Return basic TwiML even on error
+      const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">We're experiencing technical difficulties. Please call back later.</Say>
+  <Hangup/>
+</Response>`;
+      res.type("text/xml").send(errorTwiml);
+    }
+  });
+
+  // Twilio voice status callback - handles call completion
+  app.post("/api/webhooks/twilio/voice-status", async (req, res) => {
+    try {
+      const { DialCallStatus, CallSid, From, To } = req.body;
+      
+      console.log(`[Twilio Voice Status] Call ${CallSid} status: ${DialCallStatus}`);
+      
+      await storage.createWebhookLog({
+        source: "twilio-voice-status",
+        endpoint: "/api/webhooks/twilio/voice-status",
+        method: "POST",
+        payload: JSON.stringify({ callSid: CallSid, status: DialCallStatus, from: From, to: To }),
+      });
+
+      // Just acknowledge - call is done
+      res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
+    } catch (error) {
+      console.error("Twilio voice status error:", error);
+      res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
+    }
+  });
+
+  // Twilio voicemail callback - handles voicemail recordings
+  app.post("/api/webhooks/twilio/voicemail", async (req, res) => {
+    try {
+      const { RecordingUrl, RecordingSid, From, To, CallSid } = req.body;
+      
+      console.log(`[Twilio Voicemail] Recording from ${From}: ${RecordingUrl}`);
+      
+      await storage.createWebhookLog({
+        source: "twilio-voicemail",
+        endpoint: "/api/webhooks/twilio/voicemail",
+        method: "POST",
+        payload: JSON.stringify({ from: From, to: To, callSid: CallSid, recordingSid: RecordingSid, recordingUrl: RecordingUrl }),
+      });
+
+      // Send email notification about voicemail via Resend
+      const { sendEmail } = await import("./services/email");
+      await sendEmail({
+        to: "CSEINTAKETEST@webslingerai.com",
+        subject: `New Voicemail from ${From}`,
+        html: `
+          <h2>New Voicemail Received</h2>
+          <p><strong>From:</strong> ${From}</p>
+          <p><strong>To:</strong> ${To}</p>
+          <p><strong>Recording:</strong> <a href="${RecordingUrl}.mp3">Listen to voicemail</a></p>
+          <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+        `,
+        text: `New voicemail from ${From}. Listen at: ${RecordingUrl}.mp3`,
+      });
+
+      res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">Thank you for your message. We will get back to you soon.</Say></Response>`);
+    } catch (error) {
+      console.error("Twilio voicemail error:", error);
+      res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
+    }
+  });
+
+  // Twilio incoming SMS webhook - forwards texts to office number
+  app.post("/api/webhooks/twilio/sms", async (req, res) => {
+    try {
+      const { From, To, Body, MessageSid } = req.body;
+
+      console.log(`[Twilio SMS] Incoming text from ${From}: ${Body}`);
+
+      // Log the incoming SMS
+      await storage.createWebhookLog({
+        source: "twilio-sms-incoming",
+        endpoint: "/api/webhooks/twilio/sms",
+        method: "POST",
+        payload: JSON.stringify({ from: From, to: To, body: Body, messageSid: MessageSid }),
+      });
+
+      // Forward the SMS to the office number
+      const { sendSMS } = await import("./services/sms");
+      const forwardMessage = `[Fwd from ${From}]: ${Body}`;
+      await sendSMS(FORWARDING_PHONE_NUMBER, forwardMessage);
+
+      // Also send email notification via Resend
+      const { sendEmail } = await import("./services/email");
+      await sendEmail({
+        to: "CSEINTAKETEST@webslingerai.com",
+        subject: `New Text Message from ${From}`,
+        html: `
+          <h2>New Text Message Received</h2>
+          <p><strong>From:</strong> ${From}</p>
+          <p><strong>To:</strong> ${To}</p>
+          <p><strong>Message:</strong></p>
+          <blockquote style="background: #f5f5f5; padding: 10px; border-left: 3px solid #b22222;">${Body}</blockquote>
+          <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+        `,
+        text: `New text from ${From}: ${Body}`,
+      });
+
+      // Return TwiML acknowledgment
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Message>Thank you for your message! A Chicago Sewer Experts team member will respond shortly.</Message>
+</Response>`;
+
+      res.type("text/xml").send(twiml);
+    } catch (error) {
+      console.error("Twilio SMS webhook error:", error);
+      // Still return valid TwiML
+      res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
+    }
+  });
+
+  // ==========================================
   // Lead Provider Webhooks
   // ==========================================
 

@@ -189,6 +189,38 @@ The system uses a two-tier email notification system:
 - All notifications are email-only via Resend API
 - Rate limited to 2 requests/second to comply with Resend limits
 
+### Twilio Call & SMS Forwarding
+
+All incoming calls and texts to the Twilio phone number are forwarded to the office:
+
+**Forwarding Number:** (630) 251-5628
+
+| Webhook | Purpose | Endpoint |
+|---------|---------|----------|
+| Incoming Voice | Forward calls to office | POST /api/webhooks/twilio/voice |
+| Voice Status | Track call completion | POST /api/webhooks/twilio/voice-status |
+| Voicemail | Handle missed call recordings | POST /api/webhooks/twilio/voicemail |
+| Incoming SMS | Forward texts to office | POST /api/webhooks/twilio/sms |
+| SMS Status | Track delivery status | POST /api/webhooks/twilio/status |
+
+**Call Handling Flow:**
+1. Incoming call to Twilio number
+2. Caller hears "Please hold while we connect you to Chicago Sewer Experts"
+3. Call forwarded to (630) 251-5628
+4. If no answer after 30 seconds, caller prompted to leave voicemail
+5. Voicemail recording emailed to CSEINTAKETEST@webslingerai.com
+
+**SMS Handling Flow:**
+1. Incoming text to Twilio number
+2. Text forwarded to (630) 251-5628 as SMS
+3. Email notification sent to CSEINTAKETEST@webslingerai.com
+4. Auto-reply sent: "Thank you for your message! A Chicago Sewer Experts team member will respond shortly."
+
+**Twilio Configuration Required:**
+In your Twilio Console, configure these webhook URLs for your phone number:
+- Voice Webhook: `https://your-domain.replit.app/api/webhooks/twilio/voice`
+- SMS Webhook: `https://your-domain.replit.app/api/webhooks/twilio/sms`
+
 ---
 
 ## 4. Job Management

@@ -240,3 +240,23 @@ To re-enable SMS after verification:
 1. Complete Twilio/SignalWire A2P verification
 2. Update `server/services/sms.ts` to use verified number
 3. Enable SMS flags in `server/services/automation.ts`
+
+### Twilio Call & SMS Forwarding
+All incoming calls and texts to the Twilio number are forwarded to **(630) 251-5628**:
+
+**Webhook Endpoints:**
+- Voice: `POST /api/webhooks/twilio/voice` - Forwards calls, handles voicemail
+- SMS: `POST /api/webhooks/twilio/sms` - Forwards texts, sends email notifications
+- Voicemail: `POST /api/webhooks/twilio/voicemail` - Records and emails voicemails
+- Status: `POST /api/webhooks/twilio/voice-status` - Tracks call completion
+
+**Call Flow:**
+1. Caller hears greeting message
+2. Call forwarded to (630) 251-5628
+3. If no answer (30s timeout), voicemail option provided
+4. Voicemail emailed to CSEINTAKETEST@webslingerai.com
+
+**SMS Flow:**
+1. Incoming text forwarded to (630) 251-5628
+2. Email notification sent to CSEINTAKETEST@webslingerai.com
+3. Auto-reply sent to sender
