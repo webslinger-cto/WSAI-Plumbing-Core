@@ -221,6 +221,68 @@ In your Twilio Console, configure these webhook URLs for your phone number:
 - Voice Webhook: `https://your-domain.replit.app/api/webhooks/twilio/voice`
 - SMS Webhook: `https://your-domain.replit.app/api/webhooks/twilio/sms`
 
+### Zapier SMS Automation
+
+Integrate with Zapier for SMS automation that bypasses A2P verification by using Zapier's verified SMS system.
+
+**Forwarding Number:** (630) 251-5628
+
+| Endpoint | Purpose | Method |
+|----------|---------|--------|
+| /api/webhooks/zapier/forward-sms | Forward SMS to office phone | POST |
+| /api/webhooks/zapier/send-sms | Send SMS to customer | POST |
+| /api/webhooks/zapier/auto-reply | Smart auto-reply to incoming SMS | POST |
+| /api/webhooks/zapier/create-job | Create job from Zapier trigger | POST |
+| /api/webhooks/zapier/info | Get all endpoint documentation | GET |
+
+**Forward SMS Endpoint:**
+```json
+POST /api/webhooks/zapier/forward-sms
+{
+  "from_number": "+13125551234",
+  "message": "Customer message here",
+  "to_number": "+16307169792"
+}
+```
+Response: SMS forwarded to (630) 251-5628 + email notification
+
+**Send SMS Endpoint:**
+```json
+POST /api/webhooks/zapier/send-sms
+{
+  "to": "+13125551234",
+  "message": "Your custom message"
+}
+// OR use templates:
+{
+  "to": "+13125551234",
+  "template": "acknowledgment",
+  "customer_name": "John"
+}
+```
+Templates: `acknowledgment`, `appointment_reminder`, `job_complete`, `quote_ready`
+
+**Auto-Reply Endpoint:**
+```json
+POST /api/webhooks/zapier/auto-reply
+{
+  "from_number": "+13125551234",
+  "message": "I need a quote"
+}
+```
+Smart keyword detection:
+- "confirm"/"yes" → Appointment confirmation reply
+- "cancel"/"reschedule" → Reschedule instructions
+- "emergency"/"urgent" → Emergency hotline info
+- "quote"/"estimate" → Free estimate offer
+- Default → General acknowledgment
+
+**Zapier Setup Steps:**
+1. Connect Twilio to Zapier (Account SID + Auth Token)
+2. Create Zap: Twilio (New SMS) → Webhooks (POST to endpoint)
+3. Map Twilio fields to endpoint fields
+4. Enable Zap
+
 ---
 
 ## 4. Job Management

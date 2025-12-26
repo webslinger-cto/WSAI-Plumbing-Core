@@ -3090,8 +3090,7 @@ export async function registerRoutes(
         endpoint: "/api/webhooks/incoming-email-to-sms",
         method: "POST",
         payload: JSON.stringify({ from, subject, recipientCount: phoneNumbers.length }),
-        status: "success",
-        responseCode: 200,
+        responseStatus: 200,
       });
 
       res.json({ 
@@ -3186,8 +3185,7 @@ ${emailContent}
         endpoint: "/api/webhooks/incoming-email",
         method: "POST",
         payload: JSON.stringify({ from, subject, to, recipientCount: teamEmails.length }),
-        status: "success",
-        responseCode: 200,
+        responseStatus: 200,
       });
 
       res.json({ 
@@ -3204,9 +3202,8 @@ ${emailContent}
           endpoint: "/api/webhooks/incoming-email",
           method: "POST",
           payload: JSON.stringify(req.body),
-          status: "error",
-          responseCode: 500,
-          errorMessage: String(error),
+          responseStatus: 500,
+          error: String(error),
         });
       } catch (logError) {
         console.error("Failed to log webhook error:", logError);
@@ -3214,6 +3211,395 @@ ${emailContent}
 
       res.status(500).json({ error: "Failed to process incoming email" });
     }
+  });
+
+  // ========================================
+  // ZAPIER SMS AUTOMATION ENDPOINTS
+  // ========================================
+  
+  const OFFICE_FORWARDING_NUMBER = "+16302515628";
+  const OFFICE_EMAIL = "CSEINTAKETEST@webslingerai.com";
+  
+  // Forward SMS to office number (630) 251-5628
+  // Zapier setup: Twilio (New SMS) -> Webhooks POST to this endpoint
+  app.post("/api/webhooks/zapier/forward-sms", async (req, res) => {
+    try {
+      const { 
+        from_number,
+        from,
+        message,
+        body,
+        to_number,
+        to,
+        message_sid,
+        timestamp
+      } = req.body;
+
+      const senderNumber = from_number || from || "Unknown";
+      const messageBody = message || body || "(No message)";
+      const originalTo = to_number || to || "Unknown";
+
+      console.log(`[Zapier SMS Forward] From: ${senderNumber}, Message: ${messageBody.substring(0, 50)}...`);
+
+      // Format the forwarding message
+      const forwardMessage = `New text from ${senderNumber}:\n\n${messageBody}`;
+
+      // Send SMS to office forwarding number
+      const smsResult = await smsService.sendSMS(OFFICE_FORWARDING_NUMBER, forwardMessage);
+      
+      // Also send email notification
+      let emailSent = false;
+      try {
+        await sendEmail({
+          to: OFFICE_EMAIL,
+          subject: `New SMS from ${senderNumber}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px;">
+              <div style="background: #b22222; color: white; padding: 15px; border-radius: 8px 8px 0 0;">
+                <h2 style="margin: 0;">New SMS Received</h2>
+              </div>
+              <div style="background: #f5f5f5; padding: 20px; border: 1px solid #ddd;">
+                <p><strong>From:</strong> ${senderNumber}</p>
+                <p><strong>To:</strong> ${originalTo}</p>
+                <p><strong>Time:</strong> ${timestamp || new Date().toLocaleString()}</p>
+                <hr style="border: none; border-top: 1px solid #ddd; margin: 15px 0;">
+                <div style="background: white; padding: 15px; border-radius: 4px;">
+                  ${messageBody}
+                </div>
+              </div>
+            </div>
+          `,
+        });
+        emailSent = true;
+      } catch (emailErr) {
+        console.error("Email notification failed:", emailErr);
+      }
+
+      await storage.createWebhookLog({
+        source: "zapier",
+        endpoint: "/api/webhooks/zapier/forward-sms",
+        method: "POST",
+        payload: JSON.stringify({ from: senderNumber, message: messageBody.substring(0, 100) }),
+        responseStatus: 200,
+        responseBody: JSON.stringify({ success: true }),
+        processingTimeMs: 0,
+      });
+
+      console.log(`[Zapier SMS Forward] Forwarded to ${OFFICE_FORWARDING_NUMBER}, SMS: ${smsResult.success}, Email: ${emailSent}`);
+
+      res.json({ 
+        success: true, 
+        forwardedTo: OFFICE_FORWARDING_NUMBER,
+        smsSent: smsResult.success,
+        emailSent,
+        messageId: smsResult.messageId,
+      });
+    } catch (error) {
+      console.error("Zapier SMS forward webhook error:", error);
+      res.status(500).json({ error: "Failed to forward SMS" });
+    }
+  });
+
+  // Send SMS to a customer (Zapier action endpoint)
+  // Zapier setup: Any trigger -> Webhooks POST to this endpoint
+  app.post("/api/webhooks/zapier/send-sms", async (req, res) => {
+    try {
+      const { 
+        to,
+        phone,
+        phone_number,
+        message,
+        body,
+        template,
+        customer_name
+      } = req.body;
+
+      const recipientPhone = to || phone || phone_number;
+      let messageBody = message || body;
+
+      if (!recipientPhone) {
+        return res.status(400).json({ error: "Phone number is required (use 'to', 'phone', or 'phone_number' field)" });
+      }
+
+      // Use template if provided
+      if (template && !messageBody) {
+        const name = customer_name || "Valued Customer";
+        switch (template) {
+          case "acknowledgment":
+            messageBody = `Hi ${name}, thank you for contacting Chicago Sewer Experts! We've received your inquiry and will be in touch shortly. For emergencies, call (630) 716-9792.`;
+            break;
+          case "appointment_reminder":
+            messageBody = `Hi ${name}, this is a reminder about your upcoming appointment with Chicago Sewer Experts. Please reply CONFIRM to confirm or call us at (630) 716-9792 to reschedule.`;
+            break;
+          case "job_complete":
+            messageBody = `Hi ${name}, your job with Chicago Sewer Experts has been completed. Thank you for your business! Please feel free to leave us a review.`;
+            break;
+          case "quote_ready":
+            messageBody = `Hi ${name}, your quote from Chicago Sewer Experts is ready! Check your email for details or call us at (630) 716-9792 with any questions.`;
+            break;
+          default:
+            return res.status(400).json({ error: `Unknown template: ${template}. Available: acknowledgment, appointment_reminder, job_complete, quote_ready` });
+        }
+      }
+
+      if (!messageBody) {
+        return res.status(400).json({ error: "Message is required (use 'message' or 'body' field, or specify a 'template')" });
+      }
+
+      console.log(`[Zapier Send SMS] To: ${recipientPhone}, Message: ${messageBody.substring(0, 50)}...`);
+
+      const smsResult = await smsService.sendSMS(recipientPhone, messageBody);
+
+      await storage.createWebhookLog({
+        source: "zapier",
+        endpoint: "/api/webhooks/zapier/send-sms",
+        method: "POST",
+        payload: JSON.stringify({ to: recipientPhone, messageLength: messageBody.length }),
+        responseStatus: smsResult.success ? 200 : 500,
+        responseBody: JSON.stringify({ success: smsResult.success }),
+        processingTimeMs: 0,
+      });
+
+      res.json({ 
+        success: smsResult.success, 
+        messageId: smsResult.messageId,
+        error: smsResult.error,
+      });
+    } catch (error) {
+      console.error("Zapier send SMS webhook error:", error);
+      res.status(500).json({ error: "Failed to send SMS" });
+    }
+  });
+
+  // Auto-reply to incoming SMS (triggered by Zapier when SMS arrives)
+  // Zapier setup: Twilio (New SMS) -> Webhooks POST to this endpoint -> Send auto-reply
+  app.post("/api/webhooks/zapier/auto-reply", async (req, res) => {
+    try {
+      const { 
+        from_number,
+        from,
+        message,
+        body,
+        reply_message,
+        template
+      } = req.body;
+
+      const senderNumber = from_number || from;
+      const incomingMessage = (message || body || "").toLowerCase();
+
+      if (!senderNumber) {
+        return res.status(400).json({ error: "Sender phone number is required (use 'from_number' or 'from' field)" });
+      }
+
+      // Determine reply based on template, custom message, or keyword detection
+      let replyMessage = reply_message;
+
+      if (!replyMessage && template) {
+        switch (template) {
+          case "acknowledgment":
+            replyMessage = "Thank you for contacting Chicago Sewer Experts! A team member will respond shortly. For emergencies, call (630) 716-9792.";
+            break;
+          case "after_hours":
+            replyMessage = "Thank you for your message. Our office is currently closed. We'll respond during business hours (Mon-Sat 7AM-7PM). For emergencies, call (630) 716-9792.";
+            break;
+          case "confirm_received":
+            replyMessage = "Got it! Thanks for confirming.";
+            break;
+          default:
+            replyMessage = "Thank you for your message. A team member will be in touch soon.";
+        }
+      }
+
+      // Keyword-based auto-replies if no template specified
+      if (!replyMessage) {
+        if (incomingMessage.includes("confirm") || incomingMessage.includes("yes")) {
+          replyMessage = "Thank you for confirming your appointment with Chicago Sewer Experts! See you soon.";
+        } else if (incomingMessage.includes("cancel") || incomingMessage.includes("reschedule")) {
+          replyMessage = "We've received your request. Please call (630) 716-9792 to reschedule your appointment.";
+        } else if (incomingMessage.includes("emergency") || incomingMessage.includes("urgent")) {
+          replyMessage = "For emergencies, please call us immediately at (630) 716-9792. We're available 24/7 for urgent sewer issues.";
+        } else if (incomingMessage.includes("quote") || incomingMessage.includes("estimate")) {
+          replyMessage = "We'd be happy to provide a free estimate! A team member will call you within the hour, or call us at (630) 716-9792.";
+        } else {
+          replyMessage = "Thank you for contacting Chicago Sewer Experts! A team member will respond shortly. For emergencies, call (630) 716-9792.";
+        }
+      }
+
+      console.log(`[Zapier Auto-Reply] To: ${senderNumber}, Reply: ${replyMessage.substring(0, 50)}...`);
+
+      // Send the auto-reply
+      const smsResult = await smsService.sendSMS(senderNumber, replyMessage);
+
+      // Also forward the original message to office
+      const forwardMessage = `Customer text from ${senderNumber}:\n\n${message || body || "(No message)"}\n\n[Auto-reply sent]`;
+      await smsService.sendSMS(OFFICE_FORWARDING_NUMBER, forwardMessage);
+
+      await storage.createWebhookLog({
+        source: "zapier",
+        endpoint: "/api/webhooks/zapier/auto-reply",
+        method: "POST",
+        payload: JSON.stringify({ from: senderNumber, incomingMessage: (message || body || "").substring(0, 100) }),
+        responseStatus: 200,
+        responseBody: JSON.stringify({ success: smsResult.success }),
+        processingTimeMs: 0,
+      });
+
+      res.json({ 
+        success: smsResult.success, 
+        replySent: replyMessage,
+        forwardedToOffice: OFFICE_FORWARDING_NUMBER,
+        messageId: smsResult.messageId,
+      });
+    } catch (error) {
+      console.error("Zapier auto-reply webhook error:", error);
+      res.status(500).json({ error: "Failed to send auto-reply" });
+    }
+  });
+
+  // Create job from Zapier (useful for form submissions, CRM integrations)
+  app.post("/api/webhooks/zapier/create-job", async (req, res) => {
+    try {
+      const {
+        customer_name,
+        phone,
+        email,
+        address,
+        city,
+        zip_code,
+        service_type,
+        description,
+        priority,
+        scheduled_date,
+        lead_id
+      } = req.body;
+
+      if (!customer_name || !phone) {
+        return res.status(400).json({ error: "customer_name and phone are required" });
+      }
+
+      // First create or find the lead
+      let leadId = lead_id;
+      
+      if (!leadId) {
+        const leadData = {
+          source: "Zapier",
+          customerName: customer_name,
+          customerPhone: phone,
+          customerEmail: email,
+          address,
+          city,
+          zipCode: zip_code,
+          serviceType: service_type,
+          description,
+          status: "qualified" as const,
+          priority: priority || "normal",
+        };
+
+        const lead = await storage.createLead(leadData);
+        leadId = lead.id;
+        console.log(`[Zapier Create Job] Created lead: ${leadId}`);
+      }
+
+      // Create the job with all required fields
+      const jobData = {
+        leadId,
+        customerName: customer_name,
+        customerPhone: phone,
+        customerEmail: email || undefined,
+        address: address || "Address TBD",
+        city: city || undefined,
+        zipCode: zip_code || undefined,
+        serviceType: service_type || "General Service",
+        description: description || `Service requested via Zapier. ${service_type || "General service"}`,
+        status: "scheduled" as const,
+        priority: priority || "normal",
+        scheduledDate: scheduled_date ? new Date(scheduled_date) : new Date(),
+        notes: `Job created via Zapier automation.`,
+      };
+
+      const job = await storage.createJob(jobData);
+      console.log(`[Zapier Create Job] Created job: ${job.id}`);
+
+      // Send notification to office
+      await sendEmail({
+        to: OFFICE_EMAIL,
+        subject: `New Job Created via Zapier: ${customer_name}`,
+        html: `
+          <div style="font-family: Arial, sans-serif;">
+            <h2>New Job Created</h2>
+            <p><strong>Customer:</strong> ${customer_name}</p>
+            <p><strong>Phone:</strong> ${phone}</p>
+            <p><strong>Email:</strong> ${email || "Not provided"}</p>
+            <p><strong>Address:</strong> ${address || "Not provided"}, ${city || ""} ${zip_code || ""}</p>
+            <p><strong>Service:</strong> ${service_type || "Not specified"}</p>
+            <p><strong>Description:</strong> ${description || "None"}</p>
+            <p><strong>Scheduled:</strong> ${scheduled_date || "TBD"}</p>
+          </div>
+        `,
+      });
+
+      await storage.createWebhookLog({
+        source: "zapier",
+        endpoint: "/api/webhooks/zapier/create-job",
+        method: "POST",
+        payload: JSON.stringify({ customer_name, phone }),
+        responseStatus: 200,
+        responseBody: JSON.stringify({ success: true, jobId: job.id }),
+        processingTimeMs: 0,
+      });
+
+      res.json({ 
+        success: true, 
+        jobId: job.id,
+        leadId,
+      });
+    } catch (error) {
+      console.error("Zapier create job webhook error:", error);
+      res.status(500).json({ error: "Failed to create job" });
+    }
+  });
+
+  // Get Zapier webhook endpoints info
+  app.get("/api/webhooks/zapier/info", (req, res) => {
+    const baseUrl = req.headers.host ? `https://${req.headers.host}` : "https://your-domain.replit.app";
+    
+    res.json({
+      forwardingNumber: OFFICE_FORWARDING_NUMBER,
+      endpoints: {
+        createLead: {
+          url: `${baseUrl}/api/webhooks/zapier/lead`,
+          method: "POST",
+          description: "Create a new lead in the CRM",
+          fields: ["customer_name", "phone", "email", "address", "city", "zip_code", "service_type", "description", "source"]
+        },
+        forwardSms: {
+          url: `${baseUrl}/api/webhooks/zapier/forward-sms`,
+          method: "POST",
+          description: "Forward incoming SMS to office number",
+          fields: ["from_number", "message", "to_number"]
+        },
+        sendSms: {
+          url: `${baseUrl}/api/webhooks/zapier/send-sms`,
+          method: "POST",
+          description: "Send SMS to a customer",
+          fields: ["to", "message", "template", "customer_name"],
+          templates: ["acknowledgment", "appointment_reminder", "job_complete", "quote_ready"]
+        },
+        autoReply: {
+          url: `${baseUrl}/api/webhooks/zapier/auto-reply`,
+          method: "POST",
+          description: "Auto-reply to incoming SMS with smart responses",
+          fields: ["from_number", "message", "reply_message", "template"],
+          templates: ["acknowledgment", "after_hours", "confirm_received"]
+        },
+        createJob: {
+          url: `${baseUrl}/api/webhooks/zapier/create-job`,
+          method: "POST",
+          description: "Create a new job from external source",
+          fields: ["customer_name", "phone", "email", "address", "service_type", "description", "scheduled_date"]
+        }
+      }
+    });
   });
 
   // ========================================
