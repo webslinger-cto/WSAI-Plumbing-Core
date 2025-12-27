@@ -33,6 +33,7 @@ import PricebookPage from "@/pages/PricebookPage";
 import MarketingROIPage from "@/pages/MarketingROIPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
+import BusinessIntakePage from "@/pages/business-intake";
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -192,7 +193,7 @@ function App() {
     });
   };
 
-  // Check if this is a public quote page (no auth required)
+  // Check if this is a public page (no auth required)
   if (location.startsWith('/quote/')) {
     return (
       <QueryClientProvider client={queryClient}>
@@ -200,6 +201,18 @@ function App() {
           <Switch>
             <Route path="/quote/:token" component={PublicQuotePage} />
           </Switch>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  // Public business intake form (no auth required)
+  if (location === '/intake' || location.startsWith('/intake')) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <BusinessIntakePage />
           <Toaster />
         </TooltipProvider>
       </QueryClientProvider>
