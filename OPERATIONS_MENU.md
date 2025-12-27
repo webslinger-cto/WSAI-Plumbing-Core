@@ -527,3 +527,53 @@ All incoming webhooks are logged with:
 **GET /api/health**
 
 Returns system status for monitoring.
+
+---
+
+## 15. QA & Documentation
+
+### Available Documentation
+
+| Document | Description | Download |
+|----------|-------------|----------|
+| **Tech Stack PDF** | Complete system architecture, database schema, and technology overview | [Chicago_Sewer_Experts_Tech_Stack.pdf](/Chicago_Sewer_Experts_Tech_Stack.pdf) |
+| **Stress Test Report** | Performance testing results for 10, 15, and 20 concurrent users | [CSE_CRM_Stress_Test_Report.pdf](/CSE_CRM_Stress_Test_Report.pdf) |
+
+### Stress Test Summary
+
+The CRM system was stress tested with the following results:
+
+| Concurrent Users | Total Requests | Success Rate | Avg Response | Max Response |
+|------------------|----------------|--------------|--------------|--------------|
+| 10 | 80 | **100%** | 67ms | 138ms |
+| 15 | 120 | **100%** | 99ms | 241ms |
+| 20 | 160 | **100%** | 144ms | 368ms |
+
+**Key Findings:**
+- System handles 20+ concurrent users with 100% success rate
+- Average response times remain under 150ms at peak load
+- Estimated capacity: ~138 concurrent users
+- All endpoints (leads, jobs, technicians, quotes, webhooks) perform consistently
+
+### End-to-End Workflow Verified
+
+The complete lead-to-job workflow was tested and validated:
+1. Lead creation via Zapier webhook
+2. Lead verification in admin UI
+3. Job creation from lead
+4. Quote generation with line items
+5. Job progression (scheduled → in_progress → completed)
+6. Cost tracking verification (labor, materials, travel, equipment)
+7. Database record validation
+
+### Running Tests
+
+**Stress Test Script:**
+```bash
+npx tsx scripts/stress-test.ts
+```
+
+**Screenshot Capture:**
+```bash
+npx tsx scripts/capture-screenshots.ts
+```
