@@ -638,3 +638,101 @@ export const marketingSpend = pgTable("marketing_spend", {
 export const insertMarketingSpendSchema = createInsertSchema(marketingSpend).omit({ id: true, createdAt: true });
 export type InsertMarketingSpend = z.infer<typeof insertMarketingSpendSchema>;
 export type MarketingSpend = typeof marketingSpend.$inferSelect;
+
+// Business Intake Form - for onboarding new clients
+export const businessIntakes = pgTable("business_intakes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  
+  // Business Information
+  businessName: text("business_name").notNull(),
+  businessType: text("business_type"), // plumbing, hvac, electrical, etc.
+  ownerName: text("owner_name").notNull(),
+  ownerPhone: text("owner_phone").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  businessAddress: text("business_address"),
+  serviceArea: text("service_area"), // geographic coverage
+  yearsInBusiness: integer("years_in_business"),
+  
+  // Web & Domain
+  currentWebsite: text("current_website"),
+  domainHost: text("domain_host"), // GoDaddy, Namecheap, Google, etc.
+  domainRegistrar: text("domain_registrar"),
+  hasGoogleBusiness: boolean("has_google_business").default(false),
+  socialMediaLinks: text("social_media_links"), // JSON string of links
+  
+  // Current Workflow
+  currentWorkflow: text("current_workflow"), // detailed description
+  painPoints: text("pain_points"), // current challenges
+  leadResponseTime: text("lead_response_time"), // how fast they currently respond
+  schedulingMethod: text("scheduling_method"), // calendar, phone, software?
+  invoicingMethod: text("invoicing_method"), // QuickBooks, manual, etc.
+  
+  // Desired Workflow
+  desiredWorkflow: text("desired_workflow"),
+  automationGoals: text("automation_goals"), // what they want automated
+  priorityFeatures: text("priority_features"), // most important features
+  
+  // Lead Sources
+  currentLeadSources: text("current_lead_sources"), // JSON array of sources
+  desiredLeadSources: text("desired_lead_sources"), // lead agencies to connect
+  monthlyLeadBudget: decimal("monthly_lead_budget"),
+  averageJobValue: decimal("average_job_value"),
+  
+  // Automation Preferences
+  autoContactEnabled: boolean("auto_contact_enabled").default(true),
+  autoContactMethod: text("auto_contact_method"), // email, sms, both
+  autoContactDelay: integer("auto_contact_delay").default(0), // minutes
+  appointmentReminders: boolean("appointment_reminders").default(true),
+  reminderTiming: text("reminder_timing"), // 24h, 2h, both
+  followUpEnabled: boolean("follow_up_enabled").default(true),
+  followUpSchedule: text("follow_up_schedule"), // how/when to follow up
+  nurturingStrategy: text("nurturing_strategy"), // how to nurture leads
+  
+  // Staff & Roles (JSON arrays for flexibility)
+  staffMembers: text("staff_members"), // JSON array of staff objects
+  
+  // Status
+  status: text("status").notNull().default("submitted"), // submitted, in_review, approved, onboarded
+  reviewNotes: text("review_notes"),
+  reviewedBy: varchar("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertBusinessIntakeSchema = createInsertSchema(businessIntakes).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true,
+  reviewedAt: true,
+  reviewedBy: true,
+  reviewNotes: true,
+  status: true,
+});
+export type InsertBusinessIntake = z.infer<typeof insertBusinessIntakeSchema>;
+export type BusinessIntake = typeof businessIntakes.$inferSelect;
+
+// Staff member structure for intake form (stored as JSON in staffMembers field)
+export const staffMemberSchema = z.object({
+  name: z.string(),
+  role: z.enum(["admin", "dispatcher", "technician", "salesperson", "owner", "office_manager"]),
+  phone: z.string(),
+  email: z.string().email(),
+  hourlyRate: z.number().optional(),
+  commissionRate: z.number().optional(), // percentage as decimal (0.15 = 15%)
+  specialPrivileges: z.array(z.string()).optional(), // extra permissions
+  notes: z.string().optional(),
+});
+export type StaffMember = z.infer<typeof staffMemberSchema>;
+
+// Lead source structure for intake form
+export const leadSourceSchema = z.object({
+  name: z.string(), // eLocal, Networx, Angi, Thumbtack, etc.
+  accountId: z.string().optional(),
+  monthlySpend: z.number().optional(),
+  isActive: z.boolean().default(true),
+  webhookConfigured: z.boolean().default(false),
+});
+export type LeadSource = z.infer<typeof leadSourceSchema>;
