@@ -22,6 +22,7 @@ import {
   insertPricebookCategorySchema,
   insertMarketingCampaignSchema,
   insertMarketingSpendSchema,
+  insertBusinessIntakeSchema,
   type InsertLead,
 } from "@shared/schema";
 import { sendEmail, generateLeadAcknowledgmentEmail } from "./services/email";
@@ -3679,6 +3680,86 @@ ${emailContent}
     } catch (error) {
       console.error("Three-way comparison PDF generation error:", error);
       res.status(500).json({ error: "Failed to generate comparison PDF" });
+    }
+  });
+
+  // Business Intake Form endpoints (public - no auth required)
+  app.post("/api/business-intake", async (req, res) => {
+    try {
+      const result = insertBusinessIntakeSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ error: result.error.errors });
+      }
+      
+      const intake = await storage.createBusinessIntake(result.data);
+      
+      // Send notification email about new intake
+      sendEmail({
+        to: "CSEINTAKETEST@webslingerai.com",
+        subject: `New Business Intake: ${result.data.businessName}`,
+        html: `
+          <h2>New Business Onboarding Request</h2>
+          <p><strong>Business:</strong> ${result.data.businessName}</p>
+          <p><strong>Owner:</strong> ${result.data.ownerName}</p>
+          <p><strong>Phone:</strong> ${result.data.ownerPhone}</p>
+          <p><strong>Email:</strong> ${result.data.ownerEmail}</p>
+          <p><strong>Business Type:</strong> ${result.data.businessType || "Not specified"}</p>
+          <p><strong>Service Area:</strong> ${result.data.serviceArea || "Not specified"}</p>
+          <hr>
+          <p><strong>Priority Features:</strong></p>
+          <p>${result.data.priorityFeatures || "Not specified"}</p>
+          <p><strong>Automation Goals:</strong></p>
+          <p>${result.data.automationGoals || "Not specified"}</p>
+        `,
+      }).catch(err => console.error("Failed to send intake notification:", err));
+      
+      res.status(201).json({ 
+        success: true, 
+        message: "Intake form submitted successfully",
+        id: intake.id 
+      });
+    } catch (error) {
+      console.error("Business intake submission error:", error);
+      res.status(500).json({ error: "Failed to submit intake form" });
+    }
+  });
+
+  // Get all intakes (admin only)
+  app.get("/api/business-intakes", async (req, res) => {
+    try {
+      const intakes = await storage.getAllBusinessIntakes();
+      res.json(intakes);
+    } catch (error) {
+      console.error("Error fetching business intakes:", error);
+      res.status(500).json({ error: "Failed to fetch intakes" });
+    }
+  });
+
+  // Get single intake
+  app.get("/api/business-intakes/:id", async (req, res) => {
+    try {
+      const intake = await storage.getBusinessIntake(req.params.id);
+      if (!intake) {
+        return res.status(404).json({ error: "Intake not found" });
+      }
+      res.json(intake);
+    } catch (error) {
+      console.error("Error fetching business intake:", error);
+      res.status(500).json({ error: "Failed to fetch intake" });
+    }
+  });
+
+  // Update intake status (admin review)
+  app.patch("/api/business-intakes/:id", async (req, res) => {
+    try {
+      const intake = await storage.updateBusinessIntake(req.params.id, req.body);
+      if (!intake) {
+        return res.status(404).json({ error: "Intake not found" });
+      }
+      res.json(intake);
+    } catch (error) {
+      console.error("Error updating business intake:", error);
+      res.status(500).json({ error: "Failed to update intake" });
     }
   });
 

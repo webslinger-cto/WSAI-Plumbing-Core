@@ -22,10 +22,11 @@ import {
   type PricebookCategory, type InsertPricebookCategory,
   type MarketingCampaign, type InsertMarketingCampaign,
   type MarketingSpend, type InsertMarketingSpend,
+  type BusinessIntake, type InsertBusinessIntake,
   users, technicians, salespersons, salesCommissions, salespersonLocations,
   leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
-  pricebookItems, pricebookCategories, marketingCampaigns, marketingSpend,
+  pricebookItems, pricebookCategories, marketingCampaigns, marketingSpend, businessIntakes,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -252,6 +253,12 @@ export interface IStorage {
   createMarketingSpend(spend: InsertMarketingSpend): Promise<MarketingSpend>;
   updateMarketingSpend(id: string, updates: Partial<MarketingSpend>): Promise<MarketingSpend | undefined>;
   getMarketingROI(): Promise<{ source: string; spend: number; leads: number; converted: number; revenue: number; roi: number }[]>;
+
+  // Business Intakes
+  getBusinessIntake(id: string): Promise<BusinessIntake | undefined>;
+  getAllBusinessIntakes(): Promise<BusinessIntake[]>;
+  createBusinessIntake(intake: InsertBusinessIntake): Promise<BusinessIntake>;
+  updateBusinessIntake(id: string, updates: Partial<BusinessIntake>): Promise<BusinessIntake | undefined>;
 
   // Reset
   resetJobBoard(): Promise<void>;
@@ -2580,6 +2587,29 @@ export class DatabaseStorage implements IStorage {
         ? ((Number(row.totalRevenue) - Number(row.totalSpend)) / Number(row.totalSpend)) * 100 
         : 0,
     }));
+  }
+
+  // Business Intakes
+  async getBusinessIntake(id: string): Promise<BusinessIntake | undefined> {
+    const [intake] = await db.select().from(businessIntakes).where(eq(businessIntakes.id, id));
+    return intake;
+  }
+
+  async getAllBusinessIntakes(): Promise<BusinessIntake[]> {
+    return db.select().from(businessIntakes).orderBy(desc(businessIntakes.createdAt));
+  }
+
+  async createBusinessIntake(intake: InsertBusinessIntake): Promise<BusinessIntake> {
+    const [created] = await db.insert(businessIntakes).values(intake).returning();
+    return created;
+  }
+
+  async updateBusinessIntake(id: string, updates: Partial<BusinessIntake>): Promise<BusinessIntake | undefined> {
+    const [updated] = await db.update(businessIntakes)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(businessIntakes.id, id))
+      .returning();
+    return updated;
   }
 }
 
