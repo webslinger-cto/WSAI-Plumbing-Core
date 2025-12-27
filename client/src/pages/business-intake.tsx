@@ -95,11 +95,16 @@ export default function BusinessIntakePage() {
   const form = useForm<IntakeFormData>({
     resolver: zodResolver(intakeFormSchema),
     defaultValues: {
+      businessName: "",
+      ownerName: "",
+      ownerPhone: "",
+      ownerEmail: "",
       autoContactEnabled: true,
       appointmentReminders: true,
       followUpEnabled: true,
       hasGoogleBusiness: false,
     },
+    shouldUnregister: false,
   });
 
   const submitMutation = useMutation({
@@ -110,11 +115,7 @@ export default function BusinessIntakePage() {
         averageJobValue: data.averageJobValue ? parseFloat(data.averageJobValue) : undefined,
         staffMembers: JSON.stringify(staffMembers),
       };
-      return apiRequest("/api/business-intake", {
-        method: "POST",
-        body: JSON.stringify(payload),
-        headers: { "Content-Type": "application/json" },
-      });
+      return apiRequest("POST", "/api/business-intake", payload);
     },
     onSuccess: () => {
       setSubmitted(true);
@@ -144,8 +145,13 @@ export default function BusinessIntakePage() {
   };
 
   const onSubmit = (data: IntakeFormData) => {
+    console.log("Form submitted with data:", data);
     submitMutation.mutate(data);
   };
+
+  const handleFormSubmit = form.handleSubmit(onSubmit, (errors) => {
+    console.error("Form validation errors:", errors);
+  });
 
   if (submitted) {
     return (
@@ -200,7 +206,7 @@ export default function BusinessIntakePage() {
           ))}
         </div>
 
-        <form onSubmit={form.handleSubmit(onSubmit)}>
+        <form onSubmit={handleFormSubmit}>
           {currentStep === 1 && (
             <Card>
               <CardHeader>
