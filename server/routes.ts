@@ -4199,5 +4199,150 @@ ${emailContent}
     }
   });
 
+  // ============================================
+  // SEO CONTENT MANAGEMENT
+  // ============================================
+
+  app.get("/api/content-packs", async (req, res) => {
+    try {
+      const packs = await storage.getContentPacks();
+      res.json(packs);
+    } catch (error) {
+      console.error("Error fetching content packs:", error);
+      res.status(500).json({ error: "Failed to fetch content packs" });
+    }
+  });
+
+  app.get("/api/content-packs/:id", async (req, res) => {
+    try {
+      const pack = await storage.getContentPack(req.params.id);
+      if (!pack) {
+        return res.status(404).json({ error: "Content pack not found" });
+      }
+      const items = await storage.getContentItemsByPack(pack.id);
+      res.json({ pack, items });
+    } catch (error) {
+      console.error("Error fetching content pack:", error);
+      res.status(500).json({ error: "Failed to fetch content pack" });
+    }
+  });
+
+  app.get("/api/jobs/:jobId/content-packs", async (req, res) => {
+    try {
+      const packs = await storage.getContentPacksByJob(req.params.jobId);
+      res.json(packs);
+    } catch (error) {
+      console.error("Error fetching content packs for job:", error);
+      res.status(500).json({ error: "Failed to fetch content packs" });
+    }
+  });
+
+  app.post("/api/jobs/:jobId/generate-content", async (req, res) => {
+    try {
+      const { createContentPackFromJob } = await import("./services/blogGenerator");
+      const pack = await createContentPackFromJob(req.params.jobId);
+      if (!pack) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+      const items = await storage.getContentItemsByPack(pack.id);
+      res.status(201).json({ pack, items });
+    } catch (error) {
+      console.error("Error generating content from job:", error);
+      res.status(500).json({ error: "Failed to generate content" });
+    }
+  });
+
+  app.patch("/api/content-packs/:id", async (req, res) => {
+    try {
+      const pack = await storage.updateContentPack(req.params.id, req.body);
+      if (!pack) {
+        return res.status(404).json({ error: "Content pack not found" });
+      }
+      res.json(pack);
+    } catch (error) {
+      console.error("Error updating content pack:", error);
+      res.status(500).json({ error: "Failed to update content pack" });
+    }
+  });
+
+  app.delete("/api/content-packs/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteContentPack(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Content pack not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting content pack:", error);
+      res.status(500).json({ error: "Failed to delete content pack" });
+    }
+  });
+
+  app.get("/api/content-items", async (req, res) => {
+    try {
+      const items = await storage.getContentItems();
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching content items:", error);
+      res.status(500).json({ error: "Failed to fetch content items" });
+    }
+  });
+
+  app.get("/api/content-items/:id", async (req, res) => {
+    try {
+      const item = await storage.getContentItem(req.params.id);
+      if (!item) {
+        return res.status(404).json({ error: "Content item not found" });
+      }
+      res.json(item);
+    } catch (error) {
+      console.error("Error fetching content item:", error);
+      res.status(500).json({ error: "Failed to fetch content item" });
+    }
+  });
+
+  app.patch("/api/content-items/:id", async (req, res) => {
+    try {
+      const item = await storage.updateContentItem(req.params.id, req.body);
+      if (!item) {
+        return res.status(404).json({ error: "Content item not found" });
+      }
+      res.json(item);
+    } catch (error) {
+      console.error("Error updating content item:", error);
+      res.status(500).json({ error: "Failed to update content item" });
+    }
+  });
+
+  app.delete("/api/content-items/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteContentItem(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Content item not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting content item:", error);
+      res.status(500).json({ error: "Failed to delete content item" });
+    }
+  });
+
+  app.post("/api/content-items/:id/publish", async (req, res) => {
+    try {
+      const item = await storage.updateContentItem(req.params.id, {
+        status: "published",
+        publishedAt: new Date(),
+        publishedUrl: req.body.publishedUrl
+      });
+      if (!item) {
+        return res.status(404).json({ error: "Content item not found" });
+      }
+      res.json(item);
+    } catch (error) {
+      console.error("Error publishing content item:", error);
+      res.status(500).json({ error: "Failed to publish content item" });
+    }
+  });
+
   return httpServer;
 }

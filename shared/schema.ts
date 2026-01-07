@@ -954,7 +954,7 @@ export const contentPacks = pgTable("content_packs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   jobId: varchar("job_id").references(() => jobs.id),
   format: text("format").notNull().default("seo_money"), // seo_money, case_study, faq_injection
-  geoTarget: jsonb("geo_target").$type<{ city?: string; state?: string; postalCode?: string }>(),
+  geoTarget: jsonb("geo_target").$type<{ city?: string; state?: string; postalCode?: string; neighborhood?: string }>(),
   status: text("status").notNull().default("auto_drafted"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
