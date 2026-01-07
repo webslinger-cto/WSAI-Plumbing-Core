@@ -931,3 +931,62 @@ export const session = pgTable("session", {
   sess: jsonb("sess").notNull(),
   expire: timestamp("expire", { precision: 6 }).notNull(),
 });
+
+// ============================================
+// SEO CONTENT MANAGEMENT (from Replit-Builder)
+// ============================================
+
+// Content pack status and format enums
+export const contentPackStatuses = ["auto_drafted", "needs_review", "approved", "scheduled", "published"] as const;
+export type ContentPackStatus = typeof contentPackStatuses[number];
+
+export const contentPackFormats = ["seo_money", "case_study", "faq_injection"] as const;
+export type ContentPackFormat = typeof contentPackFormats[number];
+
+export const contentItemTypes = ["blog", "facebook", "instagram", "tiktok"] as const;
+export type ContentItemType = typeof contentItemTypes[number];
+
+export const contentItemStatuses = ["draft", "needs_review", "approved", "published"] as const;
+export type ContentItemStatus = typeof contentItemStatuses[number];
+
+// Content packs - groups content around a job for SEO
+export const contentPacks = pgTable("content_packs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").references(() => jobs.id),
+  format: text("format").notNull().default("seo_money"), // seo_money, case_study, faq_injection
+  geoTarget: jsonb("geo_target").$type<{ city?: string; state?: string; postalCode?: string }>(),
+  status: text("status").notNull().default("auto_drafted"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertContentPackSchema = createInsertSchema(contentPacks).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertContentPack = z.infer<typeof insertContentPackSchema>;
+export type ContentPack = typeof contentPacks.$inferSelect;
+
+// Content items - individual pieces of content (blog, social posts)
+export const contentItems = pgTable("content_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contentPackId: varchar("content_pack_id").references(() => contentPacks.id),
+  type: text("type").notNull(), // blog, facebook, instagram, tiktok
+  title: text("title"),
+  body: text("body"), // markdown content
+  html: text("html"), // rendered HTML
+  slug: text("slug"),
+  metaTitle: text("meta_title"),
+  metaDescription: text("meta_description"),
+  primaryKeyword: text("primary_keyword"),
+  secondaryKeywords: jsonb("secondary_keywords").$type<string[]>(),
+  localModifiers: jsonb("local_modifiers").$type<string[]>(),
+  searchIntent: text("search_intent"),
+  status: text("status").notNull().default("draft"),
+  scheduledFor: timestamp("scheduled_for"),
+  publishedAt: timestamp("published_at"),
+  publishedUrl: text("published_url"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertContentItemSchema = createInsertSchema(contentItems).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertContentItem = z.infer<typeof insertContentItemSchema>;
+export type ContentItem = typeof contentItems.$inferSelect;

@@ -31,11 +31,14 @@ import {
   type JobRevenueEvent, type InsertJobRevenueEvent,
   type CompanySettings, type InsertCompanySettings,
   type QuoteLineItem, type InsertQuoteLineItem,
+  type ContentPack, type InsertContentPack,
+  type ContentItem, type InsertContentItem,
   users, technicians, salespersons, salesCommissions, salespersonLocations,
   leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
   pricebookItems, pricebookCategories, marketingCampaigns, marketingSpend, businessIntakes,
   timeEntries, payrollPeriods, payrollRecords, employeePayRates, jobLeadFees, jobRevenueEvents, companySettings, quoteLineItems,
+  contentPacks, contentItems,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -322,6 +325,22 @@ export interface IStorage {
   updateQuoteLineItem(id: string, updates: Partial<QuoteLineItem>): Promise<QuoteLineItem | undefined>;
   deleteQuoteLineItem(id: string): Promise<boolean>;
   deleteQuoteLineItemsByQuote(quoteId: string): Promise<boolean>;
+
+  // SEO Content Packs
+  getContentPack(id: string): Promise<ContentPack | undefined>;
+  getContentPacksByJob(jobId: string): Promise<ContentPack[]>;
+  getContentPacks(): Promise<ContentPack[]>;
+  createContentPack(pack: InsertContentPack): Promise<ContentPack>;
+  updateContentPack(id: string, updates: Partial<ContentPack>): Promise<ContentPack | undefined>;
+  deleteContentPack(id: string): Promise<boolean>;
+
+  // SEO Content Items
+  getContentItem(id: string): Promise<ContentItem | undefined>;
+  getContentItemsByPack(contentPackId: string): Promise<ContentItem[]>;
+  getContentItems(): Promise<ContentItem[]>;
+  createContentItem(item: InsertContentItem): Promise<ContentItem>;
+  updateContentItem(id: string, updates: Partial<ContentItem>): Promise<ContentItem | undefined>;
+  deleteContentItem(id: string): Promise<boolean>;
 
   // Reset
   resetJobBoard(): Promise<void>;
@@ -2934,6 +2953,74 @@ export class DatabaseStorage implements IStorage {
   async deleteQuoteLineItemsByQuote(quoteId: string): Promise<boolean> {
     const result = await db.delete(quoteLineItems).where(eq(quoteLineItems.quoteId, quoteId)).returning();
     return result.length >= 0;
+  }
+
+  // SEO Content Packs
+  async getContentPack(id: string): Promise<ContentPack | undefined> {
+    const [pack] = await db.select().from(contentPacks).where(eq(contentPacks.id, id));
+    return pack;
+  }
+
+  async getContentPacksByJob(jobId: string): Promise<ContentPack[]> {
+    return db.select().from(contentPacks)
+      .where(eq(contentPacks.jobId, jobId))
+      .orderBy(desc(contentPacks.createdAt));
+  }
+
+  async getContentPacks(): Promise<ContentPack[]> {
+    return db.select().from(contentPacks).orderBy(desc(contentPacks.createdAt));
+  }
+
+  async createContentPack(pack: InsertContentPack): Promise<ContentPack> {
+    const [created] = await db.insert(contentPacks).values(pack).returning();
+    return created;
+  }
+
+  async updateContentPack(id: string, updates: Partial<ContentPack>): Promise<ContentPack | undefined> {
+    const [updated] = await db.update(contentPacks)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(contentPacks.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteContentPack(id: string): Promise<boolean> {
+    const result = await db.delete(contentPacks).where(eq(contentPacks.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // SEO Content Items
+  async getContentItem(id: string): Promise<ContentItem | undefined> {
+    const [item] = await db.select().from(contentItems).where(eq(contentItems.id, id));
+    return item;
+  }
+
+  async getContentItemsByPack(contentPackId: string): Promise<ContentItem[]> {
+    return db.select().from(contentItems)
+      .where(eq(contentItems.contentPackId, contentPackId))
+      .orderBy(desc(contentItems.createdAt));
+  }
+
+  async getContentItems(): Promise<ContentItem[]> {
+    return db.select().from(contentItems).orderBy(desc(contentItems.createdAt));
+  }
+
+  async createContentItem(item: InsertContentItem): Promise<ContentItem> {
+    const [created] = await db.insert(contentItems).values(item).returning();
+    return created;
+  }
+
+  async updateContentItem(id: string, updates: Partial<ContentItem>): Promise<ContentItem | undefined> {
+    const [updated] = await db.update(contentItems)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(contentItems.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteContentItem(id: string): Promise<boolean> {
+    const result = await db.delete(contentItems).where(eq(contentItems.id, id)).returning();
+    return result.length > 0;
   }
 }
 
