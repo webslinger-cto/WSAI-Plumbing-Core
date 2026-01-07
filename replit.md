@@ -27,7 +27,7 @@ Preferred communication style: Simple, everyday language.
 
 ### Database
 - **ORM**: Drizzle ORM configured for PostgreSQL.
-- **Schema Definition**: Defines tables for users, leads, technicians, salespersons, jobs, quotes, contact attempts, webhooks, and various operational and financial tracking entities including commission tracking, marketing ROI, and payroll.
+- **Schema Definition**: Defines tables for users, leads, technicians, salespersons, jobs, quotes, contact attempts, webhooks, and various operational and financial tracking entities including commission tracking, marketing ROI, payroll, and SEO content management (content_packs, content_items).
 - **Migration Strategy**: Drizzle Kit manages schema changes and migrations.
 - **Connection Management**: PostgreSQL connection pooling via the `pg` library.
 
