@@ -31,6 +31,7 @@ import SalesLocationPage from "@/pages/SalesLocationPage";
 import SalesAnalyticsPage from "@/pages/SalesAnalyticsPage";
 import PricebookPage from "@/pages/PricebookPage";
 import MarketingROIPage from "@/pages/MarketingROIPage";
+import SEOContentPage from "@/pages/seo-content";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 import BusinessIntakePage from "@/pages/business-intake";
@@ -57,6 +58,7 @@ function AdminRouter() {
       <Route path="/quote-templates" component={QuoteTemplatesPage} />
       <Route path="/pricebook" component={PricebookPage} />
       <Route path="/marketing" component={MarketingROIPage} />
+      <Route path="/seo-content" component={SEOContentPage} />
       <Route path="/payroll" component={PayrollPage} />
       <Route path="/import" component={ImportPage} />
       <Route path="/outreach" component={OutreachPage} />

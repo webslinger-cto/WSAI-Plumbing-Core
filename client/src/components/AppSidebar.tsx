@@ -57,6 +57,7 @@ const adminMenuItems = [
   { title: "Quote Templates", url: "/quote-templates", icon: FileText },
   { title: "Pricebook", url: "/pricebook", icon: Tag },
   { title: "Marketing ROI", url: "/marketing", icon: TrendingUp },
+  { title: "SEO Content", url: "/seo-content", icon: Megaphone },
   { title: "Payroll", url: "/payroll", icon: Wallet },
   { title: "Import Data", url: "/import", icon: Upload },
   { title: "Export Data", url: "/export", icon: Download },
