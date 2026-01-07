@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, decimal } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, decimal, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -728,11 +728,206 @@ export const staffMemberSchema = z.object({
 export type StaffMember = z.infer<typeof staffMemberSchema>;
 
 // Lead source structure for intake form
-export const leadSourceSchema = z.object({
+export const leadSourceConfigSchema = z.object({
   name: z.string(), // eLocal, Networx, Angi, Thumbtack, etc.
   accountId: z.string().optional(),
   monthlySpend: z.number().optional(),
   isActive: z.boolean().default(true),
   webhookConfigured: z.boolean().default(false),
 });
-export type LeadSource = z.infer<typeof leadSourceSchema>;
+export type LeadSourceConfig = z.infer<typeof leadSourceConfigSchema>;
+
+// ============================================
+// PAYROLL & TIME TRACKING TABLES
+// ============================================
+
+// Employment type enum (hourly = 1099 contractor, salary = W2 employee)
+export const employmentTypes = ["hourly", "salary"] as const;
+export type EmploymentType = (typeof employmentTypes)[number];
+
+// Time entries table for payroll (clock in/out)
+export const timeEntries = pgTable("time_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  technicianId: varchar("technician_id").references(() => technicians.id),
+  jobId: varchar("job_id").references(() => jobs.id),
+  date: timestamp("date").notNull(),
+  clockIn: timestamp("clock_in").notNull(),
+  clockOut: timestamp("clock_out"),
+  breakMinutes: integer("break_minutes").default(0),
+  hoursWorked: decimal("hours_worked", { precision: 5, scale: 2 }),
+  entryType: text("entry_type").notNull().default("regular"), // regular, overtime, holiday
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertTimeEntrySchema = createInsertSchema(timeEntries).omit({ id: true, createdAt: true });
+export type InsertTimeEntry = z.infer<typeof insertTimeEntrySchema>;
+export type TimeEntry = typeof timeEntries.$inferSelect;
+
+// Payroll periods table
+export const payrollPeriods = pgTable("payroll_periods", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date").notNull(),
+  status: text("status").notNull().default("open"), // open, processing, closed
+  processedAt: timestamp("processed_at"),
+  processedBy: varchar("processed_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertPayrollPeriodSchema = createInsertSchema(payrollPeriods).omit({ id: true, createdAt: true });
+export type InsertPayrollPeriod = z.infer<typeof insertPayrollPeriodSchema>;
+export type PayrollPeriod = typeof payrollPeriods.$inferSelect;
+
+// Payroll records table (calculated pay per employee per period)
+export const payrollRecords = pgTable("payroll_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  technicianId: varchar("technician_id").references(() => technicians.id),
+  periodId: varchar("period_id").references(() => payrollPeriods.id).notNull(),
+  employmentType: text("employment_type").notNull().default("hourly"), // hourly (1099) or salary (W2)
+  regularHours: decimal("regular_hours", { precision: 6, scale: 2 }).default("0"),
+  overtimeHours: decimal("overtime_hours", { precision: 6, scale: 2 }).default("0"),
+  hourlyRate: decimal("hourly_rate", { precision: 10, scale: 2 }).notNull(),
+  overtimeRate: decimal("overtime_rate", { precision: 10, scale: 2 }).notNull(),
+  salaryPay: decimal("salary_pay", { precision: 10, scale: 2 }).default("0"),
+  regularPay: decimal("regular_pay", { precision: 10, scale: 2 }).default("0"),
+  overtimePay: decimal("overtime_pay", { precision: 10, scale: 2 }).default("0"),
+  commissionPay: decimal("commission_pay", { precision: 10, scale: 2 }).default("0"),
+  bonusPay: decimal("bonus_pay", { precision: 10, scale: 2 }).default("0"),
+  leadFeeDeductions: decimal("lead_fee_deductions", { precision: 10, scale: 2 }).default("0"),
+  deductions: decimal("deductions", { precision: 10, scale: 2 }).default("0"),
+  federalTax: decimal("federal_tax", { precision: 10, scale: 2 }).default("0"),
+  stateTax: decimal("state_tax", { precision: 10, scale: 2 }).default("0"),
+  socialSecurity: decimal("social_security", { precision: 10, scale: 2 }).default("0"),
+  medicare: decimal("medicare", { precision: 10, scale: 2 }).default("0"),
+  grossPay: decimal("gross_pay", { precision: 10, scale: 2 }).notNull(),
+  netPay: decimal("net_pay", { precision: 10, scale: 2 }).notNull(),
+  isPaid: boolean("is_paid").notNull().default(false),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertPayrollRecordSchema = createInsertSchema(payrollRecords).omit({ id: true, createdAt: true });
+export type InsertPayrollRecord = z.infer<typeof insertPayrollRecordSchema>;
+export type PayrollRecord = typeof payrollRecords.$inferSelect;
+
+// Employee pay rates table (separate from technicians for flexibility)
+export const employeePayRates = pgTable("employee_pay_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  technicianId: varchar("technician_id").references(() => technicians.id),
+  hourlyRate: decimal("hourly_rate", { precision: 10, scale: 2 }).notNull(),
+  overtimeRate: decimal("overtime_rate", { precision: 10, scale: 2 }),
+  commissionRate: decimal("commission_rate", { precision: 5, scale: 2 }),
+  salaryAmount: decimal("salary_amount", { precision: 10, scale: 2 }),
+  payFrequency: text("pay_frequency").default("weekly"), // weekly, biweekly, monthly
+  effectiveDate: timestamp("effective_date").notNull().default(sql`now()`),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertEmployeePayRateSchema = createInsertSchema(employeePayRates).omit({ id: true, createdAt: true });
+export type InsertEmployeePayRate = z.infer<typeof insertEmployeePayRateSchema>;
+export type EmployeePayRate = typeof employeePayRates.$inferSelect;
+
+// Job lead fees table - tracks lead fee charged to technicians per job
+export const jobLeadFees = pgTable("job_lead_fees", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").references(() => jobs.id).notNull(),
+  technicianId: varchar("technician_id").references(() => technicians.id).notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull().default("125"),
+  acceptedAt: timestamp("accepted_at").notNull().default(sql`now()`),
+  payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id),
+  deductedAt: timestamp("deducted_at"),
+  notes: text("notes"),
+});
+
+export const insertJobLeadFeeSchema = createInsertSchema(jobLeadFees).omit({ id: true });
+export type InsertJobLeadFee = z.infer<typeof insertJobLeadFeeSchema>;
+export type JobLeadFee = typeof jobLeadFees.$inferSelect;
+
+// Job revenue events table - tracks revenue for payroll integration
+export const jobRevenueEvents = pgTable("job_revenue_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").references(() => jobs.id).notNull(),
+  technicianId: varchar("technician_id").references(() => technicians.id).notNull(),
+  totalRevenue: decimal("total_revenue", { precision: 10, scale: 2 }).notNull(),
+  laborCost: decimal("labor_cost", { precision: 10, scale: 2 }).notNull().default("0"),
+  materialCost: decimal("material_cost", { precision: 10, scale: 2 }).notNull().default("0"),
+  marketingCost: decimal("marketing_cost", { precision: 10, scale: 2 }).notNull().default("0"),
+  netProfit: decimal("net_profit", { precision: 10, scale: 2 }).notNull(),
+  commissionAmount: decimal("commission_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id),
+  isPosted: boolean("is_posted").notNull().default(false),
+  postedAt: timestamp("posted_at"),
+  recognizedAt: timestamp("recognized_at").notNull().default(sql`now()`),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertJobRevenueEventSchema = createInsertSchema(jobRevenueEvents).omit({ id: true, createdAt: true });
+export type InsertJobRevenueEvent = z.infer<typeof insertJobRevenueEventSchema>;
+export type JobRevenueEvent = typeof jobRevenueEvents.$inferSelect;
+
+// ============================================
+// COMPANY SETTINGS
+// ============================================
+
+// Company settings table - centralized configuration
+export const companySettings = pgTable("company_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyName: text("company_name").notNull().default("Chicago Sewer Experts"),
+  tagline: text("tagline").default("Professional Sewer & Plumbing Services"),
+  phone: text("phone").default("(312) 555-0123"),
+  email: text("email").default("info@chicagosewerexperts.com"),
+  address: text("address").default("Chicago, IL"),
+  city: text("city").default("Chicago"),
+  state: text("state").default("IL"),
+  zipCode: text("zip_code").default("60601"),
+  licenseNumber: text("license_number"),
+  serviceAreas: text("service_areas").default("Chicagoland"),
+  defaultTaxRate: decimal("default_tax_rate", { precision: 5, scale: 2 }).default("0"),
+  defaultCommissionRate: decimal("default_commission_rate", { precision: 5, scale: 2 }).default("10"),
+  defaultHourlyRate: decimal("default_hourly_rate", { precision: 10, scale: 2 }).default("25"),
+  overtimeMultiplier: decimal("overtime_multiplier", { precision: 3, scale: 2 }).default("1.5"),
+  leadFeeAmount: decimal("lead_fee_amount", { precision: 10, scale: 2 }).default("125"),
+  quoteValidDays: integer("quote_valid_days").default(30),
+  logoUrl: text("logo_url"),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertCompanySettingsSchema = createInsertSchema(companySettings).omit({ id: true });
+export type InsertCompanySettings = z.infer<typeof insertCompanySettingsSchema>;
+export type CompanySettings = typeof companySettings.$inferSelect;
+
+// ============================================
+// QUOTE LINE ITEMS (Separate table for better structure)
+// ============================================
+
+// Quote line items table (alternative to JSON storage)
+export const quoteLineItems = pgTable("quote_line_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  quoteId: varchar("quote_id").references(() => quotes.id).notNull(),
+  pricebookItemId: varchar("pricebook_item_id").references(() => pricebookItems.id),
+  description: text("description").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+  sortOrder: integer("sort_order").default(0),
+});
+
+export const insertQuoteLineItemSchema = createInsertSchema(quoteLineItems).omit({ id: true });
+export type InsertQuoteLineItem = z.infer<typeof insertQuoteLineItemSchema>;
+export type QuoteLineItem = typeof quoteLineItems.$inferSelect;
+
+// ============================================
+// SESSION TABLE (for PostgreSQL session storage)
+// ============================================
+
+// Session table for connect-pg-simple (express-session PostgreSQL store)
+export const session = pgTable("session", {
+  sid: varchar("sid").primaryKey(),
+  sess: jsonb("sess").notNull(),
+  expire: timestamp("expire", { precision: 6 }).notNull(),
+});

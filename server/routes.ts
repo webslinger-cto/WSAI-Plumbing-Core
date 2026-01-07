@@ -23,6 +23,13 @@ import {
   insertMarketingCampaignSchema,
   insertMarketingSpendSchema,
   insertBusinessIntakeSchema,
+  insertTimeEntrySchema,
+  insertPayrollPeriodSchema,
+  insertPayrollRecordSchema,
+  insertEmployeePayRateSchema,
+  insertJobLeadFeeSchema,
+  insertJobRevenueEventSchema,
+  insertQuoteLineItemSchema,
   type InsertLead,
 } from "@shared/schema";
 import { sendEmail, generateLeadAcknowledgmentEmail } from "./services/email";
@@ -3760,6 +3767,435 @@ ${emailContent}
     } catch (error) {
       console.error("Error updating business intake:", error);
       res.status(500).json({ error: "Failed to update intake" });
+    }
+  });
+
+  // ============================================
+  // COMPANY SETTINGS
+  // ============================================
+  
+  app.get("/api/settings", async (req, res) => {
+    try {
+      const settings = await storage.getCompanySettings();
+      res.json(settings || {});
+    } catch (error) {
+      console.error("Error fetching company settings:", error);
+      res.status(500).json({ error: "Failed to fetch settings" });
+    }
+  });
+
+  app.patch("/api/settings", async (req, res) => {
+    try {
+      const settings = await storage.updateCompanySettings(req.body);
+      res.json(settings);
+    } catch (error) {
+      console.error("Error updating company settings:", error);
+      res.status(500).json({ error: "Failed to update settings" });
+    }
+  });
+
+  // ============================================
+  // TIME ENTRIES (Clock In/Out)
+  // ============================================
+  
+  app.get("/api/time-entries", async (req, res) => {
+    try {
+      const { userId, technicianId, startDate, endDate } = req.query;
+      let entries;
+      
+      if (technicianId) {
+        entries = await storage.getTimeEntriesByTechnician(
+          technicianId as string,
+          startDate ? new Date(startDate as string) : undefined,
+          endDate ? new Date(endDate as string) : undefined
+        );
+      } else if (userId) {
+        entries = await storage.getTimeEntriesByUser(
+          userId as string,
+          startDate ? new Date(startDate as string) : undefined,
+          endDate ? new Date(endDate as string) : undefined
+        );
+      } else {
+        return res.status(400).json({ error: "userId or technicianId required" });
+      }
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching time entries:", error);
+      res.status(500).json({ error: "Failed to fetch time entries" });
+    }
+  });
+
+  app.post("/api/time-entries", async (req, res) => {
+    try {
+      const data = {
+        ...req.body,
+        date: req.body.date ? new Date(req.body.date) : undefined,
+        clockIn: req.body.clockIn ? new Date(req.body.clockIn) : undefined,
+        clockOut: req.body.clockOut ? new Date(req.body.clockOut) : undefined,
+      };
+      const validatedData = insertTimeEntrySchema.parse(data);
+      const entry = await storage.createTimeEntry(validatedData);
+      res.status(201).json(entry);
+    } catch (error) {
+      console.error("Error creating time entry:", error);
+      res.status(500).json({ error: "Failed to create time entry" });
+    }
+  });
+
+  app.patch("/api/time-entries/:id", async (req, res) => {
+    try {
+      const entry = await storage.updateTimeEntry(req.params.id, req.body);
+      if (!entry) {
+        return res.status(404).json({ error: "Time entry not found" });
+      }
+      res.json(entry);
+    } catch (error) {
+      console.error("Error updating time entry:", error);
+      res.status(500).json({ error: "Failed to update time entry" });
+    }
+  });
+
+  app.delete("/api/time-entries/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteTimeEntry(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Time entry not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting time entry:", error);
+      res.status(500).json({ error: "Failed to delete time entry" });
+    }
+  });
+
+  // ============================================
+  // PAYROLL PERIODS
+  // ============================================
+  
+  app.get("/api/payroll/periods", async (req, res) => {
+    try {
+      const periods = await storage.getPayrollPeriods();
+      res.json(periods);
+    } catch (error) {
+      console.error("Error fetching payroll periods:", error);
+      res.status(500).json({ error: "Failed to fetch payroll periods" });
+    }
+  });
+
+  app.get("/api/payroll/periods/current", async (req, res) => {
+    try {
+      const period = await storage.getCurrentPayrollPeriod();
+      res.json(period || null);
+    } catch (error) {
+      console.error("Error fetching current payroll period:", error);
+      res.status(500).json({ error: "Failed to fetch current payroll period" });
+    }
+  });
+
+  app.get("/api/payroll/periods/:id", async (req, res) => {
+    try {
+      const period = await storage.getPayrollPeriod(req.params.id);
+      if (!period) {
+        return res.status(404).json({ error: "Payroll period not found" });
+      }
+      res.json(period);
+    } catch (error) {
+      console.error("Error fetching payroll period:", error);
+      res.status(500).json({ error: "Failed to fetch payroll period" });
+    }
+  });
+
+  app.post("/api/payroll/periods", async (req, res) => {
+    try {
+      const data = {
+        ...req.body,
+        startDate: req.body.startDate ? new Date(req.body.startDate) : undefined,
+        endDate: req.body.endDate ? new Date(req.body.endDate) : undefined,
+        processedAt: req.body.processedAt ? new Date(req.body.processedAt) : undefined,
+      };
+      const validatedData = insertPayrollPeriodSchema.parse(data);
+      const period = await storage.createPayrollPeriod(validatedData);
+      res.status(201).json(period);
+    } catch (error) {
+      console.error("Error creating payroll period:", error);
+      res.status(500).json({ error: "Failed to create payroll period" });
+    }
+  });
+
+  app.patch("/api/payroll/periods/:id", async (req, res) => {
+    try {
+      const period = await storage.updatePayrollPeriod(req.params.id, req.body);
+      if (!period) {
+        return res.status(404).json({ error: "Payroll period not found" });
+      }
+      res.json(period);
+    } catch (error) {
+      console.error("Error updating payroll period:", error);
+      res.status(500).json({ error: "Failed to update payroll period" });
+    }
+  });
+
+  // ============================================
+  // PAYROLL RECORDS
+  // ============================================
+  
+  app.get("/api/payroll/records", async (req, res) => {
+    try {
+      const { periodId, userId } = req.query;
+      let records;
+      
+      if (periodId) {
+        records = await storage.getPayrollRecordsByPeriod(periodId as string);
+      } else if (userId) {
+        records = await storage.getPayrollRecordsByUser(userId as string);
+      } else {
+        return res.status(400).json({ error: "periodId or userId required" });
+      }
+      res.json(records);
+    } catch (error) {
+      console.error("Error fetching payroll records:", error);
+      res.status(500).json({ error: "Failed to fetch payroll records" });
+    }
+  });
+
+  app.get("/api/payroll/records/:id", async (req, res) => {
+    try {
+      const record = await storage.getPayrollRecord(req.params.id);
+      if (!record) {
+        return res.status(404).json({ error: "Payroll record not found" });
+      }
+      res.json(record);
+    } catch (error) {
+      console.error("Error fetching payroll record:", error);
+      res.status(500).json({ error: "Failed to fetch payroll record" });
+    }
+  });
+
+  app.post("/api/payroll/records", async (req, res) => {
+    try {
+      const validatedData = insertPayrollRecordSchema.parse(req.body);
+      const record = await storage.createPayrollRecord(validatedData);
+      res.status(201).json(record);
+    } catch (error) {
+      console.error("Error creating payroll record:", error);
+      res.status(500).json({ error: "Failed to create payroll record" });
+    }
+  });
+
+  app.patch("/api/payroll/records/:id", async (req, res) => {
+    try {
+      const record = await storage.updatePayrollRecord(req.params.id, req.body);
+      if (!record) {
+        return res.status(404).json({ error: "Payroll record not found" });
+      }
+      res.json(record);
+    } catch (error) {
+      console.error("Error updating payroll record:", error);
+      res.status(500).json({ error: "Failed to update payroll record" });
+    }
+  });
+
+  // ============================================
+  // EMPLOYEE PAY RATES
+  // ============================================
+  
+  app.get("/api/pay-rates", async (req, res) => {
+    try {
+      const { userId } = req.query;
+      if (!userId) {
+        return res.status(400).json({ error: "userId required" });
+      }
+      const rates = await storage.getEmployeePayRatesByUser(userId as string);
+      res.json(rates);
+    } catch (error) {
+      console.error("Error fetching pay rates:", error);
+      res.status(500).json({ error: "Failed to fetch pay rates" });
+    }
+  });
+
+  app.get("/api/pay-rates/active/:userId", async (req, res) => {
+    try {
+      const rate = await storage.getActiveEmployeePayRate(req.params.userId);
+      res.json(rate || null);
+    } catch (error) {
+      console.error("Error fetching active pay rate:", error);
+      res.status(500).json({ error: "Failed to fetch active pay rate" });
+    }
+  });
+
+  app.post("/api/pay-rates", async (req, res) => {
+    try {
+      const data = {
+        ...req.body,
+        effectiveDate: req.body.effectiveDate ? new Date(req.body.effectiveDate) : undefined,
+      };
+      const validatedData = insertEmployeePayRateSchema.parse(data);
+      const rate = await storage.createEmployeePayRate(validatedData);
+      res.status(201).json(rate);
+    } catch (error) {
+      console.error("Error creating pay rate:", error);
+      res.status(500).json({ error: "Failed to create pay rate" });
+    }
+  });
+
+  app.patch("/api/pay-rates/:id", async (req, res) => {
+    try {
+      const rate = await storage.updateEmployeePayRate(req.params.id, req.body);
+      if (!rate) {
+        return res.status(404).json({ error: "Pay rate not found" });
+      }
+      res.json(rate);
+    } catch (error) {
+      console.error("Error updating pay rate:", error);
+      res.status(500).json({ error: "Failed to update pay rate" });
+    }
+  });
+
+  // ============================================
+  // JOB LEAD FEES
+  // ============================================
+  
+  app.get("/api/lead-fees", async (req, res) => {
+    try {
+      const { jobId, technicianId } = req.query;
+      let fees;
+      
+      if (jobId) {
+        fees = await storage.getJobLeadFeesByJob(jobId as string);
+      } else if (technicianId) {
+        fees = await storage.getJobLeadFeesByTechnician(technicianId as string);
+      } else {
+        return res.status(400).json({ error: "jobId or technicianId required" });
+      }
+      res.json(fees);
+    } catch (error) {
+      console.error("Error fetching lead fees:", error);
+      res.status(500).json({ error: "Failed to fetch lead fees" });
+    }
+  });
+
+  app.post("/api/lead-fees", async (req, res) => {
+    try {
+      const validatedData = insertJobLeadFeeSchema.parse(req.body);
+      const fee = await storage.createJobLeadFee(validatedData);
+      res.status(201).json(fee);
+    } catch (error) {
+      console.error("Error creating lead fee:", error);
+      res.status(500).json({ error: "Failed to create lead fee" });
+    }
+  });
+
+  app.patch("/api/lead-fees/:id", async (req, res) => {
+    try {
+      const fee = await storage.updateJobLeadFee(req.params.id, req.body);
+      if (!fee) {
+        return res.status(404).json({ error: "Lead fee not found" });
+      }
+      res.json(fee);
+    } catch (error) {
+      console.error("Error updating lead fee:", error);
+      res.status(500).json({ error: "Failed to update lead fee" });
+    }
+  });
+
+  // ============================================
+  // JOB REVENUE EVENTS
+  // ============================================
+  
+  app.get("/api/revenue-events", async (req, res) => {
+    try {
+      const { jobId, technicianId } = req.query;
+      let events;
+      
+      if (jobId) {
+        events = await storage.getJobRevenueEventsByJob(jobId as string);
+      } else if (technicianId) {
+        events = await storage.getJobRevenueEventsByTechnician(technicianId as string);
+      } else {
+        return res.status(400).json({ error: "jobId or technicianId required" });
+      }
+      res.json(events);
+    } catch (error) {
+      console.error("Error fetching revenue events:", error);
+      res.status(500).json({ error: "Failed to fetch revenue events" });
+    }
+  });
+
+  app.post("/api/revenue-events", async (req, res) => {
+    try {
+      const validatedData = insertJobRevenueEventSchema.parse(req.body);
+      const event = await storage.createJobRevenueEvent(validatedData);
+      res.status(201).json(event);
+    } catch (error) {
+      console.error("Error creating revenue event:", error);
+      res.status(500).json({ error: "Failed to create revenue event" });
+    }
+  });
+
+  app.patch("/api/revenue-events/:id", async (req, res) => {
+    try {
+      const event = await storage.updateJobRevenueEvent(req.params.id, req.body);
+      if (!event) {
+        return res.status(404).json({ error: "Revenue event not found" });
+      }
+      res.json(event);
+    } catch (error) {
+      console.error("Error updating revenue event:", error);
+      res.status(500).json({ error: "Failed to update revenue event" });
+    }
+  });
+
+  // ============================================
+  // QUOTE LINE ITEMS
+  // ============================================
+  
+  app.get("/api/quotes/:quoteId/line-items", async (req, res) => {
+    try {
+      const items = await storage.getQuoteLineItems(req.params.quoteId);
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching quote line items:", error);
+      res.status(500).json({ error: "Failed to fetch line items" });
+    }
+  });
+
+  app.post("/api/quotes/:quoteId/line-items", async (req, res) => {
+    try {
+      const validatedData = insertQuoteLineItemSchema.parse({
+        ...req.body,
+        quoteId: req.params.quoteId,
+      });
+      const item = await storage.createQuoteLineItem(validatedData);
+      res.status(201).json(item);
+    } catch (error) {
+      console.error("Error creating quote line item:", error);
+      res.status(500).json({ error: "Failed to create line item" });
+    }
+  });
+
+  app.patch("/api/quote-line-items/:id", async (req, res) => {
+    try {
+      const item = await storage.updateQuoteLineItem(req.params.id, req.body);
+      if (!item) {
+        return res.status(404).json({ error: "Line item not found" });
+      }
+      res.json(item);
+    } catch (error) {
+      console.error("Error updating quote line item:", error);
+      res.status(500).json({ error: "Failed to update line item" });
+    }
+  });
+
+  app.delete("/api/quote-line-items/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteQuoteLineItem(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Line item not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting quote line item:", error);
+      res.status(500).json({ error: "Failed to delete line item" });
     }
   });
 

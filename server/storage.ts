@@ -23,10 +23,19 @@ import {
   type MarketingCampaign, type InsertMarketingCampaign,
   type MarketingSpend, type InsertMarketingSpend,
   type BusinessIntake, type InsertBusinessIntake,
+  type TimeEntry, type InsertTimeEntry,
+  type PayrollPeriod, type InsertPayrollPeriod,
+  type PayrollRecord, type InsertPayrollRecord,
+  type EmployeePayRate, type InsertEmployeePayRate,
+  type JobLeadFee, type InsertJobLeadFee,
+  type JobRevenueEvent, type InsertJobRevenueEvent,
+  type CompanySettings, type InsertCompanySettings,
+  type QuoteLineItem, type InsertQuoteLineItem,
   users, technicians, salespersons, salesCommissions, salespersonLocations,
   leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
   pricebookItems, pricebookCategories, marketingCampaigns, marketingSpend, businessIntakes,
+  timeEntries, payrollPeriods, payrollRecords, employeePayRates, jobLeadFees, jobRevenueEvents, companySettings, quoteLineItems,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -259,6 +268,60 @@ export interface IStorage {
   getAllBusinessIntakes(): Promise<BusinessIntake[]>;
   createBusinessIntake(intake: InsertBusinessIntake): Promise<BusinessIntake>;
   updateBusinessIntake(id: string, updates: Partial<BusinessIntake>): Promise<BusinessIntake | undefined>;
+
+  // Time Entries (clock in/out)
+  getTimeEntry(id: string): Promise<TimeEntry | undefined>;
+  getTimeEntriesByUser(userId: string, startDate?: Date, endDate?: Date): Promise<TimeEntry[]>;
+  getTimeEntriesByTechnician(technicianId: string, startDate?: Date, endDate?: Date): Promise<TimeEntry[]>;
+  createTimeEntry(entry: InsertTimeEntry): Promise<TimeEntry>;
+  updateTimeEntry(id: string, updates: Partial<TimeEntry>): Promise<TimeEntry | undefined>;
+  deleteTimeEntry(id: string): Promise<boolean>;
+
+  // Payroll Periods
+  getPayrollPeriod(id: string): Promise<PayrollPeriod | undefined>;
+  getPayrollPeriods(): Promise<PayrollPeriod[]>;
+  getCurrentPayrollPeriod(): Promise<PayrollPeriod | undefined>;
+  createPayrollPeriod(period: InsertPayrollPeriod): Promise<PayrollPeriod>;
+  updatePayrollPeriod(id: string, updates: Partial<PayrollPeriod>): Promise<PayrollPeriod | undefined>;
+
+  // Payroll Records
+  getPayrollRecord(id: string): Promise<PayrollRecord | undefined>;
+  getPayrollRecordsByPeriod(periodId: string): Promise<PayrollRecord[]>;
+  getPayrollRecordsByUser(userId: string): Promise<PayrollRecord[]>;
+  createPayrollRecord(record: InsertPayrollRecord): Promise<PayrollRecord>;
+  updatePayrollRecord(id: string, updates: Partial<PayrollRecord>): Promise<PayrollRecord | undefined>;
+
+  // Employee Pay Rates
+  getEmployeePayRate(id: string): Promise<EmployeePayRate | undefined>;
+  getEmployeePayRatesByUser(userId: string): Promise<EmployeePayRate[]>;
+  getActiveEmployeePayRate(userId: string): Promise<EmployeePayRate | undefined>;
+  createEmployeePayRate(rate: InsertEmployeePayRate): Promise<EmployeePayRate>;
+  updateEmployeePayRate(id: string, updates: Partial<EmployeePayRate>): Promise<EmployeePayRate | undefined>;
+
+  // Job Lead Fees
+  getJobLeadFee(id: string): Promise<JobLeadFee | undefined>;
+  getJobLeadFeesByJob(jobId: string): Promise<JobLeadFee[]>;
+  getJobLeadFeesByTechnician(technicianId: string): Promise<JobLeadFee[]>;
+  createJobLeadFee(fee: InsertJobLeadFee): Promise<JobLeadFee>;
+  updateJobLeadFee(id: string, updates: Partial<JobLeadFee>): Promise<JobLeadFee | undefined>;
+
+  // Job Revenue Events
+  getJobRevenueEvent(id: string): Promise<JobRevenueEvent | undefined>;
+  getJobRevenueEventsByJob(jobId: string): Promise<JobRevenueEvent[]>;
+  getJobRevenueEventsByTechnician(technicianId: string): Promise<JobRevenueEvent[]>;
+  createJobRevenueEvent(event: InsertJobRevenueEvent): Promise<JobRevenueEvent>;
+  updateJobRevenueEvent(id: string, updates: Partial<JobRevenueEvent>): Promise<JobRevenueEvent | undefined>;
+
+  // Company Settings
+  getCompanySettings(): Promise<CompanySettings | undefined>;
+  updateCompanySettings(updates: Partial<CompanySettings>): Promise<CompanySettings | undefined>;
+
+  // Quote Line Items
+  getQuoteLineItems(quoteId: string): Promise<QuoteLineItem[]>;
+  createQuoteLineItem(item: InsertQuoteLineItem): Promise<QuoteLineItem>;
+  updateQuoteLineItem(id: string, updates: Partial<QuoteLineItem>): Promise<QuoteLineItem | undefined>;
+  deleteQuoteLineItem(id: string): Promise<boolean>;
+  deleteQuoteLineItemsByQuote(quoteId: string): Promise<boolean>;
 
   // Reset
   resetJobBoard(): Promise<void>;
@@ -2610,6 +2673,267 @@ export class DatabaseStorage implements IStorage {
       .where(eq(businessIntakes.id, id))
       .returning();
     return updated;
+  }
+
+  // Time Entries (clock in/out)
+  async getTimeEntry(id: string): Promise<TimeEntry | undefined> {
+    const [entry] = await db.select().from(timeEntries).where(eq(timeEntries.id, id));
+    return entry;
+  }
+
+  async getTimeEntriesByUser(userId: string, startDate?: Date, endDate?: Date): Promise<TimeEntry[]> {
+    if (startDate && endDate) {
+      return db.select().from(timeEntries)
+        .where(and(
+          eq(timeEntries.userId, userId),
+          gte(timeEntries.date, startDate),
+          lte(timeEntries.date, endDate)
+        ))
+        .orderBy(desc(timeEntries.date));
+    }
+    return db.select().from(timeEntries)
+      .where(eq(timeEntries.userId, userId))
+      .orderBy(desc(timeEntries.date));
+  }
+
+  async getTimeEntriesByTechnician(technicianId: string, startDate?: Date, endDate?: Date): Promise<TimeEntry[]> {
+    if (startDate && endDate) {
+      return db.select().from(timeEntries)
+        .where(and(
+          eq(timeEntries.technicianId, technicianId),
+          gte(timeEntries.date, startDate),
+          lte(timeEntries.date, endDate)
+        ))
+        .orderBy(desc(timeEntries.date));
+    }
+    return db.select().from(timeEntries)
+      .where(eq(timeEntries.technicianId, technicianId))
+      .orderBy(desc(timeEntries.date));
+  }
+
+  async createTimeEntry(entry: InsertTimeEntry): Promise<TimeEntry> {
+    const [created] = await db.insert(timeEntries).values(entry).returning();
+    return created;
+  }
+
+  async updateTimeEntry(id: string, updates: Partial<TimeEntry>): Promise<TimeEntry | undefined> {
+    const [updated] = await db.update(timeEntries)
+      .set(updates)
+      .where(eq(timeEntries.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTimeEntry(id: string): Promise<boolean> {
+    const result = await db.delete(timeEntries).where(eq(timeEntries.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Payroll Periods
+  async getPayrollPeriod(id: string): Promise<PayrollPeriod | undefined> {
+    const [period] = await db.select().from(payrollPeriods).where(eq(payrollPeriods.id, id));
+    return period;
+  }
+
+  async getPayrollPeriods(): Promise<PayrollPeriod[]> {
+    return db.select().from(payrollPeriods).orderBy(desc(payrollPeriods.startDate));
+  }
+
+  async getCurrentPayrollPeriod(): Promise<PayrollPeriod | undefined> {
+    const now = new Date();
+    const [period] = await db.select().from(payrollPeriods)
+      .where(and(
+        lte(payrollPeriods.startDate, now),
+        gte(payrollPeriods.endDate, now)
+      ));
+    return period;
+  }
+
+  async createPayrollPeriod(period: InsertPayrollPeriod): Promise<PayrollPeriod> {
+    const [created] = await db.insert(payrollPeriods).values(period).returning();
+    return created;
+  }
+
+  async updatePayrollPeriod(id: string, updates: Partial<PayrollPeriod>): Promise<PayrollPeriod | undefined> {
+    const [updated] = await db.update(payrollPeriods)
+      .set(updates)
+      .where(eq(payrollPeriods.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Payroll Records
+  async getPayrollRecord(id: string): Promise<PayrollRecord | undefined> {
+    const [record] = await db.select().from(payrollRecords).where(eq(payrollRecords.id, id));
+    return record;
+  }
+
+  async getPayrollRecordsByPeriod(periodId: string): Promise<PayrollRecord[]> {
+    return db.select().from(payrollRecords)
+      .where(eq(payrollRecords.periodId, periodId))
+      .orderBy(desc(payrollRecords.createdAt));
+  }
+
+  async getPayrollRecordsByUser(userId: string): Promise<PayrollRecord[]> {
+    return db.select().from(payrollRecords)
+      .where(eq(payrollRecords.userId, userId))
+      .orderBy(desc(payrollRecords.createdAt));
+  }
+
+  async createPayrollRecord(record: InsertPayrollRecord): Promise<PayrollRecord> {
+    const [created] = await db.insert(payrollRecords).values(record).returning();
+    return created;
+  }
+
+  async updatePayrollRecord(id: string, updates: Partial<PayrollRecord>): Promise<PayrollRecord | undefined> {
+    const [updated] = await db.update(payrollRecords)
+      .set(updates)
+      .where(eq(payrollRecords.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Employee Pay Rates
+  async getEmployeePayRate(id: string): Promise<EmployeePayRate | undefined> {
+    const [rate] = await db.select().from(employeePayRates).where(eq(employeePayRates.id, id));
+    return rate;
+  }
+
+  async getEmployeePayRatesByUser(userId: string): Promise<EmployeePayRate[]> {
+    return db.select().from(employeePayRates)
+      .where(eq(employeePayRates.userId, userId))
+      .orderBy(desc(employeePayRates.effectiveDate));
+  }
+
+  async getActiveEmployeePayRate(userId: string): Promise<EmployeePayRate | undefined> {
+    const [rate] = await db.select().from(employeePayRates)
+      .where(and(
+        eq(employeePayRates.userId, userId),
+        eq(employeePayRates.isActive, true)
+      ))
+      .orderBy(desc(employeePayRates.effectiveDate))
+      .limit(1);
+    return rate;
+  }
+
+  async createEmployeePayRate(rate: InsertEmployeePayRate): Promise<EmployeePayRate> {
+    const [created] = await db.insert(employeePayRates).values(rate).returning();
+    return created;
+  }
+
+  async updateEmployeePayRate(id: string, updates: Partial<EmployeePayRate>): Promise<EmployeePayRate | undefined> {
+    const [updated] = await db.update(employeePayRates)
+      .set(updates)
+      .where(eq(employeePayRates.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Job Lead Fees
+  async getJobLeadFee(id: string): Promise<JobLeadFee | undefined> {
+    const [fee] = await db.select().from(jobLeadFees).where(eq(jobLeadFees.id, id));
+    return fee;
+  }
+
+  async getJobLeadFeesByJob(jobId: string): Promise<JobLeadFee[]> {
+    return db.select().from(jobLeadFees).where(eq(jobLeadFees.jobId, jobId));
+  }
+
+  async getJobLeadFeesByTechnician(technicianId: string): Promise<JobLeadFee[]> {
+    return db.select().from(jobLeadFees)
+      .where(eq(jobLeadFees.technicianId, technicianId))
+      .orderBy(desc(jobLeadFees.acceptedAt));
+  }
+
+  async createJobLeadFee(fee: InsertJobLeadFee): Promise<JobLeadFee> {
+    const [created] = await db.insert(jobLeadFees).values(fee).returning();
+    return created;
+  }
+
+  async updateJobLeadFee(id: string, updates: Partial<JobLeadFee>): Promise<JobLeadFee | undefined> {
+    const [updated] = await db.update(jobLeadFees)
+      .set(updates)
+      .where(eq(jobLeadFees.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Job Revenue Events
+  async getJobRevenueEvent(id: string): Promise<JobRevenueEvent | undefined> {
+    const [event] = await db.select().from(jobRevenueEvents).where(eq(jobRevenueEvents.id, id));
+    return event;
+  }
+
+  async getJobRevenueEventsByJob(jobId: string): Promise<JobRevenueEvent[]> {
+    return db.select().from(jobRevenueEvents).where(eq(jobRevenueEvents.jobId, jobId));
+  }
+
+  async getJobRevenueEventsByTechnician(technicianId: string): Promise<JobRevenueEvent[]> {
+    return db.select().from(jobRevenueEvents)
+      .where(eq(jobRevenueEvents.technicianId, technicianId))
+      .orderBy(desc(jobRevenueEvents.recognizedAt));
+  }
+
+  async createJobRevenueEvent(event: InsertJobRevenueEvent): Promise<JobRevenueEvent> {
+    const [created] = await db.insert(jobRevenueEvents).values(event).returning();
+    return created;
+  }
+
+  async updateJobRevenueEvent(id: string, updates: Partial<JobRevenueEvent>): Promise<JobRevenueEvent | undefined> {
+    const [updated] = await db.update(jobRevenueEvents)
+      .set(updates)
+      .where(eq(jobRevenueEvents.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Company Settings
+  async getCompanySettings(): Promise<CompanySettings | undefined> {
+    const [settings] = await db.select().from(companySettings).limit(1);
+    return settings;
+  }
+
+  async updateCompanySettings(updates: Partial<CompanySettings>): Promise<CompanySettings | undefined> {
+    const existing = await this.getCompanySettings();
+    if (!existing) {
+      const [created] = await db.insert(companySettings).values({ ...updates, updatedAt: new Date() }).returning();
+      return created;
+    }
+    const [updated] = await db.update(companySettings)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(companySettings.id, existing.id))
+      .returning();
+    return updated;
+  }
+
+  // Quote Line Items
+  async getQuoteLineItems(quoteId: string): Promise<QuoteLineItem[]> {
+    return db.select().from(quoteLineItems)
+      .where(eq(quoteLineItems.quoteId, quoteId))
+      .orderBy(asc(quoteLineItems.sortOrder));
+  }
+
+  async createQuoteLineItem(item: InsertQuoteLineItem): Promise<QuoteLineItem> {
+    const [created] = await db.insert(quoteLineItems).values(item).returning();
+    return created;
+  }
+
+  async updateQuoteLineItem(id: string, updates: Partial<QuoteLineItem>): Promise<QuoteLineItem | undefined> {
+    const [updated] = await db.update(quoteLineItems)
+      .set(updates)
+      .where(eq(quoteLineItems.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteQuoteLineItem(id: string): Promise<boolean> {
+    const result = await db.delete(quoteLineItems).where(eq(quoteLineItems.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async deleteQuoteLineItemsByQuote(quoteId: string): Promise<boolean> {
+    const result = await db.delete(quoteLineItems).where(eq(quoteLineItems.quoteId, quoteId)).returning();
+    return result.length >= 0;
   }
 }
 
