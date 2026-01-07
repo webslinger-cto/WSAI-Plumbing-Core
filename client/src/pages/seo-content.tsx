@@ -6,31 +6,33 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { 
   FileText, 
-  Plus, 
   Eye, 
-  Edit, 
   Trash2, 
   Send, 
-  RefreshCw,
+  Check,
+  X,
   Hash,
-  MapPin,
   Target,
   Copy,
-  Check
+  ExternalLink,
+  Clock,
+  CheckCircle,
+  XCircle,
+  AlertCircle
 } from "lucide-react";
 import { SiFacebook, SiInstagram, SiTiktok } from "react-icons/si";
-import type { Job, ContentPack, ContentItem } from "@shared/schema";
+import type { ContentPack, ContentItem } from "@shared/schema";
 
-function ContentItemCard({ item, onEdit, onPublish, onDelete }: { 
+function ContentItemCard({ item, onApprove, onReject, onPublish, onDelete }: { 
   item: ContentItem; 
-  onEdit: () => void; 
+  onApprove: () => void;
+  onReject: () => void;
   onPublish: () => void;
   onDelete: () => void;
 }) {
@@ -41,16 +43,19 @@ function ContentItemCard({ item, onEdit, onPublish, onDelete }: {
       case "facebook": return <SiFacebook className="h-4 w-4" />;
       case "instagram": return <SiInstagram className="h-4 w-4" />;
       case "tiktok": return <SiTiktok className="h-4 w-4" />;
+      case "google_business": return <FileText className="h-4 w-4" />;
       default: return <FileText className="h-4 w-4" />;
     }
   };
 
-  const getStatusColor = () => {
+  const getStatusBadge = () => {
     switch (item.status) {
-      case "published": return "default";
-      case "approved": return "secondary";
-      case "review": return "outline";
-      default: return "secondary";
+      case "received": return <Badge variant="outline"><Clock className="h-3 w-3 mr-1" />Pending Review</Badge>;
+      case "under_review": return <Badge variant="outline"><AlertCircle className="h-3 w-3 mr-1" />Under Review</Badge>;
+      case "approved": return <Badge variant="secondary"><CheckCircle className="h-3 w-3 mr-1" />Approved</Badge>;
+      case "rejected": return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Rejected</Badge>;
+      case "published": return <Badge><Send className="h-3 w-3 mr-1" />Published</Badge>;
+      default: return <Badge variant="secondary">{item.status}</Badge>;
     }
   };
 
@@ -60,6 +65,9 @@ function ContentItemCard({ item, onEdit, onPublish, onDelete }: {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const needsReview = item.status === "received" || item.status === "under_review";
+  const canPublish = item.status === "approved";
+
   return (
     <Card data-testid={`card-content-item-${item.id}`}>
       <CardHeader className="pb-2">
@@ -68,7 +76,7 @@ function ContentItemCard({ item, onEdit, onPublish, onDelete }: {
             {getTypeIcon()}
             <CardTitle className="text-sm font-medium capitalize">{item.type}</CardTitle>
           </div>
-          <Badge variant={getStatusColor()}>{item.status}</Badge>
+          {getStatusBadge()}
         </div>
         <CardDescription className="text-xs line-clamp-1">{item.title}</CardDescription>
       </CardHeader>
@@ -80,6 +88,11 @@ function ContentItemCard({ item, onEdit, onPublish, onDelete }: {
             <span>{item.primaryKeyword}</span>
           </div>
         )}
+        {item.rejectionReason && (
+          <div className="text-xs text-destructive mb-2">
+            Rejection reason: {item.rejectionReason}
+          </div>
+        )}
         <div className="flex items-center gap-1 flex-wrap">
           <Button 
             size="sm" 
@@ -89,12 +102,22 @@ function ContentItemCard({ item, onEdit, onPublish, onDelete }: {
           >
             {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
           </Button>
-          <Button size="sm" variant="ghost" onClick={onEdit} data-testid={`button-edit-${item.id}`}>
-            <Edit className="h-3 w-3" />
-          </Button>
-          {item.status !== "published" && (
-            <Button size="sm" variant="ghost" onClick={onPublish} data-testid={`button-publish-${item.id}`}>
-              <Send className="h-3 w-3" />
+          {needsReview && (
+            <>
+              <Button size="sm" variant="default" onClick={onApprove} data-testid={`button-approve-${item.id}`}>
+                <Check className="h-3 w-3 mr-1" />
+                Approve
+              </Button>
+              <Button size="sm" variant="outline" onClick={onReject} data-testid={`button-reject-${item.id}`}>
+                <X className="h-3 w-3 mr-1" />
+                Reject
+              </Button>
+            </>
+          )}
+          {canPublish && (
+            <Button size="sm" variant="default" onClick={onPublish} data-testid={`button-publish-${item.id}`}>
+              <Send className="h-3 w-3 mr-1" />
+              Publish
             </Button>
           )}
           <Button size="sm" variant="ghost" onClick={onDelete} data-testid={`button-delete-${item.id}`}>
@@ -106,21 +129,34 @@ function ContentItemCard({ item, onEdit, onPublish, onDelete }: {
   );
 }
 
-function ContentPackCard({ pack, items, onGenerateMore }: { 
+function ContentPackCard({ pack, items, onApproveAll, onRejectAll }: { 
   pack: ContentPack; 
   items: ContentItem[];
-  onGenerateMore: () => void;
+  onApproveAll: () => void;
+  onRejectAll: (reason: string) => void;
 }) {
   const [showDetails, setShowDetails] = useState(false);
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
   const { toast } = useToast();
 
-  const editMutation = useMutation({
-    mutationFn: async ({ id, updates }: { id: string; updates: Partial<ContentItem> }) => {
-      return apiRequest("PATCH", `/api/content-items/${id}`, updates);
+  const approveMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("POST", `/api/content-items/${id}/approve`, { userId: null });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/content-packs"] });
-      toast({ title: "Content updated" });
+      toast({ title: "Content approved" });
+    }
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      return apiRequest("POST", `/api/content-items/${id}/reject`, { userId: null, reason });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/content-packs"] });
+      toast({ title: "Content rejected" });
     }
   });
 
@@ -144,269 +180,339 @@ function ContentPackCard({ pack, items, onGenerateMore }: {
     }
   });
 
+  const handleRejectAll = () => {
+    onRejectAll(rejectReason);
+    setShowRejectDialog(false);
+    setRejectReason("");
+  };
+
   const blogItems = items.filter(i => i.type === "blog");
   const socialItems = items.filter(i => i.type !== "blog");
+  const needsReview = pack.status === "received" || pack.status === "under_review";
+
+  const getStatusBadge = () => {
+    switch (pack.status) {
+      case "received": return <Badge variant="outline"><Clock className="h-3 w-3 mr-1" />Pending Review</Badge>;
+      case "under_review": return <Badge variant="outline"><AlertCircle className="h-3 w-3 mr-1" />Under Review</Badge>;
+      case "approved": return <Badge variant="secondary"><CheckCircle className="h-3 w-3 mr-1" />Approved</Badge>;
+      case "rejected": return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Rejected</Badge>;
+      case "published": return <Badge><Send className="h-3 w-3 mr-1" />Published</Badge>;
+      default: return <Badge variant="secondary">{pack.status}</Badge>;
+    }
+  };
 
   return (
-    <Card className="mb-4" data-testid={`card-content-pack-${pack.id}`}>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <CardTitle className="text-base">Content Pack</CardTitle>
-            <CardDescription>
-              {pack.geoTarget?.neighborhood || pack.geoTarget?.city || "Chicago"}
-              {" - "}
-              {new Date(pack.createdAt).toLocaleDateString()}
-            </CardDescription>
+    <>
+      <Card className="mb-4" data-testid={`card-content-pack-${pack.id}`}>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                Content Pack
+                {pack.autoApproved && (
+                  <Badge variant="outline" className="text-xs">Auto-approved</Badge>
+                )}
+              </CardTitle>
+              <CardDescription>
+                {pack.geoTarget?.neighborhood || pack.geoTarget?.city || "Chicago"}
+                {" - "}
+                {new Date(pack.createdAt).toLocaleDateString()}
+                {pack.sourceUrl && (
+                  <a 
+                    href={pack.sourceUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="ml-2 inline-flex items-center text-xs hover:underline"
+                  >
+                    <ExternalLink className="h-3 w-3 mr-1" />
+                    View Source
+                  </a>
+                )}
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {getStatusBadge()}
+              {needsReview && (
+                <>
+                  <Button size="sm" variant="default" onClick={onApproveAll} data-testid={`button-approve-pack-${pack.id}`}>
+                    <Check className="h-4 w-4 mr-1" />
+                    Approve All
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setShowRejectDialog(true)} data-testid={`button-reject-pack-${pack.id}`}>
+                    <X className="h-4 w-4 mr-1" />
+                    Reject All
+                  </Button>
+                </>
+              )}
+              <Button 
+                size="sm" 
+                variant="outline"
+                onClick={() => setShowDetails(!showDetails)}
+                data-testid={`button-toggle-details-${pack.id}`}
+              >
+                <Eye className="h-4 w-4 mr-1" />
+                {showDetails ? "Hide" : "View"}
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant={pack.status === "published" ? "default" : "secondary"}>
-              {pack.status}
-            </Badge>
-            <Button 
-              size="sm" 
-              variant="outline"
-              onClick={() => setShowDetails(!showDetails)}
-              data-testid={`button-toggle-details-${pack.id}`}
-            >
-              <Eye className="h-4 w-4 mr-1" />
-              {showDetails ? "Hide" : "View"}
+          {pack.rejectionReason && (
+            <div className="text-sm text-destructive mt-2">
+              Rejection reason: {pack.rejectionReason}
+            </div>
+          )}
+        </CardHeader>
+
+        {showDetails && (
+          <CardContent>
+            <Tabs defaultValue="blog">
+              <TabsList className="mb-4">
+                <TabsTrigger value="blog" data-testid="tab-blog">
+                  <FileText className="h-4 w-4 mr-1" />
+                  Blog ({blogItems.length})
+                </TabsTrigger>
+                <TabsTrigger value="social" data-testid="tab-social">
+                  <Hash className="h-4 w-4 mr-1" />
+                  Social ({socialItems.length})
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="blog">
+                <div className="space-y-4">
+                  {blogItems.length === 0 ? (
+                    <div className="text-center py-4 text-muted-foreground">No blog posts in this pack</div>
+                  ) : (
+                    blogItems.map(item => (
+                      <ContentItemCard
+                        key={item.id}
+                        item={item}
+                        onApprove={() => approveMutation.mutate(item.id)}
+                        onReject={() => rejectMutation.mutate({ id: item.id, reason: "Rejected by reviewer" })}
+                        onPublish={() => publishMutation.mutate(item.id)}
+                        onDelete={() => deleteMutation.mutate(item.id)}
+                      />
+                    ))
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="social">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {socialItems.length === 0 ? (
+                    <div className="col-span-3 text-center py-4 text-muted-foreground">No social posts in this pack</div>
+                  ) : (
+                    socialItems.map(item => (
+                      <ContentItemCard
+                        key={item.id}
+                        item={item}
+                        onApprove={() => approveMutation.mutate(item.id)}
+                        onReject={() => rejectMutation.mutate({ id: item.id, reason: "Rejected by reviewer" })}
+                        onPublish={() => publishMutation.mutate(item.id)}
+                        onDelete={() => deleteMutation.mutate(item.id)}
+                      />
+                    ))
+                  )}
+                </div>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        )}
+      </Card>
+
+      <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Content Pack</DialogTitle>
+            <DialogDescription>
+              Provide a reason for rejecting this content pack. This will be sent back to the content provider.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="reject-reason">Rejection Reason</Label>
+              <Textarea
+                id="reject-reason"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Please provide feedback on why this content was rejected..."
+                className="mt-2"
+                data-testid="input-reject-reason"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRejectDialog(false)}>
+              Cancel
             </Button>
-          </div>
-        </div>
-      </CardHeader>
-
-      {showDetails && (
-        <CardContent>
-          <Tabs defaultValue="blog">
-            <TabsList className="mb-4">
-              <TabsTrigger value="blog" data-testid="tab-blog">
-                <FileText className="h-4 w-4 mr-1" />
-                Blog ({blogItems.length})
-              </TabsTrigger>
-              <TabsTrigger value="social" data-testid="tab-social">
-                <Hash className="h-4 w-4 mr-1" />
-                Social ({socialItems.length})
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="blog">
-              <div className="space-y-4">
-                {blogItems.map(item => (
-                  <ContentItemCard
-                    key={item.id}
-                    item={item}
-                    onEdit={() => {}}
-                    onPublish={() => publishMutation.mutate(item.id)}
-                    onDelete={() => deleteMutation.mutate(item.id)}
-                  />
-                ))}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="social">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {socialItems.map(item => (
-                  <ContentItemCard
-                    key={item.id}
-                    item={item}
-                    onEdit={() => {}}
-                    onPublish={() => publishMutation.mutate(item.id)}
-                    onDelete={() => deleteMutation.mutate(item.id)}
-                  />
-                ))}
-              </div>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      )}
-    </Card>
+            <Button variant="destructive" onClick={handleRejectAll} data-testid="button-confirm-reject">
+              Reject Pack
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
 export default function SEOContent() {
   const { toast } = useToast();
-  const [selectedJob, setSelectedJob] = useState<string | null>(null);
-  const [showJobSelector, setShowJobSelector] = useState(false);
+  const [activeTab, setActiveTab] = useState("pending");
 
   const { data: contentPacks = [], isLoading: packsLoading } = useQuery<ContentPack[]>({
     queryKey: ["/api/content-packs"]
   });
 
-  const { data: completedJobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
-    queryKey: ["/api/jobs"],
-    select: (jobs: Job[]) => jobs.filter(j => j.status === "completed")
-  });
-
-  const generateMutation = useMutation({
-    mutationFn: async (jobId: string) => {
-      return apiRequest("POST", `/api/jobs/${jobId}/generate-content`, {});
+  const approvePackMutation = useMutation({
+    mutationFn: async (packId: string) => {
+      return apiRequest("POST", `/api/content-packs/${packId}/approve`, { userId: null });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/content-packs"] });
-      setShowJobSelector(false);
-      toast({ title: "Content generated successfully" });
-    },
-    onError: () => {
-      toast({ title: "Failed to generate content", variant: "destructive" });
+      toast({ title: "Content pack approved" });
     }
   });
 
-  const handleGenerateContent = () => {
-    if (selectedJob) {
-      generateMutation.mutate(selectedJob);
+  const rejectPackMutation = useMutation({
+    mutationFn: async ({ packId, reason }: { packId: string; reason: string }) => {
+      return apiRequest("POST", `/api/content-packs/${packId}/reject`, { userId: null, reason });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/content-packs"] });
+      toast({ title: "Content pack rejected" });
     }
-  };
+  });
+
+  const pendingPacks = contentPacks.filter(p => p.status === "received" || p.status === "under_review");
+  const approvedPacks = contentPacks.filter(p => p.status === "approved");
+  const rejectedPacks = contentPacks.filter(p => p.status === "rejected");
+  const publishedPacks = contentPacks.filter(p => p.status === "published");
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">SEO Content</h1>
-          <p className="text-muted-foreground">Generate SEO-optimized blog posts and social media content from completed jobs</p>
+          <h1 className="text-2xl font-bold" data-testid="text-page-title">SEO Content Review</h1>
+          <p className="text-muted-foreground">
+            Review and approve SEO content from webslingeraiglassseo.com
+          </p>
         </div>
-        <Button onClick={() => setShowJobSelector(true)} data-testid="button-generate-content">
-          <Plus className="h-4 w-4 mr-2" />
-          Generate Content
-        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
+        <Card className={activeTab === "pending" ? "ring-2 ring-primary" : ""} onClick={() => setActiveTab("pending")}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Packs</CardTitle>
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Clock className="h-4 w-4" />
+              Pending Review
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold" data-testid="text-total-packs">{contentPacks.length}</p>
+            <p className="text-2xl font-bold" data-testid="text-pending-count">{pendingPacks.length}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={activeTab === "approved" ? "ring-2 ring-primary" : ""} onClick={() => setActiveTab("approved")}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Blog Posts</CardTitle>
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <CheckCircle className="h-4 w-4" />
+              Approved
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold" data-testid="text-blog-posts">
-              {contentPacks.length}
-            </p>
+            <p className="text-2xl font-bold" data-testid="text-approved-count">{approvedPacks.length}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={activeTab === "rejected" ? "ring-2 ring-primary" : ""} onClick={() => setActiveTab("rejected")}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Social Posts</CardTitle>
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <XCircle className="h-4 w-4" />
+              Rejected
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold" data-testid="text-social-posts">
-              {contentPacks.length * 3}
-            </p>
+            <p className="text-2xl font-bold" data-testid="text-rejected-count">{rejectedPacks.length}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={activeTab === "published" ? "ring-2 ring-primary" : ""} onClick={() => setActiveTab("published")}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Published</CardTitle>
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Send className="h-4 w-4" />
+              Published
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold" data-testid="text-published">
-              {contentPacks.filter(p => p.status === "published").length}
-            </p>
+            <p className="text-2xl font-bold" data-testid="text-published-count">{publishedPacks.length}</p>
           </CardContent>
         </Card>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Content Packs</CardTitle>
+          <CardTitle>
+            {activeTab === "pending" && "Pending Review"}
+            {activeTab === "approved" && "Approved Content"}
+            {activeTab === "rejected" && "Rejected Content"}
+            {activeTab === "published" && "Published Content"}
+          </CardTitle>
           <CardDescription>
-            Each content pack includes a blog post and social media posts for Facebook, Instagram, and TikTok
+            {activeTab === "pending" && "Content packages awaiting your review"}
+            {activeTab === "approved" && "Content approved and ready for publishing"}
+            {activeTab === "rejected" && "Content that was rejected"}
+            {activeTab === "published" && "Content that has been published"}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {packsLoading ? (
             <div className="text-center py-8 text-muted-foreground">Loading content packs...</div>
-          ) : contentPacks.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No content packs yet</p>
-              <p className="text-sm">Generate content from completed jobs to get started</p>
-            </div>
           ) : (
-            <ScrollArea className="h-[500px]">
-              {contentPacks.map(pack => (
-                <ContentPackWithItems key={pack.id} pack={pack} />
-              ))}
-            </ScrollArea>
+            <ContentPackList 
+              packs={
+                activeTab === "pending" ? pendingPacks :
+                activeTab === "approved" ? approvedPacks :
+                activeTab === "rejected" ? rejectedPacks :
+                publishedPacks
+              }
+              onApprovePack={(packId) => approvePackMutation.mutate(packId)}
+              onRejectPack={(packId, reason) => rejectPackMutation.mutate({ packId, reason })}
+            />
           )}
         </CardContent>
       </Card>
-
-      <Dialog open={showJobSelector} onOpenChange={setShowJobSelector}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Generate Content</DialogTitle>
-            <DialogDescription>
-              Select a completed job to generate SEO content from
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Select Job</Label>
-              <ScrollArea className="h-[200px] border rounded-md p-2">
-                {jobsLoading ? (
-                  <div className="text-center py-4 text-muted-foreground">Loading jobs...</div>
-                ) : completedJobs.length === 0 ? (
-                  <div className="text-center py-4 text-muted-foreground">
-                    No completed jobs available
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {completedJobs.map(job => (
-                      <div
-                        key={job.id}
-                        className={`p-3 rounded-md cursor-pointer hover-elevate ${
-                          selectedJob === job.id ? "bg-accent" : ""
-                        }`}
-                        onClick={() => setSelectedJob(job.id)}
-                        data-testid={`job-option-${job.id}`}
-                      >
-                        <div className="font-medium">{job.serviceType.replace(/_/g, " ")}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {job.address?.split(",")[0] || "Unknown location"}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </ScrollArea>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowJobSelector(false)}>
-                Cancel
-              </Button>
-              <Button 
-                onClick={handleGenerateContent} 
-                disabled={!selectedJob || generateMutation.isPending}
-                data-testid="button-confirm-generate"
-              >
-                {generateMutation.isPending ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Generate
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
 
-function ContentPackWithItems({ pack }: { pack: ContentPack }) {
+function ContentPackList({ packs, onApprovePack, onRejectPack }: { 
+  packs: ContentPack[];
+  onApprovePack: (packId: string) => void;
+  onRejectPack: (packId: string, reason: string) => void;
+}) {
+  if (packs.length === 0) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+        <p>No content packs in this category</p>
+      </div>
+    );
+  }
+
+  return (
+    <ScrollArea className="h-[500px]">
+      {packs.map(pack => (
+        <ContentPackWithItems 
+          key={pack.id} 
+          pack={pack}
+          onApproveAll={() => onApprovePack(pack.id)}
+          onRejectAll={(reason) => onRejectPack(pack.id, reason)}
+        />
+      ))}
+    </ScrollArea>
+  );
+}
+
+function ContentPackWithItems({ pack, onApproveAll, onRejectAll }: { 
+  pack: ContentPack;
+  onApproveAll: () => void;
+  onRejectAll: (reason: string) => void;
+}) {
   const { data: packData } = useQuery<{ pack: ContentPack; items: ContentItem[] }>({
     queryKey: ["/api/content-packs", pack.id]
   });
@@ -417,7 +523,8 @@ function ContentPackWithItems({ pack }: { pack: ContentPack }) {
     <ContentPackCard 
       pack={pack} 
       items={items}
-      onGenerateMore={() => {}}
+      onApproveAll={onApproveAll}
+      onRejectAll={onRejectAll}
     />
   );
 }

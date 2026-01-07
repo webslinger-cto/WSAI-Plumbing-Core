@@ -4237,18 +4237,184 @@ ${emailContent}
     }
   });
 
-  app.post("/api/jobs/:jobId/generate-content", async (req, res) => {
+  // Webhook endpoint for receiving SEO content from webslingeraiglassseo.com
+  app.post("/api/webhooks/seo-content", async (req, res) => {
     try {
-      const { createContentPackFromJob } = await import("./services/blogGenerator");
-      const pack = await createContentPackFromJob(req.params.jobId);
-      if (!pack) {
-        return res.status(404).json({ error: "Job not found" });
+      const { pack: packData, items: itemsData, signature, timestamp, autoApprove } = req.body;
+      
+      // Get company settings for webhook verification
+      const settings = await storage.getCompanySettings();
+      
+      // Verify webhook signature (HMAC)
+      if (settings?.seoWebhookSecret) {
+        const crypto = await import("crypto");
+        const expectedSignature = crypto
+          .createHmac("sha256", settings.seoWebhookSecret)
+          .update(`${timestamp}.${JSON.stringify(packData)}`)
+          .digest("hex");
+        
+        if (signature !== expectedSignature) {
+          return res.status(401).json({ error: "Invalid webhook signature" });
+        }
+        
+        // Check timestamp to prevent replay attacks (5 minute window)
+        const timestampAge = Date.now() - new Date(timestamp).getTime();
+        if (timestampAge > 5 * 60 * 1000) {
+          return res.status(401).json({ error: "Webhook timestamp too old" });
+        }
       }
-      const items = await storage.getContentItemsByPack(pack.id);
-      res.status(201).json({ pack, items });
+      
+      // Determine if content should be auto-approved
+      const shouldAutoApprove = autoApprove && settings?.seoAutoApprove;
+      
+      // Create the content pack
+      const pack = await storage.createContentPack({
+        externalId: packData.externalId,
+        jobId: packData.jobId || null,
+        format: packData.format || "seo_money",
+        geoTarget: packData.geoTarget,
+        status: shouldAutoApprove ? "approved" : "received",
+        sourceUrl: packData.sourceUrl,
+        autoApproved: shouldAutoApprove,
+      });
+      
+      // Create content items
+      const createdItems = [];
+      for (const itemData of itemsData || []) {
+        const item = await storage.createContentItem({
+          externalId: itemData.externalId,
+          contentPackId: pack.id,
+          type: itemData.type,
+          title: itemData.title,
+          body: itemData.body,
+          html: itemData.html,
+          slug: itemData.slug,
+          metaTitle: itemData.metaTitle,
+          metaDescription: itemData.metaDescription,
+          primaryKeyword: itemData.primaryKeyword,
+          secondaryKeywords: itemData.secondaryKeywords,
+          localModifiers: itemData.localModifiers,
+          searchIntent: itemData.searchIntent,
+          status: shouldAutoApprove ? "approved" : "received",
+        });
+        createdItems.push(item);
+      }
+      
+      res.status(201).json({ 
+        success: true, 
+        pack, 
+        items: createdItems,
+        autoApproved: shouldAutoApprove 
+      });
     } catch (error) {
-      console.error("Error generating content from job:", error);
-      res.status(500).json({ error: "Failed to generate content" });
+      console.error("Error receiving SEO content webhook:", error);
+      res.status(500).json({ error: "Failed to process SEO content" });
+    }
+  });
+
+  // Approve a content pack (and all its items)
+  app.post("/api/content-packs/:id/approve", async (req, res) => {
+    try {
+      const { userId } = req.body;
+      const pack = await storage.updateContentPack(req.params.id, {
+        status: "approved",
+        reviewedBy: userId,
+        reviewedAt: new Date(),
+        rejectionReason: null,
+      });
+      if (!pack) {
+        return res.status(404).json({ error: "Content pack not found" });
+      }
+      
+      // Approve all items in the pack
+      const items = await storage.getContentItemsByPack(pack.id);
+      for (const item of items) {
+        await storage.updateContentItem(item.id, {
+          status: "approved",
+          reviewedBy: userId,
+          reviewedAt: new Date(),
+          rejectionReason: null,
+        });
+      }
+      
+      const updatedItems = await storage.getContentItemsByPack(pack.id);
+      res.json({ pack, items: updatedItems });
+    } catch (error) {
+      console.error("Error approving content pack:", error);
+      res.status(500).json({ error: "Failed to approve content pack" });
+    }
+  });
+
+  // Reject a content pack (and all its items)
+  app.post("/api/content-packs/:id/reject", async (req, res) => {
+    try {
+      const { userId, reason } = req.body;
+      const pack = await storage.updateContentPack(req.params.id, {
+        status: "rejected",
+        reviewedBy: userId,
+        reviewedAt: new Date(),
+        rejectionReason: reason || "Rejected by reviewer",
+      });
+      if (!pack) {
+        return res.status(404).json({ error: "Content pack not found" });
+      }
+      
+      // Reject all items in the pack
+      const items = await storage.getContentItemsByPack(pack.id);
+      for (const item of items) {
+        await storage.updateContentItem(item.id, {
+          status: "rejected",
+          reviewedBy: userId,
+          reviewedAt: new Date(),
+          rejectionReason: reason || "Rejected with pack",
+        });
+      }
+      
+      const updatedItems = await storage.getContentItemsByPack(pack.id);
+      res.json({ pack, items: updatedItems });
+    } catch (error) {
+      console.error("Error rejecting content pack:", error);
+      res.status(500).json({ error: "Failed to reject content pack" });
+    }
+  });
+
+  // Approve individual content item
+  app.post("/api/content-items/:id/approve", async (req, res) => {
+    try {
+      const { userId } = req.body;
+      const item = await storage.updateContentItem(req.params.id, {
+        status: "approved",
+        reviewedBy: userId,
+        reviewedAt: new Date(),
+        rejectionReason: null,
+      });
+      if (!item) {
+        return res.status(404).json({ error: "Content item not found" });
+      }
+      res.json(item);
+    } catch (error) {
+      console.error("Error approving content item:", error);
+      res.status(500).json({ error: "Failed to approve content item" });
+    }
+  });
+
+  // Reject individual content item
+  app.post("/api/content-items/:id/reject", async (req, res) => {
+    try {
+      const { userId, reason } = req.body;
+      const item = await storage.updateContentItem(req.params.id, {
+        status: "rejected",
+        reviewedBy: userId,
+        reviewedAt: new Date(),
+        rejectionReason: reason || "Rejected by reviewer",
+      });
+      if (!item) {
+        return res.status(404).json({ error: "Content item not found" });
+      }
+      res.json(item);
+    } catch (error) {
+      console.error("Error rejecting content item:", error);
+      res.status(500).json({ error: "Failed to reject content item" });
     }
   });
 

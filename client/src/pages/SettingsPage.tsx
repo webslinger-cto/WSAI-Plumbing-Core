@@ -210,6 +210,7 @@ export default function SettingsPage() {
     requireQuoteApproval: false,
     allowTechSelfSchedule: true,
     defaultLeadExpiry: "7",
+    seoAutoApprove: false,
   });
 
   const filteredEmployees = employees.filter((emp) => {
@@ -395,7 +396,7 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="access" className="space-y-6">
-        <TabsList className="grid w-full max-w-md grid-cols-3">
+        <TabsList className="grid w-full max-w-lg grid-cols-4">
           <TabsTrigger value="access" data-testid="tab-access">
             <Shield className="w-4 h-4 mr-2" />
             Access
@@ -403,6 +404,10 @@ export default function SettingsPage() {
           <TabsTrigger value="notifications" data-testid="tab-notifications">
             <Bell className="w-4 h-4 mr-2" />
             Notifications
+          </TabsTrigger>
+          <TabsTrigger value="integrations" data-testid="tab-integrations">
+            <FileEdit className="w-4 h-4 mr-2" />
+            Integrations
           </TabsTrigger>
           <TabsTrigger value="general" data-testid="tab-general">
             <Settings className="w-4 h-4 mr-2" />
@@ -822,6 +827,51 @@ export default function SettingsPage() {
                   </div>
                 </>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="integrations" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileEdit className="w-5 h-5" />
+                SEO Content Integration
+              </CardTitle>
+              <CardDescription>
+                Configure how SEO content from webslingeraiglassseo.com is handled
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <Label htmlFor="seoAutoApprove">Auto-Approve SEO Content</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Allow webslingeraiglassseo.com to automatically approve content without manual review
+                    </p>
+                  </div>
+                  <Switch
+                    id="seoAutoApprove"
+                    checked={generalSettings.seoAutoApprove || false}
+                    onCheckedChange={(checked) => {
+                      setGeneralSettings((prev) => ({ ...prev, seoAutoApprove: checked }));
+                      setHasChanges(true);
+                    }}
+                    data-testid="switch-seo-auto-approve"
+                  />
+                </div>
+                <Separator />
+                <div className="p-4 bg-muted/50 rounded-lg space-y-2">
+                  <h4 className="font-medium">Webhook URL</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Share this URL with webslingeraiglassseo.com to receive SEO content packages:
+                  </p>
+                  <code className="block p-2 bg-background rounded text-sm">
+                    {window.location.origin}/api/webhooks/seo-content
+                  </code>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

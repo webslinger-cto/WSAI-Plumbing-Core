@@ -894,6 +894,9 @@ export const companySettings = pgTable("company_settings", {
   leadFeeAmount: decimal("lead_fee_amount", { precision: 10, scale: 2 }).default("125"),
   quoteValidDays: integer("quote_valid_days").default(30),
   logoUrl: text("logo_url"),
+  // SEO content settings
+  seoAutoApprove: boolean("seo_auto_approve").notNull().default(false), // Allow webslingeraiglassseo.com to auto-approve
+  seoWebhookSecret: text("seo_webhook_secret"), // HMAC secret for webhook authentication
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
 
@@ -937,25 +940,34 @@ export const session = pgTable("session", {
 // ============================================
 
 // Content pack status and format enums
-export const contentPackStatuses = ["auto_drafted", "needs_review", "approved", "scheduled", "published"] as const;
+// Status flow: received -> under_review -> approved/rejected -> published
+export const contentPackStatuses = ["received", "under_review", "approved", "rejected", "published"] as const;
 export type ContentPackStatus = typeof contentPackStatuses[number];
 
-export const contentPackFormats = ["seo_money", "case_study", "faq_injection"] as const;
+export const contentPackFormats = ["seo_money", "case_study", "faq_injection", "social_only"] as const;
 export type ContentPackFormat = typeof contentPackFormats[number];
 
-export const contentItemTypes = ["blog", "facebook", "instagram", "tiktok"] as const;
+export const contentItemTypes = ["blog", "facebook", "instagram", "tiktok", "google_business"] as const;
 export type ContentItemType = typeof contentItemTypes[number];
 
-export const contentItemStatuses = ["draft", "needs_review", "approved", "published"] as const;
+export const contentItemStatuses = ["received", "under_review", "approved", "rejected", "published"] as const;
 export type ContentItemStatus = typeof contentItemStatuses[number];
 
-// Content packs - groups content around a job for SEO
+// Content packs - groups content around a job for SEO (received from webslingeraiglassseo.com)
 export const contentPacks = pgTable("content_packs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  externalId: varchar("external_id"), // ID from webslingeraiglassseo.com
   jobId: varchar("job_id").references(() => jobs.id),
-  format: text("format").notNull().default("seo_money"), // seo_money, case_study, faq_injection
+  format: text("format").notNull().default("seo_money"), // seo_money, case_study, faq_injection, social_only
   geoTarget: jsonb("geo_target").$type<{ city?: string; state?: string; postalCode?: string; neighborhood?: string }>(),
-  status: text("status").notNull().default("auto_drafted"),
+  status: text("status").notNull().default("received"),
+  // Review tracking
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  rejectionReason: text("rejection_reason"),
+  // Source tracking
+  sourceUrl: text("source_url"), // Link back to webslingeraiglassseo.com
+  autoApproved: boolean("auto_approved").notNull().default(false),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
@@ -964,11 +976,12 @@ export const insertContentPackSchema = createInsertSchema(contentPacks).omit({ i
 export type InsertContentPack = z.infer<typeof insertContentPackSchema>;
 export type ContentPack = typeof contentPacks.$inferSelect;
 
-// Content items - individual pieces of content (blog, social posts)
+// Content items - individual pieces of content (blog, social posts) received from webslingeraiglassseo.com
 export const contentItems = pgTable("content_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  externalId: varchar("external_id"), // ID from webslingeraiglassseo.com
   contentPackId: varchar("content_pack_id").references(() => contentPacks.id),
-  type: text("type").notNull(), // blog, facebook, instagram, tiktok
+  type: text("type").notNull(), // blog, facebook, instagram, tiktok, google_business
   title: text("title"),
   body: text("body"), // markdown content
   html: text("html"), // rendered HTML
@@ -979,7 +992,12 @@ export const contentItems = pgTable("content_items", {
   secondaryKeywords: jsonb("secondary_keywords").$type<string[]>(),
   localModifiers: jsonb("local_modifiers").$type<string[]>(),
   searchIntent: text("search_intent"),
-  status: text("status").notNull().default("draft"),
+  status: text("status").notNull().default("received"),
+  // Review tracking
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  rejectionReason: text("rejection_reason"),
+  // Publishing info
   scheduledFor: timestamp("scheduled_for"),
   publishedAt: timestamp("published_at"),
   publishedUrl: text("published_url"),
