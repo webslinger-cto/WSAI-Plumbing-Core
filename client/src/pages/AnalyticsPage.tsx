@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -30,6 +30,7 @@ import {
 } from "recharts";
 import { TrendingUp, TrendingDown, DollarSign, Users, Target, Activity } from "lucide-react";
 import JobCostsAnalytics from "@/components/JobCostsAnalytics";
+import type { JobRevenueEvent, Technician } from "@shared/schema";
 
 interface AnalyticsData {
   summary: {
@@ -134,6 +135,72 @@ export default function AnalyticsPage() {
       return res.json();
     },
   });
+
+  // Fetch revenue events for payroll/labor cost tracking
+  const { data: revenueEvents = [] } = useQuery<JobRevenueEvent[]>({
+    queryKey: ['/api/revenue-events'],
+  });
+
+  // Fetch technicians for payroll calculations
+  const { data: technicians = [] } = useQuery<Technician[]>({
+    queryKey: ['/api/technicians'],
+  });
+
+  // Calculate payroll summary from revenue events
+  const payrollSummary = useMemo(() => {
+    const totalRevenue = revenueEvents.reduce((sum, e) => sum + parseFloat(String(e.totalRevenue) || "0"), 0);
+    const totalLabor = revenueEvents.reduce((sum, e) => sum + parseFloat(String(e.laborCost) || "0"), 0);
+    const totalMaterials = revenueEvents.reduce((sum, e) => sum + parseFloat(String(e.materialCost) || "0"), 0);
+    const totalCommissions = revenueEvents.reduce((sum, e) => sum + parseFloat(String(e.commissionAmount) || "0"), 0);
+    const totalNetProfit = revenueEvents.reduce((sum, e) => sum + parseFloat(String(e.netProfit) || "0"), 0);
+    
+    // Calculate estimated payroll from technicians
+    const estimatedPayroll = technicians.reduce((sum, t) => {
+      const hourlyRate = parseFloat(String(t.hourlyRate) || "25");
+      const completedJobs = t.completedJobsToday || 0;
+      // Estimate 2 hours per job average
+      return sum + (completedJobs * 2 * hourlyRate);
+    }, 0);
+
+    const laborPercentage = totalRevenue > 0 ? (totalLabor / totalRevenue) * 100 : 0;
+    const profitMargin = totalRevenue > 0 ? (totalNetProfit / totalRevenue) * 100 : 0;
+
+    return {
+      totalRevenue: Math.round(totalRevenue * 100) / 100,
+      totalLabor: Math.round(totalLabor * 100) / 100,
+      totalMaterials: Math.round(totalMaterials * 100) / 100,
+      totalCommissions: Math.round(totalCommissions * 100) / 100,
+      totalNetProfit: Math.round(totalNetProfit * 100) / 100,
+      estimatedPayroll: Math.round(estimatedPayroll * 100) / 100,
+      laborPercentage: Math.round(laborPercentage * 10) / 10,
+      profitMargin: Math.round(profitMargin * 10) / 10,
+      eventCount: revenueEvents.length,
+    };
+  }, [revenueEvents, technicians]);
+
+  // Payroll breakdown by technician
+  const payrollByTech = useMemo(() => {
+    const byTech: Record<string, { name: string; revenue: number; labor: number; materials: number; commission: number; profit: number; jobs: number }> = {};
+    
+    revenueEvents.forEach(event => {
+      const techId = event.technicianId;
+      const tech = technicians.find(t => t.id === techId);
+      const name = tech?.fullName || "Unknown";
+      
+      if (!byTech[techId]) {
+        byTech[techId] = { name, revenue: 0, labor: 0, materials: 0, commission: 0, profit: 0, jobs: 0 };
+      }
+      
+      byTech[techId].revenue += parseFloat(String(event.totalRevenue) || "0");
+      byTech[techId].labor += parseFloat(String(event.laborCost) || "0");
+      byTech[techId].materials += parseFloat(String(event.materialCost) || "0");
+      byTech[techId].commission += parseFloat(String(event.commissionAmount) || "0");
+      byTech[techId].profit += parseFloat(String(event.netProfit) || "0");
+      byTech[techId].jobs++;
+    });
+    
+    return Object.entries(byTech).map(([id, data]) => ({ id, ...data }));
+  }, [revenueEvents, technicians]);
 
   const formatCurrency = (value: number) => {
     if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
@@ -266,6 +333,7 @@ export default function AnalyticsPage() {
         <TabsList>
           <TabsTrigger value="sources" data-testid="tab-sources">Lead Sources</TabsTrigger>
           <TabsTrigger value="revenue" data-testid="tab-revenue">Revenue</TabsTrigger>
+          <TabsTrigger value="payroll" data-testid="tab-payroll">Payroll</TabsTrigger>
           <TabsTrigger value="roi" data-testid="tab-roi">Marketing ROI</TabsTrigger>
           <TabsTrigger value="jobcosts" data-testid="tab-jobcosts">Job Costs</TabsTrigger>
           <TabsTrigger value="services" data-testid="tab-services">Services</TabsTrigger>
@@ -482,6 +550,160 @@ export default function AnalyticsPage() {
                         />
                       </LineChart>
                     </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </TabsContent>
+
+        {/* Payroll Tab - Linked to Revenue Events */}
+        <TabsContent value="payroll" className="space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Revenue (Events)</p>
+                <p className="text-2xl font-bold" data-testid="text-payroll-revenue">
+                  {formatCurrency(payrollSummary.totalRevenue)}
+                </p>
+                <p className="text-xs text-muted-foreground">{payrollSummary.eventCount} events tracked</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Labor Costs</p>
+                <p className="text-2xl font-bold text-red-500" data-testid="text-labor-costs">
+                  {formatCurrency(payrollSummary.totalLabor)}
+                </p>
+                <p className="text-xs text-muted-foreground">{payrollSummary.laborPercentage}% of revenue</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Commissions</p>
+                <p className="text-2xl font-bold text-blue-500" data-testid="text-total-commissions">
+                  {formatCurrency(payrollSummary.totalCommissions)}
+                </p>
+                <p className="text-xs text-muted-foreground">Technician payouts</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Net Profit</p>
+                <p className="text-2xl font-bold text-green-500" data-testid="text-payroll-net-profit">
+                  {formatCurrency(payrollSummary.totalNetProfit)}
+                </p>
+                <p className="text-xs text-muted-foreground">{payrollSummary.profitMargin}% margin</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {payrollByTech.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <p className="text-muted-foreground">No revenue events recorded yet.</p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Revenue events are created automatically when jobs are completed.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-semibold uppercase tracking-wider">
+                      Revenue vs Costs by Technician
+                    </CardTitle>
+                    <CardDescription>Compare revenue with labor and material costs</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-[300px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={payrollByTech}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+                          <XAxis
+                            dataKey="name"
+                            tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                          />
+                          <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                          <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                          <Bar dataKey="revenue" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} name="Revenue" />
+                          <Bar dataKey="labor" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} name="Labor Cost" />
+                          <Bar dataKey="materials" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} name="Materials" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-semibold uppercase tracking-wider">
+                      Commission Distribution
+                    </CardTitle>
+                    <CardDescription>Commission earnings by technician</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-[300px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={payrollByTech.filter(t => t.commission > 0)}
+                            dataKey="commission"
+                            nameKey="name"
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={100}
+                            label={({ name, commission }) => `${name}: $${commission.toFixed(0)}`}
+                          >
+                            {payrollByTech.map((entry, index) => (
+                              <Cell key={entry.id} fill={`hsl(var(--chart-${(index % 5) + 1}))`} />
+                            ))}
+                          </Pie>
+                          <Tooltip content={<CustomTooltip />} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-semibold uppercase tracking-wider">
+                    Payroll Summary by Technician
+                  </CardTitle>
+                  <CardDescription>Detailed breakdown of revenue, costs, and commissions per technician</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="rounded-md border">
+                    <table className="w-full">
+                      <thead className="border-b">
+                        <tr>
+                          <th className="text-left p-3 text-sm font-medium">Technician</th>
+                          <th className="text-center p-3 text-sm font-medium">Jobs</th>
+                          <th className="text-right p-3 text-sm font-medium">Revenue</th>
+                          <th className="text-right p-3 text-sm font-medium">Labor</th>
+                          <th className="text-right p-3 text-sm font-medium">Materials</th>
+                          <th className="text-right p-3 text-sm font-medium">Commission</th>
+                          <th className="text-right p-3 text-sm font-medium">Net Profit</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payrollByTech.map((tech) => (
+                          <tr key={tech.id} className="border-b last:border-0" data-testid={`row-payroll-analytics-${tech.id}`}>
+                            <td className="p-3 font-medium">{tech.name}</td>
+                            <td className="p-3 text-center">{tech.jobs}</td>
+                            <td className="p-3 text-right">${tech.revenue.toLocaleString()}</td>
+                            <td className="p-3 text-right text-red-500">${tech.labor.toLocaleString()}</td>
+                            <td className="p-3 text-right text-red-500">${tech.materials.toLocaleString()}</td>
+                            <td className="p-3 text-right text-blue-500">${tech.commission.toLocaleString()}</td>
+                            <td className="p-3 text-right text-green-500 font-medium">${tech.profit.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </CardContent>
               </Card>

@@ -334,6 +334,34 @@ export async function completeJob(
           currentJobId: null,
           completedJobsToday: (tech.completedJobsToday || 0) + 1,
         });
+
+        // Create revenue event for analytics/payroll integration
+        const updatedJob = await storage.getJob(jobId);
+        if (updatedJob) {
+          const totalRevenue = parseFloat(updatedJob.totalRevenue || "0");
+          const laborCost = parseFloat(updatedJob.laborCost || "0");
+          const materialsCost = parseFloat(updatedJob.materialsCost || "0");
+          const travelExpense = parseFloat(updatedJob.travelExpense || "0");
+          const equipmentCost = parseFloat(updatedJob.equipmentCost || "0");
+          const otherExpenses = parseFloat(updatedJob.otherExpenses || "0");
+          // Calculate true NET profit including all expenses
+          const totalCost = laborCost + materialsCost + travelExpense + equipmentCost + otherExpenses;
+          const netProfit = totalRevenue - totalCost;
+          const commissionRate = parseFloat(String(tech.commissionRate) || "0.1");
+          const commissionAmount = netProfit > 0 ? netProfit * commissionRate : 0;
+
+          await storage.createJobRevenueEvent({
+            jobId: updatedJob.id,
+            technicianId: tech.id,
+            totalRevenue: totalRevenue.toFixed(2),
+            laborCost: (laborCost + travelExpense + equipmentCost + otherExpenses).toFixed(2), // Include all labor-related costs
+            materialCost: materialsCost.toFixed(2),
+            marketingCost: "0",
+            netProfit: netProfit.toFixed(2),
+            commissionAmount: commissionAmount.toFixed(2),
+          });
+          console.log(`Created revenue event for job ${jobId} - Revenue: $${totalRevenue}, Total Cost: $${totalCost}, Net Profit: $${netProfit}, Commission: $${commissionAmount}`);
+        }
       }
     }
 

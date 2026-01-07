@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Technician, Job, User } from "@shared/schema";
+import type { Technician, Job, User, JobRevenueEvent, SalesCommission, Salesperson } from "@shared/schema";
 
 interface TimeEntry {
   id: number;
@@ -107,6 +107,21 @@ export default function PayrollPage() {
 
   const { data: timeEntries = [] } = useQuery<TimeEntry[]>({
     queryKey: ["/api/payroll/time-entries"],
+  });
+
+  // Fetch job revenue events for analytics integration
+  const { data: revenueEvents = [] } = useQuery<JobRevenueEvent[]>({
+    queryKey: ["/api/revenue-events"],
+  });
+
+  // Fetch sales commissions for payroll integration
+  const { data: salesCommissions = [] } = useQuery<SalesCommission[]>({
+    queryKey: ["/api/sales-commissions"],
+  });
+
+  // Fetch salespersons for commission display
+  const { data: salespersons = [] } = useQuery<Salesperson[]>({
+    queryKey: ["/api/salespersons"],
   });
 
   // Calculate payroll data per technician (restored from original logic)
@@ -205,11 +220,41 @@ export default function PayrollPage() {
     }));
   }, [technicians]);
 
-  // Calculate job revenue by technician
+  // Calculate job revenue by technician - use revenue events exclusively to avoid double counting
   const jobRevenue = useMemo(() => {
-    const revenueByTech: Record<string, { name: string; jobs: number; revenue: number; labor: number; materials: number }> = {};
+    const revenueByTech: Record<string, { name: string; jobs: number; revenue: number; labor: number; materials: number; netProfit: number; commission: number }> = {};
     
-    jobs.filter(j => j.status === "completed").forEach(job => {
+    // Track job IDs that have revenue events to avoid double counting
+    const eventJobIds = new Set(revenueEvents.map(e => e.jobId));
+    
+    // First add data from revenue events (authoritative source)
+    revenueEvents.forEach(event => {
+      const techId = event.technicianId;
+      const tech = technicians.find(t => t.id === techId);
+      if (!tech) return;
+      
+      if (!revenueByTech[techId]) {
+        revenueByTech[techId] = {
+          name: tech.fullName,
+          jobs: 0,
+          revenue: 0,
+          labor: 0,
+          materials: 0,
+          netProfit: 0,
+          commission: 0,
+        };
+      }
+      
+      revenueByTech[techId].jobs++;
+      revenueByTech[techId].revenue += parseFloat(String(event.totalRevenue)) || 0;
+      revenueByTech[techId].labor += parseFloat(String(event.laborCost)) || 0;
+      revenueByTech[techId].materials += parseFloat(String(event.materialCost)) || 0;
+      revenueByTech[techId].netProfit += parseFloat(String(event.netProfit)) || 0;
+      revenueByTech[techId].commission += parseFloat(String(event.commissionAmount)) || 0;
+    });
+    
+    // Add fallback data from jobs that DON'T have revenue events (older jobs)
+    jobs.filter(j => j.status === "completed" && !eventJobIds.has(j.id)).forEach(job => {
       const techId = job.assignedTechnicianId;
       if (!techId) return;
       
@@ -223,20 +268,76 @@ export default function PayrollPage() {
           revenue: 0,
           labor: 0,
           materials: 0,
+          netProfit: 0,
+          commission: 0,
         };
       }
       
+      const revenue = parseFloat(String(job.totalRevenue)) || 0;
+      const labor = parseFloat(String(job.laborCost)) || 0;
+      const materials = parseFloat(String(job.materialsCost)) || 0;
+      const travel = parseFloat(String(job.travelExpense)) || 0;
+      const equipment = parseFloat(String(job.equipmentCost)) || 0;
+      const other = parseFloat(String(job.otherExpenses)) || 0;
+      const totalCost = labor + materials + travel + equipment + other;
+      const netProfit = revenue - totalCost;
+      const commissionRate = parseFloat(String(tech.commissionRate)) || 0.1;
+      
       revenueByTech[techId].jobs++;
-      revenueByTech[techId].revenue += parseFloat(String(job.totalRevenue)) || 0;
-      revenueByTech[techId].labor += parseFloat(String(job.laborCost)) || 0;
-      revenueByTech[techId].materials += parseFloat(String(job.materialsCost)) || 0;
+      revenueByTech[techId].revenue += revenue;
+      revenueByTech[techId].labor += labor + travel + equipment + other; // Include all labor-related costs
+      revenueByTech[techId].materials += materials;
+      revenueByTech[techId].netProfit += netProfit;
+      revenueByTech[techId].commission += netProfit > 0 ? netProfit * commissionRate : 0;
     });
     
     return Object.entries(revenueByTech).map(([id, data]) => ({
       id,
       ...data,
     }));
-  }, [jobs, technicians]);
+  }, [jobs, technicians, revenueEvents]);
+
+  // Calculate sales commission summary (for salespersons)
+  const salesCommissionSummary = useMemo(() => {
+    const bySalesperson: Record<string, { name: string; jobs: number; revenue: number; netProfit: number; commission: number; pending: number; paid: number }> = {};
+    
+    salesCommissions.forEach(comm => {
+      const spId = comm.salespersonId;
+      const salesperson = salespersons.find(s => s.id === spId);
+      const name = salesperson?.fullName || "Unknown";
+      
+      if (!bySalesperson[spId]) {
+        bySalesperson[spId] = { name, jobs: 0, revenue: 0, netProfit: 0, commission: 0, pending: 0, paid: 0 };
+      }
+      
+      const amount = parseFloat(String(comm.commissionAmount)) || 0;
+      bySalesperson[spId].jobs++;
+      bySalesperson[spId].revenue += parseFloat(String(comm.jobRevenue)) || 0;
+      bySalesperson[spId].netProfit += parseFloat(String(comm.netProfit)) || 0;
+      bySalesperson[spId].commission += amount;
+      
+      if (comm.status === "paid") {
+        bySalesperson[spId].paid += amount;
+      } else {
+        bySalesperson[spId].pending += amount;
+      }
+    });
+    
+    return Object.entries(bySalesperson).map(([id, data]) => ({ id, ...data }));
+  }, [salesCommissions, salespersons]);
+
+  // Total commission amounts for display
+  const totalCommissions = useMemo(() => {
+    const techCommissions = payrollData.reduce((sum, p) => sum + p.commissionEarned, 0);
+    const salesPending = salesCommissions.filter(c => c.status === "pending").reduce((sum, c) => sum + parseFloat(String(c.commissionAmount) || "0"), 0);
+    const salesPaid = salesCommissions.filter(c => c.status === "paid").reduce((sum, c) => sum + parseFloat(String(c.commissionAmount) || "0"), 0);
+    return {
+      technician: Math.round(techCommissions * 100) / 100,
+      salesPending: Math.round(salesPending * 100) / 100,
+      salesPaid: Math.round(salesPaid * 100) / 100,
+      total: Math.round((techCommissions + salesPending + salesPaid) * 100) / 100,
+    };
+  }, [payrollData, salesCommissions]);
 
   // Lead fees (mock data based on jobs)
   const leadFees = useMemo(() => {
@@ -493,11 +594,21 @@ export default function PayrollPage() {
           </Card>
         </TabsContent>
 
-        {/* Job Revenue Tab */}
+        {/* Job Revenue Tab - Linked to Analytics */}
         <TabsContent value="jobrevenue" className="space-y-4">
           <Card>
-            <CardHeader>
-              <CardTitle>Revenue by Technician</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <div>
+                <CardTitle>Revenue by Technician</CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {revenueEvents.length > 0 
+                    ? `Linked to ${revenueEvents.length} revenue events from analytics`
+                    : "Using job data (create revenue events for full tracking)"}
+                </p>
+              </div>
+              <Badge variant={revenueEvents.length > 0 ? "default" : "secondary"}>
+                {revenueEvents.length > 0 ? "Analytics Linked" : "Job Data"}
+              </Badge>
             </CardHeader>
             <CardContent>
               {jobRevenue.length === 0 ? (
@@ -520,7 +631,8 @@ export default function PayrollPage() {
                         <TableHead className="text-right">Revenue</TableHead>
                         <TableHead className="text-right">Labor</TableHead>
                         <TableHead className="text-right">Materials</TableHead>
-                        <TableHead className="text-right">Profit</TableHead>
+                        <TableHead className="text-right">Net Profit</TableHead>
+                        <TableHead className="text-right">Commission</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -529,10 +641,13 @@ export default function PayrollPage() {
                           <TableCell className="font-medium">{row.name}</TableCell>
                           <TableCell className="text-center">{row.jobs}</TableCell>
                           <TableCell className="text-right">${row.revenue.toLocaleString()}</TableCell>
-                          <TableCell className="text-right">${row.labor.toLocaleString()}</TableCell>
-                          <TableCell className="text-right">${row.materials.toLocaleString()}</TableCell>
+                          <TableCell className="text-right text-red-500">${row.labor.toLocaleString()}</TableCell>
+                          <TableCell className="text-right text-red-500">${row.materials.toLocaleString()}</TableCell>
                           <TableCell className="text-right text-green-500 font-medium">
-                            ${(row.revenue - row.labor - row.materials).toLocaleString()}
+                            ${row.netProfit.toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right text-blue-500 font-medium">
+                            ${row.commission.toLocaleString()}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -542,6 +657,54 @@ export default function PayrollPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Sales Commissions Section */}
+          {salesCommissionSummary.length > 0 && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-4">
+                <div>
+                  <CardTitle>Sales Commissions</CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Commission tracking for salespersons (NET profit based)
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Badge variant="secondary">Pending: ${totalCommissions.salesPending.toLocaleString()}</Badge>
+                  <Badge variant="default">Paid: ${totalCommissions.salesPaid.toLocaleString()}</Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Salesperson</TableHead>
+                        <TableHead className="text-center">Jobs</TableHead>
+                        <TableHead className="text-right">Revenue</TableHead>
+                        <TableHead className="text-right">Net Profit</TableHead>
+                        <TableHead className="text-right">Commission</TableHead>
+                        <TableHead className="text-right">Pending</TableHead>
+                        <TableHead className="text-right">Paid</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {salesCommissionSummary.map((row) => (
+                        <TableRow key={row.id} data-testid={`row-sales-commission-${row.id}`}>
+                          <TableCell className="font-medium">{row.name}</TableCell>
+                          <TableCell className="text-center">{row.jobs}</TableCell>
+                          <TableCell className="text-right">${row.revenue.toLocaleString()}</TableCell>
+                          <TableCell className="text-right text-green-500">${row.netProfit.toLocaleString()}</TableCell>
+                          <TableCell className="text-right font-medium">${row.commission.toLocaleString()}</TableCell>
+                          <TableCell className="text-right text-amber-500">${row.pending.toLocaleString()}</TableCell>
+                          <TableCell className="text-right text-green-500">${row.paid.toLocaleString()}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Payroll Records Tab - Shows technician payroll summary */}
