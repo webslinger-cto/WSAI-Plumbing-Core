@@ -1,4 +1,4 @@
-# Design Guidelines: Chicago Sewer Experts CRM
+# Design Guidelines: Emergency Chicago Sewer Experts CRM
 
 ## Design Approach
 
@@ -28,11 +28,12 @@
 - Gradients: Radial gradients from `#1e1f28` to `#05060a` for depth
 
 **Accents**:
-- Primary Orange: `#f97316` (CTAs, important elements - Chicago Sewer Experts brand color)
-- Hover Orange: `#fb923c` (interactive states)
-- Soft Orange: `rgba(249, 115, 22, 0.18)` (backgrounds)
+- Primary Blue: `#3b82f6` (CTAs, important elements - Emergency Chicago Sewer Experts brand color)
+- Hover Blue: `#60a5fa` (interactive states)
+- Soft Blue: `rgba(59, 130, 246, 0.18)` (backgrounds)
+- Emergency Red: `#ef4444` (emergency indicators, alerts, brand accent)
 - Success Green: `#4caf50` (completed states, positive metrics)
-- Danger Red: `#f44336` (errors, critical alerts)
+- Danger Red: `#dc2626` (errors, critical alerts)
 - Warning Amber: `#f59e0b` (caution states)
 
 **Text**:
@@ -95,16 +96,16 @@
 - Dark backgrounds with colored data points
 
 **Buttons**:
-- Primary: Orange background `#f97316`, pill-shaped, uppercase, 0.08em letter-spacing (CSE brand CTA)
+- Primary: Blue background `#3b82f6`, pill-shaped, uppercase, 0.08em letter-spacing (Emergency Chicago Sewer Experts brand CTA)
 - Secondary: Outlined with `rgba(244,244,244,0.3)` border
 - Ghost: Transparent with muted text
-- Danger: Red outlined `rgba(244,67,54,0.7)`
+- Danger: Red background `#ef4444` (emergency accent color)
 - All buttons: Smooth hover lift with shadow
 
 **Forms & Inputs**:
 - Dark backgrounds `#161821`
 - Subtle borders `#2a2d38`
-- Focus state: Orange accent border (matches CSE brand)
+- Focus state: Blue accent border `#3b82f6` (matches Emergency CSE brand)
 - Labels above inputs (11px, muted)
 - Validation states with color-coded borders
 
@@ -112,7 +113,7 @@
 - Pill-shaped with colored borders and backgrounds
 - Done: Green (`#4caf50`)
 - Issue/Problem: Red (`#f44336`)
-- Pending: Orange (`#ff9800`)
+- Pending: Blue (`#3b82f6`)
 - Info: Blue-gray
 - 10px font, uppercase, letter-spaced
 
@@ -140,7 +141,7 @@
 
 **Loading States**:
 - Skeleton loaders with shimmer effect
-- Spinner for data fetching (orange accent)
+- Spinner for data fetching (blue accent)
 
 **Micro-interactions**:
 - Success checkmarks for completed actions
@@ -181,4 +182,4 @@ No hero images required. This is a utility application focused on data and funct
 - Action buttons
 - Empty states
 
-The Chicago Sewer Experts logo should be a simple icon (wrench/pipe symbol) in the header with gradient orange background and subtle glow effect, matching the brand's orange CTA color.
+The Emergency Chicago Sewer Experts logo features a plumber with the Chicago skyline background, emergency red siren, and blue uniform. The brand colors are blue (#3b82f6) for primary CTAs and red (#ef4444) for emergency accents, reflecting the professional and urgent nature of the service.

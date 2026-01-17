@@ -1,4 +1,4 @@
-// Resend email service for Chicago Sewer Experts CRM
+// Resend email service for Emergency Chicago Sewer Experts CRM
 // Integration: Resend connection via Replit integrations
 
 import { Resend } from 'resend';
@@ -72,12 +72,12 @@ export async function sendEmail(options: EmailOptions): Promise<{ success: boole
 }
 
 export function generateLeadAcknowledgmentEmail(customerName: string, serviceType: string): { subject: string; html: string; text: string } {
-  const subject = `Chicago Sewer Experts - We Received Your Request`;
+  const subject = `Emergency Chicago Sewer Experts - We Received Your Request`;
   
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <div style="background-color: #111827; padding: 20px; text-align: center;">
-        <h1 style="color: #f97316; margin: 0;">Chicago Sewer Experts</h1>
+      <div style="background-color: #0f172a; padding: 20px; text-align: center;">
+        <h1 style="color: #3b82f6; margin: 0;">Emergency Chicago Sewer Experts</h1>
         <p style="color: #9ca3af; margin: 5px 0 0 0;">Professional Sewer & Plumbing Services</p>
       </div>
       
@@ -85,7 +85,7 @@ export function generateLeadAcknowledgmentEmail(customerName: string, serviceTyp
         <h2 style="color: #111827; margin-top: 0;">Hello ${customerName},</h2>
         
         <p style="color: #374151; line-height: 1.6;">
-          Thank you for reaching out to Chicago Sewer Experts! We have received your request 
+          Thank you for reaching out to Emergency Chicago Sewer Experts! We have received your request 
           for <strong>${serviceType}</strong> service.
         </p>
         
@@ -110,13 +110,13 @@ export function generateLeadAcknowledgmentEmail(customerName: string, serviceTyp
         
         <p style="color: #374151; line-height: 1.6;">
           Best regards,<br>
-          <strong>Chicago Sewer Experts Team</strong>
+          <strong>Emergency Chicago Sewer Experts Team</strong>
         </p>
       </div>
       
       <div style="background-color: #f3f4f6; padding: 15px; text-align: center;">
         <p style="color: #6b7280; font-size: 12px; margin: 0;">
-          Chicago Sewer Experts | Chicago, IL | (312) 555-SEWER
+          Emergency Chicago Sewer Experts | Chicago, IL | (312) 555-SEWER
         </p>
       </div>
     </div>
@@ -125,7 +125,7 @@ export function generateLeadAcknowledgmentEmail(customerName: string, serviceTyp
   const text = `
 Hello ${customerName},
 
-Thank you for reaching out to Chicago Sewer Experts! We have received your request for ${serviceType} service.
+Thank you for reaching out to Emergency Chicago Sewer Experts! We have received your request for ${serviceType} service.
 
 One of our team members will contact you shortly to discuss your needs and schedule a convenient time for service.
 
@@ -138,7 +138,7 @@ What to Expect:
 If this is an emergency, please call us directly at (312) 555-SEWER.
 
 Best regards,
-Chicago Sewer Experts Team
+Emergency Chicago Sewer Experts Team
   `;
   
   return { subject, html, text };
@@ -151,12 +151,12 @@ export function generateAppointmentReminderEmail(
   technicianName: string,
   address: string
 ): { subject: string; html: string; text: string } {
-  const subject = `Appointment Reminder - Chicago Sewer Experts`;
+  const subject = `Appointment Reminder - Emergency Chicago Sewer Experts`;
   
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background-color: #111827; padding: 20px; text-align: center;">
-        <h1 style="color: #f97316; margin: 0;">Chicago Sewer Experts</h1>
+        <h1 style="color: #3b82f6; margin: 0;">Emergency Chicago Sewer Experts</h1>
         <p style="color: #9ca3af; margin: 5px 0 0 0;">Appointment Reminder</p>
       </div>
       
@@ -164,10 +164,10 @@ export function generateAppointmentReminderEmail(
         <h2 style="color: #111827; margin-top: 0;">Hello ${customerName},</h2>
         
         <p style="color: #374151; line-height: 1.6;">
-          This is a friendly reminder about your upcoming appointment with Chicago Sewer Experts.
+          This is a friendly reminder about your upcoming appointment with Emergency Chicago Sewer Experts.
         </p>
         
-        <div style="background-color: #fef3c7; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f97316;">
+        <div style="background-color: #fef3c7; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3b82f6;">
           <h3 style="color: #92400e; margin-top: 0;">Appointment Details:</h3>
           <p style="color: #374151; margin: 5px 0;"><strong>Date:</strong> ${scheduledDate}</p>
           <p style="color: #374151; margin: 5px 0;"><strong>Time:</strong> ${scheduledTime}</p>
@@ -182,13 +182,13 @@ export function generateAppointmentReminderEmail(
         
         <p style="color: #374151; line-height: 1.6;">
           Best regards,<br>
-          <strong>Chicago Sewer Experts Team</strong>
+          <strong>Emergency Chicago Sewer Experts Team</strong>
         </p>
       </div>
       
       <div style="background-color: #f3f4f6; padding: 15px; text-align: center;">
         <p style="color: #6b7280; font-size: 12px; margin: 0;">
-          Chicago Sewer Experts | Chicago, IL | (312) 555-SEWER
+          Emergency Chicago Sewer Experts | Chicago, IL | (312) 555-SEWER
         </p>
       </div>
     </div>
@@ -197,7 +197,7 @@ export function generateAppointmentReminderEmail(
   const text = `
 Hello ${customerName},
 
-This is a friendly reminder about your upcoming appointment with Chicago Sewer Experts.
+This is a friendly reminder about your upcoming appointment with Emergency Chicago Sewer Experts.
 
 Appointment Details:
 - Date: ${scheduledDate}
@@ -209,7 +209,7 @@ Please ensure someone is available at the property to provide access.
 If you need to reschedule, please call us at (312) 555-SEWER.
 
 Best regards,
-Chicago Sewer Experts Team
+Emergency Chicago Sewer Experts Team
   `;
   
   return { subject, html, text };
@@ -221,7 +221,7 @@ export function generateQuoteEmail(
   lineItems: Array<{ description: string; amount: number }>,
   validUntil: string
 ): { subject: string; html: string; text: string } {
-  const subject = `Your Quote from Chicago Sewer Experts - $${quoteTotal.toFixed(2)}`;
+  const subject = `Your Quote from Emergency Chicago Sewer Experts - $${quoteTotal.toFixed(2)}`;
   
   const lineItemsHtml = lineItems.map(item => `
     <tr>
@@ -233,7 +233,7 @@ export function generateQuoteEmail(
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background-color: #111827; padding: 20px; text-align: center;">
-        <h1 style="color: #f97316; margin: 0;">Chicago Sewer Experts</h1>
+        <h1 style="color: #3b82f6; margin: 0;">Emergency Chicago Sewer Experts</h1>
         <p style="color: #9ca3af; margin: 5px 0 0 0;">Your Service Quote</p>
       </div>
       
@@ -241,7 +241,7 @@ export function generateQuoteEmail(
         <h2 style="color: #111827; margin-top: 0;">Hello ${customerName},</h2>
         
         <p style="color: #374151; line-height: 1.6;">
-          Thank you for choosing Chicago Sewer Experts. Here is your detailed quote:
+          Thank you for choosing Emergency Chicago Sewer Experts. Here is your detailed quote:
         </p>
         
         <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
@@ -271,13 +271,13 @@ export function generateQuoteEmail(
         
         <p style="color: #374151; line-height: 1.6;">
           Best regards,<br>
-          <strong>Chicago Sewer Experts Team</strong>
+          <strong>Emergency Chicago Sewer Experts Team</strong>
         </p>
       </div>
       
       <div style="background-color: #f3f4f6; padding: 15px; text-align: center;">
         <p style="color: #6b7280; font-size: 12px; margin: 0;">
-          Chicago Sewer Experts | Chicago, IL | (312) 555-SEWER
+          Emergency Chicago Sewer Experts | Chicago, IL | (312) 555-SEWER
         </p>
       </div>
     </div>
@@ -288,7 +288,7 @@ export function generateQuoteEmail(
   const text = `
 Hello ${customerName},
 
-Thank you for choosing Chicago Sewer Experts. Here is your detailed quote:
+Thank you for choosing Emergency Chicago Sewer Experts. Here is your detailed quote:
 
 ${lineItemsText}
 
@@ -299,7 +299,7 @@ This quote is valid until ${validUntil}.
 To approve this quote and schedule service, please call us at (312) 555-SEWER or reply to this email.
 
 Best regards,
-Chicago Sewer Experts Team
+Emergency Chicago Sewer Experts Team
   `;
   
   return { subject, html, text };

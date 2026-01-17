@@ -1,7 +1,7 @@
-# Chicago Sewer Experts CRM
+# Emergency Chicago Sewer Experts CRM
 
 ## Overview
-Chicago Sewer Experts CRM is a lead management and customer relationship management system tailored for a sewer and plumbing services business. It facilitates efficient lead tracking from diverse sources, quote generation, and comprehensive commission tracking. The system supports four distinct user roles—administrators, dispatchers, field technicians, and salespersons—each with specialized functionalities to manage leads, coordinate jobs, perform on-site work, and handle sales. The primary goal is to optimize lead conversion, track revenue, and analyze costs.
+Emergency Chicago Sewer Experts CRM is a lead management and customer relationship management system tailored for a sewer and plumbing services business. It facilitates efficient lead tracking from diverse sources, quote generation, and comprehensive commission tracking. The system supports four distinct user roles—administrators, dispatchers, field technicians, and salespersons—each with specialized functionalities to manage leads, coordinate jobs, perform on-site work, and handle sales. The primary goal is to optimize lead conversion, track revenue, and analyze costs.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -13,7 +13,7 @@ Preferred communication style: Simple, everyday language.
 - **Routing**: Client-side routing with Wouter, supporting dedicated routes for Admin, Dispatcher, Technician, and Salesperson roles.
 - **State Management**: TanStack Query for server state, React hooks for local component state.
 - **UI Component System**: Radix UI primitives wrapped in custom components following the shadcn/ui pattern, with a "new-york" style variant.
-- **Styling**: Tailwind CSS with custom configuration, a dark-first design system using CSS variables, and a custom elevation system. Design guidelines emphasize a Chicago Sewer Experts branded dark theme with red accents.
+- **Styling**: Tailwind CSS with custom configuration, a dark-first design system using CSS variables, and a custom elevation system. Design guidelines emphasize an Emergency Chicago Sewer Experts branded dark theme with blue primary and red emergency accents.
 - **Component Architecture**: Extensive use of compound component patterns for highly composable UI elements.
 
 ### Backend
@@ -83,7 +83,7 @@ Preferred communication style: Simple, everyday language.
 
 This CRM is part of a 3-app system for SEO content generation:
 
-1. **Chicago Sewer Experts CRM** (this app)
+1. **Emergency Chicago Sewer Experts CRM** (this app)
    - Manages leads, jobs, technicians, and quotes
    - Pushes job data to Builder 1 when jobs are created or completed
    - Receives SEO content from Builder 1 for review/approval

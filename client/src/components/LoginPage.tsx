@@ -121,7 +121,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           <div className="mx-auto">
             <img 
               src={cseLogo} 
-              alt="Chicago Sewer Experts" 
+              alt="Emergency Chicago Sewer Experts" 
               className="h-24 w-auto mx-auto"
               data-testid="img-cse-logo"
             />
