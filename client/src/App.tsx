@@ -5,6 +5,9 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Crown, Eye } from "lucide-react";
 import AppSidebar from "@/components/AppSidebar";
 import LoginPage from "@/components/LoginPage";
 import PasswordSetupPage from "@/components/PasswordSetupPage";
@@ -156,6 +159,12 @@ function App() {
     requiresPasswordSetup: false,
     isSuperAdmin: false,
   });
+  
+  // Super admin role switching - allows viewing the app as different roles
+  const [viewAsRole, setViewAsRole] = useState<"admin" | "dispatcher" | "technician" | "salesperson" | null>(null);
+  
+  // The effective role is either the "view as" role (for super admins) or the actual role
+  const effectiveRole = auth.isSuperAdmin && viewAsRole ? viewAsRole : auth.role;
 
   // Always use dark mode for premium marble background
   useLayoutEffect(() => {
@@ -262,7 +271,7 @@ function App() {
         <SidebarProvider style={sidebarStyle as React.CSSProperties}>
           <div className="flex h-screen w-full marble-bg">
             <AppSidebar
-              role={auth.role!}
+              role={effectiveRole!}
               username={auth.username}
               onLogout={handleLogout}
             />
@@ -270,13 +279,42 @@ function App() {
               <header className="flex items-center gap-4 px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
                 <div className="flex-1" />
+                
+                {auth.isSuperAdmin && (
+                  <div className="flex items-center gap-3">
+                    <Badge variant="outline" className="bg-yellow-500/10 text-yellow-500 border-yellow-500/30 gap-1">
+                      <Crown className="w-3 h-3" />
+                      God Mode
+                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                      <Select
+                        value={viewAsRole || auth.role || "admin"}
+                        onValueChange={(v) => {
+                          setViewAsRole(v as typeof viewAsRole);
+                          setLocation("/");
+                        }}
+                      >
+                        <SelectTrigger className="w-[140px] h-8" data-testid="select-view-as-role">
+                          <SelectValue placeholder="View as..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="admin">Admin</SelectItem>
+                          <SelectItem value="dispatcher">Dispatcher</SelectItem>
+                          <SelectItem value="technician">Technician</SelectItem>
+                          <SelectItem value="salesperson">Salesperson</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
               </header>
               <main className="flex-1 overflow-auto p-6">
-                {auth.role === "admin" ? (
+                {effectiveRole === "admin" ? (
                   <AdminRouter />
-                ) : auth.role === "dispatcher" ? (
+                ) : effectiveRole === "dispatcher" ? (
                   <DispatcherRouter />
-                ) : auth.role === "salesperson" ? (
+                ) : effectiveRole === "salesperson" ? (
                   <SalespersonRouter 
                     salespersonId={auth.salespersonId || ""} 
                     userId={auth.userId}
