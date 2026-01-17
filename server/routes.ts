@@ -739,6 +739,233 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to fetch customer timeline" });
     }
   });
+
+  // Master Customer List - aggregates data from leads, jobs, quotes, calls
+  app.get("/api/customers/master-list", async (req, res) => {
+    try {
+      // Get all data sources
+      const [leads, jobs, quotes, calls] = await Promise.all([
+        storage.getLeads(),
+        storage.getJobs(),
+        storage.getAllQuotes(),
+        storage.getCalls()
+      ]);
+
+      // Build customer map keyed by normalized phone number
+      const customerMap = new Map<string, {
+        id: string;
+        phone: string;
+        name: string;
+        email: string | null;
+        address: string | null;
+        city: string | null;
+        zipCode: string | null;
+        source: string | null;
+        totalJobs: number;
+        completedJobs: number;
+        totalRevenue: number;
+        totalQuotes: number;
+        acceptedQuotes: number;
+        totalCalls: number;
+        lastServiceDate: Date | null;
+        lastContactDate: Date | null;
+        firstContactDate: Date | null;
+        serviceTypes: string[];
+        status: string;
+        leadIds: string[];
+        jobIds: string[];
+        quoteIds: string[];
+        tags: string[];
+      }>();
+
+      // Helper to normalize phone numbers for matching
+      const normalizePhone = (phone: string | null | undefined): string => {
+        if (!phone) return "";
+        return phone.replace(/\D/g, "").slice(-10); // Last 10 digits
+      };
+
+      // Process leads
+      for (const lead of leads) {
+        const phone = normalizePhone(lead.customerPhone);
+        if (!phone) continue;
+
+        if (!customerMap.has(phone)) {
+          customerMap.set(phone, {
+            id: lead.id,
+            phone: lead.customerPhone,
+            name: lead.customerName,
+            email: lead.customerEmail || null,
+            address: lead.address || null,
+            city: lead.city || null,
+            zipCode: lead.zipCode || null,
+            source: lead.source,
+            totalJobs: 0,
+            completedJobs: 0,
+            totalRevenue: 0,
+            totalQuotes: 0,
+            acceptedQuotes: 0,
+            totalCalls: 0,
+            lastServiceDate: null,
+            lastContactDate: lead.contactedAt ? new Date(lead.contactedAt) : null,
+            firstContactDate: lead.createdAt ? new Date(lead.createdAt) : null,
+            serviceTypes: lead.serviceType ? [lead.serviceType] : [],
+            status: lead.status === "converted" ? "customer" : lead.status === "lost" ? "lost" : "lead",
+            leadIds: [lead.id],
+            jobIds: [],
+            quoteIds: [],
+            tags: [],
+          });
+        } else {
+          const existing = customerMap.get(phone)!;
+          existing.leadIds.push(lead.id);
+          if (lead.serviceType && !existing.serviceTypes.includes(lead.serviceType)) {
+            existing.serviceTypes.push(lead.serviceType);
+          }
+          if (lead.status === "converted") existing.status = "customer";
+          if (!existing.source && lead.source) existing.source = lead.source;
+          if (!existing.email && lead.customerEmail) existing.email = lead.customerEmail;
+          if (!existing.address && lead.address) existing.address = lead.address;
+          if (!existing.city && lead.city) existing.city = lead.city;
+          const leadDate = lead.createdAt ? new Date(lead.createdAt) : null;
+          if (leadDate && (!existing.firstContactDate || leadDate < existing.firstContactDate)) {
+            existing.firstContactDate = leadDate;
+          }
+        }
+      }
+
+      // Process jobs
+      for (const job of jobs) {
+        const phone = normalizePhone(job.customerPhone);
+        if (!phone) continue;
+
+        if (!customerMap.has(phone)) {
+          customerMap.set(phone, {
+            id: job.id,
+            phone: job.customerPhone,
+            name: job.customerName,
+            email: job.customerEmail || null,
+            address: job.address,
+            city: job.city || null,
+            zipCode: job.zipCode || null,
+            source: null,
+            totalJobs: 1,
+            completedJobs: job.status === "completed" ? 1 : 0,
+            totalRevenue: Number(job.totalRevenue) || 0,
+            totalQuotes: 0,
+            acceptedQuotes: 0,
+            totalCalls: 0,
+            lastServiceDate: job.completedAt ? new Date(job.completedAt) : null,
+            lastContactDate: job.createdAt ? new Date(job.createdAt) : null,
+            firstContactDate: job.createdAt ? new Date(job.createdAt) : null,
+            serviceTypes: job.serviceType ? [job.serviceType] : [],
+            status: "customer",
+            leadIds: [],
+            jobIds: [job.id],
+            quoteIds: [],
+            tags: [],
+          });
+        } else {
+          const existing = customerMap.get(phone)!;
+          existing.totalJobs++;
+          if (job.status === "completed") existing.completedJobs++;
+          existing.totalRevenue += Number(job.totalRevenue) || 0;
+          existing.jobIds.push(job.id);
+          existing.status = "customer";
+          if (job.serviceType && !existing.serviceTypes.includes(job.serviceType)) {
+            existing.serviceTypes.push(job.serviceType);
+          }
+          if (!existing.email && job.customerEmail) existing.email = job.customerEmail;
+          if (!existing.address && job.address) existing.address = job.address;
+          if (!existing.city && job.city) existing.city = job.city;
+          const completedDate = job.completedAt ? new Date(job.completedAt) : null;
+          if (completedDate && (!existing.lastServiceDate || completedDate > existing.lastServiceDate)) {
+            existing.lastServiceDate = completedDate;
+          }
+        }
+      }
+
+      // Process quotes
+      for (const quote of quotes) {
+        const phone = normalizePhone(quote.customerPhone);
+        if (!phone) continue;
+
+        if (customerMap.has(phone)) {
+          const existing = customerMap.get(phone)!;
+          existing.totalQuotes++;
+          if (quote.status === "accepted") existing.acceptedQuotes++;
+          existing.quoteIds.push(quote.id);
+          if (!existing.email && quote.customerEmail) existing.email = quote.customerEmail;
+        }
+      }
+
+      // Process calls
+      for (const call of calls) {
+        const phone = normalizePhone(call.callerPhone);
+        if (!phone) continue;
+
+        if (customerMap.has(phone)) {
+          const existing = customerMap.get(phone)!;
+          existing.totalCalls++;
+          const callDate = call.createdAt ? new Date(call.createdAt) : null;
+          if (callDate && (!existing.lastContactDate || callDate > existing.lastContactDate)) {
+            existing.lastContactDate = callDate;
+          }
+        }
+      }
+
+      // Derive tags based on customer data
+      for (const customer of customerMap.values()) {
+        // High value customer
+        if (customer.totalRevenue >= 5000) customer.tags.push("high-value");
+        else if (customer.totalRevenue >= 1000) customer.tags.push("mid-value");
+        
+        // Repeat customer
+        if (customer.completedJobs >= 2) customer.tags.push("repeat");
+        
+        // Recent customer (last 90 days)
+        const ninetyDaysAgo = new Date();
+        ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+        if (customer.lastServiceDate && customer.lastServiceDate > ninetyDaysAgo) {
+          customer.tags.push("recent");
+        }
+        
+        // Lapsed customer (no service in 1 year but was a customer)
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+        if (customer.status === "customer" && customer.lastServiceDate && customer.lastServiceDate < oneYearAgo) {
+          customer.tags.push("lapsed");
+        }
+        
+        // Has email for marketing
+        if (customer.email) customer.tags.push("has-email");
+      }
+
+      // Convert to array and sort by most recent contact
+      const customers = Array.from(customerMap.values())
+        .sort((a, b) => {
+          const dateA = a.lastContactDate?.getTime() || 0;
+          const dateB = b.lastContactDate?.getTime() || 0;
+          return dateB - dateA;
+        });
+
+      res.json({
+        customers,
+        summary: {
+          totalCustomers: customers.length,
+          activeCustomers: customers.filter(c => c.status === "customer").length,
+          totalRevenue: customers.reduce((sum, c) => sum + c.totalRevenue, 0),
+          avgRevenuePerCustomer: customers.length > 0 
+            ? customers.reduce((sum, c) => sum + c.totalRevenue, 0) / customers.filter(c => c.totalRevenue > 0).length 
+            : 0,
+          withEmail: customers.filter(c => c.email).length,
+          repeatCustomers: customers.filter(c => c.completedJobs >= 2).length,
+        }
+      });
+    } catch (error) {
+      console.error("Error fetching master customer list:", error);
+      res.status(500).json({ error: "Failed to fetch master customer list" });
+    }
+  });
   
   // Recalculate scores for all leads
   app.post("/api/leads/recalculate-scores", async (req, res) => {

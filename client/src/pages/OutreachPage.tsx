@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -54,6 +55,13 @@ import {
   Eye,
   PlayCircle,
   PauseCircle,
+  DollarSign,
+  MapPin,
+  Tag,
+  UserCheck,
+  Repeat,
+  TrendingUp,
+  Download,
 } from "lucide-react";
 
 interface Campaign {
@@ -80,6 +88,44 @@ interface FilteredLead {
   city: string;
 }
 
+interface MasterCustomer {
+  id: string;
+  phone: string;
+  name: string;
+  email: string | null;
+  address: string | null;
+  city: string | null;
+  zipCode: string | null;
+  source: string | null;
+  totalJobs: number;
+  completedJobs: number;
+  totalRevenue: number;
+  totalQuotes: number;
+  acceptedQuotes: number;
+  totalCalls: number;
+  lastServiceDate: string | null;
+  lastContactDate: string | null;
+  firstContactDate: string | null;
+  serviceTypes: string[];
+  status: string;
+  leadIds: string[];
+  jobIds: string[];
+  quoteIds: string[];
+  tags: string[];
+}
+
+interface CustomerListResponse {
+  customers: MasterCustomer[];
+  summary: {
+    totalCustomers: number;
+    activeCustomers: number;
+    totalRevenue: number;
+    avgRevenuePerCustomer: number;
+    withEmail: number;
+    repeatCustomers: number;
+  };
+}
+
 // Start with empty campaigns - data comes from API
 const initialCampaigns: Campaign[] = [];
 
@@ -94,13 +140,27 @@ const emailTemplates = [
 
 export default function OutreachPage() {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("campaigns");
+  const [activeTab, setActiveTab] = useState("customers");
   const [showCampaignBuilder, setShowCampaignBuilder] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>(initialCampaigns);
+  
+  // Customer list state
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [customerTagFilter, setCustomerTagFilter] = useState("all");
+  const [customerStatusFilter, setCustomerStatusFilter] = useState("all");
+  const [customerCityFilter, setCustomerCityFilter] = useState("all");
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<MasterCustomer | null>(null);
+  const [showCustomerDetail, setShowCustomerDetail] = useState(false);
+
+  // Fetch master customer list
+  const { data: customerData, isLoading: customersLoading } = useQuery<CustomerListResponse>({
+    queryKey: ["/api/customers/master-list"],
+  });
   
   // Campaign builder state
   const [campaignForm, setCampaignForm] = useState({
@@ -242,11 +302,85 @@ export default function OutreachPage() {
     setSelectedLeads([]);
   };
 
+  // Filter customers based on search and filters
+  const filteredCustomers = customerData?.customers.filter((customer) => {
+    const matchesSearch = !customerSearch || 
+      customer.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+      customer.phone.includes(customerSearch) ||
+      customer.email?.toLowerCase().includes(customerSearch.toLowerCase()) ||
+      customer.city?.toLowerCase().includes(customerSearch.toLowerCase());
+    
+    const matchesTag = customerTagFilter === "all" || customer.tags.includes(customerTagFilter);
+    const matchesStatus = customerStatusFilter === "all" || customer.status === customerStatusFilter;
+    const matchesCity = customerCityFilter === "all" || customer.city?.toLowerCase() === customerCityFilter.toLowerCase();
+    
+    return matchesSearch && matchesTag && matchesStatus && matchesCity;
+  }) || [];
+
+  // Get unique cities from customer data
+  const uniqueCities = Array.from(new Set(customerData?.customers.map(c => c.city).filter(Boolean) as string[])).sort();
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(amount);
+  };
+
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return "N/A";
+    return new Date(dateStr).toLocaleDateString();
+  };
+
+  const handleSelectAllCustomers = () => {
+    if (selectedCustomers.length === filteredCustomers.length) {
+      setSelectedCustomers([]);
+    } else {
+      setSelectedCustomers(filteredCustomers.map(c => c.id));
+    }
+  };
+
+  const handleSelectCustomer = (customerId: string) => {
+    setSelectedCustomers(prev => 
+      prev.includes(customerId) 
+        ? prev.filter(id => id !== customerId)
+        : [...prev, customerId]
+    );
+  };
+
+  const handleExportCustomers = () => {
+    const dataToExport = selectedCustomers.length > 0 
+      ? filteredCustomers.filter(c => selectedCustomers.includes(c.id))
+      : filteredCustomers;
+    
+    const csv = [
+      ["Name", "Phone", "Email", "Address", "City", "Status", "Total Jobs", "Total Revenue", "Last Service", "Tags"].join(","),
+      ...dataToExport.map(c => [
+        `"${c.name}"`,
+        c.phone,
+        c.email || "",
+        `"${c.address || ""}"`,
+        c.city || "",
+        c.status,
+        c.totalJobs,
+        c.totalRevenue,
+        c.lastServiceDate || "",
+        `"${c.tags.join("; ")}"`
+      ].join(","))
+    ].join("\n");
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `customer-list-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+    toast({ title: "Export complete", description: `Exported ${dataToExport.length} customers` });
+  };
+
   const kpiCards = [
-    { title: "Active Campaigns", value: "2", icon: Megaphone, change: "+1 this week" },
-    { title: "Total Reach", value: "645", icon: Users, change: "Across all campaigns" },
-    { title: "Response Rate", value: "14.2%", icon: Target, change: "+2.1% vs last month" },
-    { title: "Scheduled", value: "3", icon: Calendar, change: "Next 7 days" },
+    { title: "Total Customers", value: String(customerData?.summary.totalCustomers || 0), icon: Users, change: `${customerData?.summary.withEmail || 0} with email` },
+    { title: "Active Customers", value: String(customerData?.summary.activeCustomers || 0), icon: UserCheck, change: `${customerData?.summary.repeatCustomers || 0} repeat` },
+    { title: "Total Revenue", value: formatCurrency(customerData?.summary.totalRevenue || 0), icon: DollarSign, change: "Lifetime value" },
+    { title: "Avg Revenue", value: formatCurrency(customerData?.summary.avgRevenuePerCustomer || 0), icon: TrendingUp, change: "Per customer" },
   ];
 
   return (
@@ -287,6 +421,10 @@ export default function OutreachPage() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
+          <TabsTrigger value="customers" data-testid="tab-customers">
+            <Users className="w-4 h-4 mr-2" />
+            Customer List
+          </TabsTrigger>
           <TabsTrigger value="campaigns" data-testid="tab-campaigns">
             <Megaphone className="w-4 h-4 mr-2" />
             Campaigns
@@ -296,6 +434,207 @@ export default function OutreachPage() {
             Analytics
           </TabsTrigger>
         </TabsList>
+
+        {/* Master Customer List Tab */}
+        <TabsContent value="customers" className="mt-6 space-y-4">
+          {/* Filters and Search */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+                <div className="flex flex-1 flex-wrap gap-3 items-center">
+                  <div className="relative flex-1 min-w-[200px] max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search by name, phone, email, city..."
+                      value={customerSearch}
+                      onChange={(e) => setCustomerSearch(e.target.value)}
+                      className="pl-9"
+                      data-testid="input-customer-search"
+                    />
+                  </div>
+                  <Select value={customerStatusFilter} onValueChange={setCustomerStatusFilter}>
+                    <SelectTrigger className="w-[140px]" data-testid="select-customer-status">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="customer">Customers</SelectItem>
+                      <SelectItem value="lead">Leads</SelectItem>
+                      <SelectItem value="lost">Lost</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={customerTagFilter} onValueChange={setCustomerTagFilter}>
+                    <SelectTrigger className="w-[160px]" data-testid="select-customer-tag">
+                      <SelectValue placeholder="Tags" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Tags</SelectItem>
+                      <SelectItem value="high-value">High Value</SelectItem>
+                      <SelectItem value="mid-value">Mid Value</SelectItem>
+                      <SelectItem value="repeat">Repeat Customer</SelectItem>
+                      <SelectItem value="recent">Recent</SelectItem>
+                      <SelectItem value="lapsed">Lapsed</SelectItem>
+                      <SelectItem value="has-email">Has Email</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={customerCityFilter} onValueChange={setCustomerCityFilter}>
+                    <SelectTrigger className="w-[150px]" data-testid="select-customer-city">
+                      <SelectValue placeholder="City" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Cities</SelectItem>
+                      {uniqueCities.map(city => (
+                        <SelectItem key={city} value={city.toLowerCase()}>{city}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={handleExportCustomers} data-testid="button-export-customers">
+                    <Download className="w-4 h-4 mr-2" />
+                    Export {selectedCustomers.length > 0 ? `(${selectedCustomers.length})` : ""}
+                  </Button>
+                  <Button 
+                    onClick={() => setShowCampaignBuilder(true)}
+                    disabled={selectedCustomers.length === 0}
+                    data-testid="button-create-campaign-from-customers"
+                  >
+                    <Megaphone className="w-4 h-4 mr-2" />
+                    Campaign ({selectedCustomers.length})
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Customer Table */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <div>
+                <CardTitle>Master Customer List</CardTitle>
+                <CardDescription>
+                  {filteredCustomers.length} customers • Click to view details
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {customersLoading ? (
+                <div className="p-8 text-center text-muted-foreground">Loading customers...</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-10">
+                          <Checkbox 
+                            checked={selectedCustomers.length === filteredCustomers.length && filteredCustomers.length > 0}
+                            onCheckedChange={handleSelectAllCustomers}
+                            data-testid="checkbox-select-all-customers"
+                          />
+                        </TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Contact</TableHead>
+                        <TableHead>Location</TableHead>
+                        <TableHead className="text-right">Jobs</TableHead>
+                        <TableHead className="text-right">Revenue</TableHead>
+                        <TableHead>Last Service</TableHead>
+                        <TableHead>Tags</TableHead>
+                        <TableHead className="w-10"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredCustomers.map((customer) => (
+                        <TableRow 
+                          key={customer.id} 
+                          className="cursor-pointer hover-elevate"
+                          onClick={() => { setSelectedCustomer(customer); setShowCustomerDetail(true); }}
+                          data-testid={`row-customer-${customer.id}`}
+                        >
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <Checkbox 
+                              checked={selectedCustomers.includes(customer.id)}
+                              onCheckedChange={() => handleSelectCustomer(customer.id)}
+                              data-testid={`checkbox-customer-${customer.id}`}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{customer.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {customer.status === "customer" ? "Customer" : customer.status === "lead" ? "Lead" : "Lost"}
+                                {customer.source && ` • ${customer.source}`}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1 text-sm">
+                                <Phone className="w-3 h-3 text-muted-foreground" />
+                                {customer.phone}
+                              </div>
+                              {customer.email && (
+                                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                  <Mail className="w-3 h-3" />
+                                  {customer.email}
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {customer.city && (
+                              <div className="flex items-center gap-1 text-sm">
+                                <MapPin className="w-3 h-3 text-muted-foreground" />
+                                {customer.city}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div>
+                              <p className="font-medium">{customer.completedJobs}</p>
+                              <p className="text-xs text-muted-foreground">{customer.totalQuotes} quotes</p>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <p className={`font-medium ${customer.totalRevenue >= 5000 ? "text-green-500" : ""}`}>
+                              {formatCurrency(customer.totalRevenue)}
+                            </p>
+                          </TableCell>
+                          <TableCell>
+                            <p className="text-sm">{formatDate(customer.lastServiceDate)}</p>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1 max-w-[200px]">
+                              {customer.tags.slice(0, 3).map(tag => (
+                                <Badge key={tag} variant="outline" className="text-xs">
+                                  {tag}
+                                </Badge>
+                              ))}
+                              {customer.tags.length > 3 && (
+                                <Badge variant="outline" className="text-xs">+{customer.tags.length - 3}</Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Button size="icon" variant="ghost" data-testid={`button-view-customer-${customer.id}`}>
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {filteredCustomers.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                            No customers found matching your filters
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="campaigns" className="mt-6">
           <Card>
@@ -904,6 +1243,160 @@ export default function OutreachPage() {
                   </div>
                 </>
               )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Customer Detail Dialog */}
+      <Dialog open={showCustomerDetail} onOpenChange={setShowCustomerDetail}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Customer Details</DialogTitle>
+            <DialogDescription>Complete customer profile and history</DialogDescription>
+          </DialogHeader>
+          {selectedCustomer && (
+            <div className="space-y-6">
+              {/* Contact Info */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-3">
+                  <div>
+                    <h3 className="text-lg font-semibold">{selectedCustomer.name}</h3>
+                    <Badge 
+                      variant="outline" 
+                      className={
+                        selectedCustomer.status === "customer" 
+                          ? "bg-green-500/10 text-green-500" 
+                          : selectedCustomer.status === "lead" 
+                          ? "bg-blue-500/10 text-blue-500" 
+                          : "bg-muted text-muted-foreground"
+                      }
+                    >
+                      {selectedCustomer.status === "customer" ? "Customer" : selectedCustomer.status === "lead" ? "Lead" : "Lost"}
+                    </Badge>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Phone className="w-4 h-4 text-muted-foreground" />
+                      <span>{selectedCustomer.phone}</span>
+                    </div>
+                    {selectedCustomer.email && (
+                      <div className="flex items-center gap-2">
+                        <Mail className="w-4 h-4 text-muted-foreground" />
+                        <span>{selectedCustomer.email}</span>
+                      </div>
+                    )}
+                    {selectedCustomer.address && (
+                      <div className="flex items-start gap-2">
+                        <MapPin className="w-4 h-4 text-muted-foreground mt-0.5" />
+                        <span className="text-sm">
+                          {selectedCustomer.address}
+                          {selectedCustomer.city && `, ${selectedCustomer.city}`}
+                          {selectedCustomer.zipCode && ` ${selectedCustomer.zipCode}`}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Lead Source</p>
+                    <p className="font-medium">{selectedCustomer.source || "Unknown"}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">First Contact</p>
+                    <p className="font-medium">{formatDate(selectedCustomer.firstContactDate)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Last Contact</p>
+                    <p className="font-medium">{formatDate(selectedCustomer.lastContactDate)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="text-center p-3 rounded-lg bg-muted/50">
+                  <p className="text-2xl font-bold">{selectedCustomer.completedJobs}</p>
+                  <p className="text-xs text-muted-foreground">Completed Jobs</p>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-muted/50">
+                  <p className="text-2xl font-bold text-green-500">{formatCurrency(selectedCustomer.totalRevenue)}</p>
+                  <p className="text-xs text-muted-foreground">Total Revenue</p>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-muted/50">
+                  <p className="text-2xl font-bold">{selectedCustomer.totalQuotes}</p>
+                  <p className="text-xs text-muted-foreground">Quotes Sent</p>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-muted/50">
+                  <p className="text-2xl font-bold">{selectedCustomer.totalCalls}</p>
+                  <p className="text-xs text-muted-foreground">Total Calls</p>
+                </div>
+              </div>
+
+              {/* Service History */}
+              {selectedCustomer.serviceTypes.length > 0 && (
+                <div>
+                  <p className="text-sm text-muted-foreground mb-2">Services Used</p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedCustomer.serviceTypes.map((service, idx) => (
+                      <Badge key={idx} variant="outline">{service}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Tags */}
+              <div>
+                <p className="text-sm text-muted-foreground mb-2">Customer Tags</p>
+                <div className="flex flex-wrap gap-2">
+                  {selectedCustomer.tags.length > 0 ? (
+                    selectedCustomer.tags.map((tag) => (
+                      <Badge 
+                        key={tag} 
+                        className={
+                          tag === "high-value" ? "bg-green-500/10 text-green-500 border-green-500/20" :
+                          tag === "repeat" ? "bg-blue-500/10 text-blue-500 border-blue-500/20" :
+                          tag === "lapsed" ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" :
+                          ""
+                        }
+                      >
+                        <Tag className="w-3 h-3 mr-1" />
+                        {tag}
+                      </Badge>
+                    ))
+                  ) : (
+                    <span className="text-muted-foreground text-sm">No tags</span>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Actions */}
+              <div className="flex gap-2 flex-wrap">
+                <Button variant="outline" size="sm">
+                  <Phone className="w-4 h-4 mr-2" />
+                  Call
+                </Button>
+                <Button variant="outline" size="sm" disabled={!selectedCustomer.email}>
+                  <Mail className="w-4 h-4 mr-2" />
+                  Email
+                </Button>
+                <Button 
+                  size="sm"
+                  onClick={() => {
+                    setSelectedCustomers([selectedCustomer.id]);
+                    setShowCustomerDetail(false);
+                    setShowCampaignBuilder(true);
+                  }}
+                >
+                  <Megaphone className="w-4 h-4 mr-2" />
+                  Add to Campaign
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
