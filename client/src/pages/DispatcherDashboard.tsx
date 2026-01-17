@@ -49,9 +49,10 @@ import {
   FileText,
   ClipboardList,
 } from "lucide-react";
-import type { Job, Lead, Call, Technician, Quote } from "@shared/schema";
+import type { Job, Lead, Call, Technician, Quote, PricebookItem } from "@shared/schema";
 import { useState } from "react";
 import { formatDistanceToNow, format } from "date-fns";
+import { DollarSign, Trash2, Save, Send, X, Edit3 } from "lucide-react";
 
 const jobStatusConfig: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   pending: { label: "Pending", color: "bg-muted text-muted-foreground", icon: Clock },
@@ -784,6 +785,676 @@ function CallTeamTab({ technicians }: { technicians: Technician[] }) {
   );
 }
 
+// Quote Builder Tab Component with RightFlow CRM Style
+interface QuoteLineItem {
+  id: string;
+  pricebookItemId?: string;
+  description: string;
+  customDescription?: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+
+interface QuoteBuilderTabProps {
+  jobs: Job[];
+  technicians: Technician[];
+}
+
+function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
+  const { toast } = useToast();
+  
+  // View state: list or create
+  const [view, setView] = useState<"list" | "create">("list");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [showArchived, setShowArchived] = useState(false);
+  
+  // Form state
+  const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string>("");
+  const [selectedTechnicianId, setSelectedTechnicianId] = useState<string>("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [address, setAddress] = useState("");
+  const [zipCode, setZipCode] = useState("");
+  const [lineItems, setLineItems] = useState<QuoteLineItem[]>([
+    { id: crypto.randomUUID(), description: "", customDescription: "", quantity: 1, unitPrice: 0, total: 0 }
+  ]);
+  const [laborFee, setLaborFee] = useState(0);
+  const [materialsCost, setMaterialsCost] = useState(0);
+  const [taxRate, setTaxRate] = useState(0);
+  const [notes, setNotes] = useState("");
+
+  // Fetch all quotes
+  const { data: allQuotes = [], isLoading: quotesLoading } = useQuery<Quote[]>({
+    queryKey: ["/api/quotes"],
+  });
+
+  // Fetch pricebook items
+  const { data: pricebookItems = [] } = useQuery<PricebookItem[]>({
+    queryKey: ["/api/pricebook/items"],
+  });
+
+  // Filter quotes
+  const filteredQuotes = allQuotes.filter((quote) => {
+    const matchesSearch = searchQuery === "" || 
+      quote.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      quote.customerPhone?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      quote.address?.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesStatus = statusFilter === "all" || quote.status === statusFilter;
+    const matchesArchived = showArchived ? quote.status === "declined" || quote.status === "expired" : 
+      quote.status !== "declined" && quote.status !== "expired";
+    
+    return matchesSearch && matchesStatus && matchesArchived;
+  });
+
+  // Calculate totals
+  const lineItemsTotal = lineItems.reduce((sum, item) => sum + item.total, 0);
+  const subtotal = lineItemsTotal + laborFee + materialsCost;
+  const taxAmount = subtotal * (taxRate / 100);
+  const total = subtotal + taxAmount;
+
+  // Add new line item row
+  const addLineItem = () => {
+    setLineItems([
+      ...lineItems,
+      { id: crypto.randomUUID(), description: "", customDescription: "", quantity: 1, unitPrice: 0, total: 0 }
+    ]);
+  };
+
+  // Update line item from pricebook selection
+  const updateLineItemFromPricebook = (itemId: string, pricebookItemId: string) => {
+    const pricebookItem = pricebookItems.find(p => p.id === pricebookItemId);
+    if (!pricebookItem) return;
+    
+    setLineItems(lineItems.map(item => 
+      item.id === itemId ? {
+        ...item,
+        pricebookItemId,
+        description: pricebookItem.name,
+        unitPrice: parseFloat(pricebookItem.basePrice || "0"),
+        total: item.quantity * parseFloat(pricebookItem.basePrice || "0")
+      } : item
+    ));
+  };
+
+  // Update line item quantity
+  const updateLineItemQuantity = (itemId: string, qty: number) => {
+    setLineItems(lineItems.map(item =>
+      item.id === itemId ? { ...item, quantity: qty, total: qty * item.unitPrice } : item
+    ));
+  };
+
+  // Update line item price
+  const updateLineItemPrice = (itemId: string, price: number) => {
+    setLineItems(lineItems.map(item =>
+      item.id === itemId ? { ...item, unitPrice: price, total: item.quantity * price } : item
+    ));
+  };
+
+  // Update custom description
+  const updateLineItemCustomDesc = (itemId: string, desc: string) => {
+    setLineItems(lineItems.map(item =>
+      item.id === itemId ? { ...item, customDescription: desc } : item
+    ));
+  };
+
+  // Remove line item
+  const removeLineItem = (itemId: string) => {
+    if (lineItems.length <= 1) return;
+    setLineItems(lineItems.filter(item => item.id !== itemId));
+  };
+
+  // Reset form
+  const resetForm = () => {
+    setEditingQuoteId(null);
+    setSelectedJobId("");
+    setSelectedTechnicianId("");
+    setCustomerName("");
+    setCustomerPhone("");
+    setCustomerEmail("");
+    setAddress("");
+    setZipCode("");
+    setLineItems([{ id: crypto.randomUUID(), description: "", customDescription: "", quantity: 1, unitPrice: 0, total: 0 }]);
+    setLaborFee(0);
+    setMaterialsCost(0);
+    setTaxRate(0);
+    setNotes("");
+  };
+
+  // Handle job selection - auto-fill customer info
+  const handleJobSelect = (jobId: string) => {
+    setSelectedJobId(jobId);
+    const job = jobs.find((j) => j.id === jobId);
+    if (job) {
+      setCustomerName(job.customerName);
+      setCustomerPhone(job.customerPhone || "");
+      setCustomerEmail(job.customerEmail || "");
+      setAddress(`${job.address}${job.city ? `, ${job.city}` : ""}`);
+      setZipCode(job.zipCode || "");
+      if (job.assignedTechnicianId) {
+        setSelectedTechnicianId(job.assignedTechnicianId);
+      }
+    }
+  };
+
+  // Get available jobs for selection
+  const availableJobs = jobs.filter(
+    (j) => j.status === "pending" || j.status === "assigned" || j.status === "on_site" || j.status === "in_progress"
+  );
+
+  // Open create view
+  const openCreateView = () => {
+    resetForm();
+    setView("create");
+  };
+
+  // Load quote for editing
+  const loadQuoteForEdit = (quote: Quote) => {
+    setEditingQuoteId(quote.id);
+    setSelectedJobId(quote.jobId);
+    setSelectedTechnicianId(quote.technicianId || "");
+    setCustomerName(quote.customerName);
+    setCustomerPhone(quote.customerPhone || "");
+    setCustomerEmail(quote.customerEmail || "");
+    setAddress(quote.address || "");
+    setZipCode("");
+    setTaxRate(parseFloat(quote.taxRate || "0"));
+    setNotes(quote.notes || "");
+    setLaborFee(parseFloat(quote.laborTotal || "0"));
+    setMaterialsCost(0);
+    
+    try {
+      const items = JSON.parse(quote.lineItems || "[]");
+      if (items.length > 0) {
+        setLineItems(items.map((item: QuoteLineItem) => ({
+          ...item,
+          id: item.id || crypto.randomUUID(),
+        })));
+      } else {
+        setLineItems([{ id: crypto.randomUUID(), description: "", customDescription: "", quantity: 1, unitPrice: 0, total: 0 }]);
+      }
+    } catch {
+      setLineItems([{ id: crypto.randomUUID(), description: "", customDescription: "", quantity: 1, unitPrice: 0, total: 0 }]);
+    }
+    
+    setView("create");
+  };
+
+  // Save quote mutation
+  const saveQuoteMutation = useMutation({
+    mutationFn: async (status: "draft" | "sent") => {
+      // Filter out empty line items
+      const validLineItems = lineItems.filter(item => item.description || item.customDescription);
+      
+      const quoteData = {
+        jobId: selectedJobId,
+        technicianId: selectedTechnicianId || undefined,
+        customerName,
+        customerPhone,
+        customerEmail,
+        address,
+        lineItems: JSON.stringify(validLineItems),
+        laborTotal: laborFee.toString(),
+        subtotal: subtotal.toString(),
+        taxRate: taxRate.toString(),
+        taxAmount: taxAmount.toString(),
+        total: total.toString(),
+        notes,
+        status,
+        sentAt: status === "sent" ? new Date().toISOString() : undefined,
+      };
+
+      if (editingQuoteId) {
+        return apiRequest("PATCH", `/api/quotes/${editingQuoteId}`, quoteData);
+      } else {
+        return apiRequest("POST", "/api/quotes", quoteData);
+      }
+    },
+    onSuccess: (_, status) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      toast({
+        title: status === "draft" ? "Quote Saved" : "Quote Sent",
+        description: status === "draft" 
+          ? "Quote saved as draft" 
+          : "Quote has been sent to the customer",
+      });
+      resetForm();
+      setView("list");
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to save quote",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Quote List View
+  if (view === "list") {
+    return (
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">Quotes</h2>
+            <p className="text-muted-foreground">Create and manage customer quotes</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={showArchived ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowArchived(!showArchived)}
+              data-testid="button-toggle-archived"
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              Archived
+            </Button>
+            <Button onClick={openCreateView} data-testid="button-new-quote">
+              <Plus className="w-4 h-4 mr-2" />
+              New Quote
+            </Button>
+          </div>
+        </div>
+
+        {/* Search and Filters */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <Input
+                  placeholder="Search quotes..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="max-w-md"
+                  data-testid="input-search-quotes"
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-40" data-testid="select-status-filter">
+                  <SelectValue placeholder="All Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="sent">Sent</SelectItem>
+                  <SelectItem value="viewed">Viewed</SelectItem>
+                  <SelectItem value="accepted">Accepted</SelectItem>
+                  <SelectItem value="declined">Declined</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Quotes List */}
+        <Card>
+          <CardContent className="p-6">
+            {quotesLoading ? (
+              <div className="text-center py-12 text-muted-foreground">Loading quotes...</div>
+            ) : filteredQuotes.length === 0 ? (
+              <div className="text-center py-12">
+                <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <p className="text-lg font-medium">No quotes found</p>
+                <p className="text-muted-foreground mb-4">Start by creating your first quote</p>
+                <Button onClick={openCreateView} data-testid="button-create-first-quote">
+                  Create Quote
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredQuotes.map((quote) => (
+                  <div
+                    key={quote.id}
+                    className="flex items-center justify-between p-4 border rounded-md hover-elevate cursor-pointer"
+                    onClick={() => loadQuoteForEdit(quote)}
+                    data-testid={`quote-row-${quote.id}`}
+                  >
+                    <div className="flex-1">
+                      <p className="font-medium">{quote.customerName}</p>
+                      <p className="text-sm text-muted-foreground">{quote.address}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold">${parseFloat(quote.total || "0").toFixed(2)}</p>
+                      <Badge className={quoteStatusConfig[quote.status]?.color || "bg-muted"}>
+                        {quoteStatusConfig[quote.status]?.label || quote.status}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Create/Edit Quote View
+  return (
+    <div className="space-y-6">
+      {/* Header with Back Button */}
+      <div className="flex items-center gap-4">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => { resetForm(); setView("list"); }}
+          data-testid="button-back-to-list"
+        >
+          <X className="w-5 h-5" />
+        </Button>
+        <div>
+          <h2 className="text-2xl font-bold">{editingQuoteId ? "Edit Quote" : "Create Quote"}</h2>
+          <p className="text-muted-foreground">Build a detailed quote for your customer</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column: Form */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Job Selection */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base">Link to Job</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <Label>Select an existing job (auto-fills customer info)</Label>
+                <Select value={selectedJobId} onValueChange={handleJobSelect}>
+                  <SelectTrigger data-testid="select-job">
+                    <SelectValue placeholder="Select a job..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableJobs.map((job) => (
+                      <SelectItem key={job.id} value={job.id}>
+                        {job.customerName} - {job.address} ({job.status})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {!selectedJobId && (
+                  <p className="text-sm text-amber-500">A job must be selected to create a quote</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Customer Information */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base">Customer Information</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Customer Name</Label>
+                  <Input
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder=""
+                    data-testid="input-customer-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Phone</Label>
+                  <Input
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    placeholder=""
+                    data-testid="input-customer-phone"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Email</Label>
+                  <Input
+                    type="email"
+                    value={customerEmail}
+                    onChange={(e) => setCustomerEmail(e.target.value)}
+                    placeholder=""
+                    data-testid="input-customer-email"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Address</Label>
+                  <Input
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder=""
+                    data-testid="input-address"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Zip Code (for tax calculation)</Label>
+                <Input
+                  value={zipCode}
+                  onChange={(e) => setZipCode(e.target.value)}
+                  placeholder="e.g., 60455"
+                  className="max-w-xs"
+                  data-testid="input-zipcode"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Line Items */}
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Line Items</CardTitle>
+                <Button variant="outline" size="sm" onClick={addLineItem} data-testid="button-add-item">
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Item
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {/* Header Row */}
+              <div className="grid grid-cols-12 gap-3 mb-3 text-sm font-medium text-muted-foreground">
+                <div className="col-span-5">Description</div>
+                <div className="col-span-2">Qty</div>
+                <div className="col-span-2">Unit Price</div>
+                <div className="col-span-2">Total</div>
+                <div className="col-span-1"></div>
+              </div>
+              
+              {/* Line Items */}
+              <div className="space-y-3">
+                {lineItems.map((item, index) => (
+                  <div key={item.id} className="space-y-2">
+                    <div className="grid grid-cols-12 gap-3 items-center">
+                      <div className="col-span-5">
+                        <Select
+                          value={item.pricebookItemId || ""}
+                          onValueChange={(val) => updateLineItemFromPricebook(item.id, val)}
+                        >
+                          <SelectTrigger data-testid={`select-pricebook-${index}`}>
+                            <SelectValue placeholder="Select from pricebook..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {pricebookItems.filter(p => p.isActive).map((pItem) => (
+                              <SelectItem key={pItem.id} value={pItem.id}>
+                                {pItem.name} - ${parseFloat(pItem.basePrice || "0").toFixed(2)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-2">
+                        <Input
+                          type="number"
+                          value={item.quantity}
+                          onChange={(e) => updateLineItemQuantity(item.id, parseInt(e.target.value) || 1)}
+                          min={1}
+                          data-testid={`input-qty-${index}`}
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <Input
+                          type="number"
+                          value={item.unitPrice}
+                          onChange={(e) => updateLineItemPrice(item.id, parseFloat(e.target.value) || 0)}
+                          step="0.01"
+                          data-testid={`input-price-${index}`}
+                        />
+                      </div>
+                      <div className="col-span-2 text-right font-medium">
+                        ${item.total.toFixed(2)}
+                      </div>
+                      <div className="col-span-1 flex justify-end">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeLineItem(item.id)}
+                          disabled={lineItems.length <= 1}
+                          data-testid={`button-remove-${index}`}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                    <Input
+                      value={item.customDescription || ""}
+                      onChange={(e) => updateLineItemCustomDesc(item.id, e.target.value)}
+                      placeholder="Or enter custom description..."
+                      className="text-sm"
+                      data-testid={`input-custom-desc-${index}`}
+                    />
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Notes */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base">Notes</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Add any notes or terms for this quote..."
+                rows={4}
+                data-testid="input-notes"
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right Column: Quote Summary */}
+        <div className="lg:col-span-1">
+          <Card className="sticky top-4">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base">Quote Summary</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Line Items Total */}
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Line Items</span>
+                <span className="font-medium">${lineItemsTotal.toFixed(2)}</span>
+              </div>
+
+              {/* Labor Fee */}
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Labor Fee</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground">$</span>
+                  <Input
+                    type="number"
+                    value={laborFee}
+                    onChange={(e) => setLaborFee(parseFloat(e.target.value) || 0)}
+                    className="w-20 text-right"
+                    step="0.01"
+                    data-testid="input-labor-fee"
+                  />
+                </div>
+              </div>
+
+              {/* Materials Cost */}
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Materials Cost</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground">$</span>
+                  <Input
+                    type="number"
+                    value={materialsCost}
+                    onChange={(e) => setMaterialsCost(parseFloat(e.target.value) || 0)}
+                    className="w-20 text-right"
+                    step="0.01"
+                    data-testid="input-materials-cost"
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Subtotal */}
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span className="font-medium">${subtotal.toFixed(2)}</span>
+              </div>
+
+              {/* Tax Rate */}
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Tax Rate</span>
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="number"
+                    value={taxRate}
+                    onChange={(e) => setTaxRate(parseFloat(e.target.value) || 0)}
+                    className="w-16 text-right"
+                    step="0.1"
+                    data-testid="input-tax-rate"
+                  />
+                  <span className="text-muted-foreground">%</span>
+                  <span className="ml-2 font-medium">${taxAmount.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Total */}
+              <div className="flex items-center justify-between text-lg font-bold">
+                <span>Total</span>
+                <span className="text-primary">${total.toFixed(2)}</span>
+              </div>
+
+              {/* Actions */}
+              <div className="space-y-2 pt-4">
+                <Button
+                  className="w-full"
+                  onClick={() => saveQuoteMutation.mutate("sent")}
+                  disabled={!selectedJobId || !customerName || saveQuoteMutation.isPending}
+                  data-testid="button-send-quote"
+                >
+                  <Send className="w-4 h-4 mr-2" />
+                  Send Quote
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="w-full"
+                  onClick={() => saveQuoteMutation.mutate("draft")}
+                  disabled={!selectedJobId || !customerName || saveQuoteMutation.isPending}
+                  data-testid="button-save-draft"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save as Draft
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const serviceTypeOptions = [
   "Sewer Main - Clear",
   "Sewer Main - Repair",
@@ -1430,6 +2101,10 @@ export default function DispatcherDashboard() {
             <FileText className="w-4 h-4 mr-2" />
             Quotes ({pendingQuotes.length})
           </TabsTrigger>
+          <TabsTrigger value="quotebuilder" data-testid="tab-quotebuilder">
+            <DollarSign className="w-4 h-4 mr-2" />
+            Quote Builder
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="newjob">
@@ -1674,6 +2349,10 @@ export default function DispatcherDashboard() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="quotebuilder">
+          <QuoteBuilderTab jobs={jobs} technicians={technicians} />
         </TabsContent>
       </Tabs>
 
