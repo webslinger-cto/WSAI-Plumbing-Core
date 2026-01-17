@@ -250,6 +250,7 @@ export const jobs = pgTable("jobs", {
   laborCost: decimal("labor_cost"), // laborHours * laborRate
   // Expense tracking
   materialsCost: decimal("materials_cost"),
+  permitCost: decimal("permit_cost"), // permit fees
   travelExpense: decimal("travel_expense"),
   equipmentCost: decimal("equipment_cost"),
   otherExpenses: decimal("other_expenses"),
@@ -807,6 +808,8 @@ export const payrollRecords = pgTable("payroll_records", {
   commissionPay: decimal("commission_pay", { precision: 10, scale: 2 }).default("0"),
   bonusPay: decimal("bonus_pay", { precision: 10, scale: 2 }).default("0"),
   leadFeeDeductions: decimal("lead_fee_deductions", { precision: 10, scale: 2 }).default("0"),
+  materialDeductions: decimal("material_deductions", { precision: 10, scale: 2 }).default("0"),
+  permitDeductions: decimal("permit_deductions", { precision: 10, scale: 2 }).default("0"),
   deductions: decimal("deductions", { precision: 10, scale: 2 }).default("0"),
   federalTax: decimal("federal_tax", { precision: 10, scale: 2 }).default("0"),
   stateTax: decimal("state_tax", { precision: 10, scale: 2 }).default("0"),
@@ -866,7 +869,10 @@ export const jobRevenueEvents = pgTable("job_revenue_events", {
   totalRevenue: decimal("total_revenue", { precision: 10, scale: 2 }).notNull(),
   laborCost: decimal("labor_cost", { precision: 10, scale: 2 }).notNull().default("0"),
   materialCost: decimal("material_cost", { precision: 10, scale: 2 }).notNull().default("0"),
+  permitCost: decimal("permit_cost", { precision: 10, scale: 2 }).notNull().default("0"),
   marketingCost: decimal("marketing_cost", { precision: 10, scale: 2 }).notNull().default("0"),
+  companyLeadCost: decimal("company_lead_cost", { precision: 10, scale: 2 }).notNull().default("0"), // actual cost company paid for lead
+  techLeadFee: decimal("tech_lead_fee", { precision: 10, scale: 2 }).notNull().default("0"), // fee charged to tech/sales
   netProfit: decimal("net_profit", { precision: 10, scale: 2 }).notNull(),
   commissionAmount: decimal("commission_amount", { precision: 10, scale: 2 }).notNull().default("0"),
   payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id),
