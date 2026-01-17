@@ -943,7 +943,7 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
 
   // Get available jobs for selection
   const availableJobs = jobs.filter(
-    (j) => j.status === "pending" || j.status === "assigned" || j.status === "on_site" || j.status === "in_progress"
+    (j) => j.status === "new" || j.status === "pending" || j.status === "assigned" || j.status === "on_site" || j.status === "in_progress"
   );
 
   // Open create view

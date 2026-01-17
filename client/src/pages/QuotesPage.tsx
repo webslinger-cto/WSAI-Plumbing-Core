@@ -46,8 +46,13 @@ import {
   User,
   Link2,
   Copy,
+  Plus,
+  Send,
+  Save,
+  Trash2,
+  X,
 } from "lucide-react";
-import type { Quote, Job, Technician } from "@shared/schema";
+import type { Quote, Job, Technician, PricebookItem } from "@shared/schema";
 import { format, formatDistanceToNow } from "date-fns";
 
 const quoteStatusConfig: Record<string, { label: string; color: string }> = {
@@ -60,7 +65,9 @@ const quoteStatusConfig: Record<string, { label: string; color: string }> = {
 };
 
 interface LineItem {
+  id: string;
   description: string;
+  customDescription?: string;
   quantity: number;
   unitPrice: number;
   total?: number;
@@ -73,6 +80,20 @@ export default function QuotesPage() {
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+
+  // Create quote form state
+  const [selectedJobId, setSelectedJobId] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [address, setAddress] = useState("");
+  const [lineItems, setLineItems] = useState<LineItem[]>([
+    { id: crypto.randomUUID(), description: "", customDescription: "", quantity: 1, unitPrice: 0, total: 0 }
+  ]);
+  const [laborFee, setLaborFee] = useState(0);
+  const [taxRate, setTaxRate] = useState(0);
+  const [notes, setNotes] = useState("");
 
   const { data: quotes = [], isLoading: quotesLoading } = useQuery<Quote[]>({
     queryKey: ["/api/quotes"],
@@ -84,6 +105,104 @@ export default function QuotesPage() {
 
   const { data: technicians = [] } = useQuery<Technician[]>({
     queryKey: ["/api/technicians"],
+  });
+
+  const { data: pricebookItems = [] } = useQuery<PricebookItem[]>({
+    queryKey: ["/api/pricebook"],
+  });
+
+  const availableJobs = jobs.filter(
+    (j) => j.status === "new" || j.status === "pending" || j.status === "assigned" || j.status === "on_site" || j.status === "in_progress"
+  );
+
+  const resetCreateForm = () => {
+    setSelectedJobId("");
+    setCustomerName("");
+    setCustomerPhone("");
+    setCustomerEmail("");
+    setAddress("");
+    setLineItems([{ id: crypto.randomUUID(), description: "", customDescription: "", quantity: 1, unitPrice: 0, total: 0 }]);
+    setLaborFee(0);
+    setTaxRate(0);
+    setNotes("");
+  };
+
+  const handleJobSelect = (jobId: string) => {
+    setSelectedJobId(jobId);
+    const job = jobs.find((j) => j.id === jobId);
+    if (job) {
+      setCustomerName(job.customerName);
+      setCustomerPhone(job.customerPhone || "");
+      setCustomerEmail(job.customerEmail || "");
+      setAddress(`${job.address}${job.city ? `, ${job.city}` : ""}`);
+    }
+  };
+
+  const handleLineItemChange = (id: string, field: keyof LineItem, value: string | number) => {
+    setLineItems(lineItems.map(item => {
+      if (item.id === id) {
+        const updated = { ...item, [field]: value };
+        if (field === "description" && pricebookItems.length > 0) {
+          const pricebookItem = pricebookItems.find(p => p.name === value);
+          if (pricebookItem) {
+            updated.unitPrice = parseFloat(pricebookItem.basePrice);
+          }
+        }
+        updated.total = updated.quantity * updated.unitPrice;
+        return updated;
+      }
+      return item;
+    }));
+  };
+
+  const addLineItem = () => {
+    setLineItems([...lineItems, { id: crypto.randomUUID(), description: "", customDescription: "", quantity: 1, unitPrice: 0, total: 0 }]);
+  };
+
+  const removeLineItem = (id: string) => {
+    if (lineItems.length <= 1) return;
+    setLineItems(lineItems.filter(item => item.id !== id));
+  };
+
+  // Calculate totals
+  const lineItemsTotal = lineItems.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+  const subtotal = lineItemsTotal + laborFee;
+  const taxAmount = subtotal * (taxRate / 100);
+  const total = subtotal + taxAmount;
+
+  const createQuoteMutation = useMutation({
+    mutationFn: async (status: "draft" | "sent") => {
+      const validLineItems = lineItems.filter(item => item.description || item.customDescription);
+      const quoteData = {
+        jobId: selectedJobId,
+        customerName,
+        customerPhone,
+        customerEmail,
+        address,
+        lineItems: JSON.stringify(validLineItems),
+        laborTotal: laborFee.toString(),
+        subtotal: subtotal.toString(),
+        taxRate: taxRate.toString(),
+        taxAmount: taxAmount.toString(),
+        total: total.toString(),
+        notes,
+        status,
+        sentAt: status === "sent" ? new Date().toISOString() : undefined,
+      };
+      return apiRequest("POST", "/api/quotes", quoteData);
+    },
+    onSuccess: (_, status) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      setCreateDialogOpen(false);
+      resetCreateForm();
+      toast({
+        title: status === "draft" ? "Quote Saved" : "Quote Sent",
+        description: status === "draft" ? "Quote saved as draft." : "Quote has been sent to customer.",
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Could not create quote.", variant: "destructive" });
+    },
   });
 
   const updateMutation = useMutation({
@@ -219,6 +338,10 @@ export default function QuotesPage() {
             <DollarSign className="w-4 h-4 mr-1" />
             ${totalValue.toLocaleString()}
           </Badge>
+          <Button onClick={() => setCreateDialogOpen(true)} data-testid="button-new-quote">
+            <Plus className="w-4 h-4 mr-2" />
+            New Quote
+          </Button>
         </div>
       </div>
 
@@ -404,6 +527,209 @@ export default function QuotesPage() {
               isPending={updateMutation.isPending}
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Quote Dialog */}
+      <Dialog open={createDialogOpen} onOpenChange={(open) => { if (!open) { resetCreateForm(); } setCreateDialogOpen(open); }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create New Quote</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6">
+            {/* Job Selection */}
+            <div className="space-y-2">
+              <Label>Link to Job</Label>
+              <Select value={selectedJobId} onValueChange={handleJobSelect}>
+                <SelectTrigger data-testid="select-job">
+                  <SelectValue placeholder="Select a job..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableJobs.map((job) => (
+                    <SelectItem key={job.id} value={job.id}>
+                      {job.customerName} - {job.address} ({job.status})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!selectedJobId && (
+                <p className="text-sm text-amber-500">A job must be selected to create a quote</p>
+              )}
+            </div>
+
+            {/* Customer Information */}
+            <div className="space-y-4">
+              <Label className="text-base font-medium">Customer Information</Label>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Name</Label>
+                  <Input
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    data-testid="input-customer-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Phone</Label>
+                  <Input
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    data-testid="input-customer-phone"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Email</Label>
+                  <Input
+                    type="email"
+                    value={customerEmail}
+                    onChange={(e) => setCustomerEmail(e.target.value)}
+                    data-testid="input-customer-email"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Address</Label>
+                  <Input
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    data-testid="input-address"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Line Items */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label className="text-base font-medium">Line Items</Label>
+                <Button variant="outline" size="sm" onClick={addLineItem} data-testid="button-add-item">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Item
+                </Button>
+              </div>
+              <div className="space-y-3">
+                {lineItems.map((item, index) => (
+                  <div key={item.id} className="flex items-center gap-3 p-3 border rounded-md">
+                    <div className="flex-1">
+                      <Select
+                        value={item.description}
+                        onValueChange={(value) => handleLineItemChange(item.id, "description", value)}
+                      >
+                        <SelectTrigger data-testid={`select-pricebook-${index}`}>
+                          <SelectValue placeholder="Select service..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {pricebookItems.map((pb) => (
+                            <SelectItem key={pb.id} value={pb.name}>
+                              {pb.name} - ${parseFloat(pb.basePrice).toFixed(2)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Input
+                      type="number"
+                      value={item.quantity}
+                      onChange={(e) => handleLineItemChange(item.id, "quantity", parseInt(e.target.value) || 1)}
+                      className="w-20 text-center"
+                      min={1}
+                      data-testid={`input-quantity-${index}`}
+                    />
+                    <Input
+                      type="number"
+                      value={item.unitPrice}
+                      onChange={(e) => handleLineItemChange(item.id, "unitPrice", parseFloat(e.target.value) || 0)}
+                      className="w-24 text-right"
+                      step="0.01"
+                      data-testid={`input-unit-price-${index}`}
+                    />
+                    <span className="w-24 text-right font-medium">${(item.quantity * item.unitPrice).toFixed(2)}</span>
+                    {lineItems.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeLineItem(item.id)}
+                        data-testid={`button-remove-item-${index}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="bg-muted/50 rounded-md p-4 space-y-3">
+              <div className="flex justify-between">
+                <span>Line Items</span>
+                <span className="font-medium">${lineItemsTotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Labor Fee</span>
+                <Input
+                  type="number"
+                  value={laborFee}
+                  onChange={(e) => setLaborFee(parseFloat(e.target.value) || 0)}
+                  className="w-24 text-right"
+                  step="0.01"
+                  data-testid="input-labor-fee"
+                />
+              </div>
+              <Separator />
+              <div className="flex justify-between">
+                <span>Subtotal</span>
+                <span className="font-medium">${subtotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Tax Rate (%)</span>
+                <Input
+                  type="number"
+                  value={taxRate}
+                  onChange={(e) => setTaxRate(parseFloat(e.target.value) || 0)}
+                  className="w-20 text-right"
+                  step="0.1"
+                  data-testid="input-tax-rate"
+                />
+              </div>
+              <Separator />
+              <div className="flex justify-between text-lg font-bold">
+                <span>Total</span>
+                <span>${total.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-2">
+              <Label>Notes</Label>
+              <Textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Additional notes..."
+                rows={3}
+                data-testid="input-notes"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => createQuoteMutation.mutate("draft")}
+              disabled={!selectedJobId || !customerName || createQuoteMutation.isPending}
+              data-testid="button-save-draft"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              Save as Draft
+            </Button>
+            <Button
+              onClick={() => createQuoteMutation.mutate("sent")}
+              disabled={!selectedJobId || !customerName || createQuoteMutation.isPending}
+              data-testid="button-send-quote"
+            >
+              <Send className="w-4 h-4 mr-2" />
+              Send Quote
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
