@@ -1519,6 +1519,12 @@ export default function SettingsPage() {
               <div>
                 <h4 className="font-medium mb-3">Documentation Downloads</h4>
                 <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  <a href="/api/docs/readme" download="Emergency-Chicago-Sewer-Experts-CRM-README.pdf">
+                    <Button variant="outline" className="w-full justify-start gap-2" data-testid="button-download-readme-pdf">
+                      <Download className="w-4 h-4" />
+                      <span>System README (Full Guide)</span>
+                    </Button>
+                  </a>
                   <a href="/3-app-integration-guide.pdf" download>
                     <Button variant="outline" className="w-full justify-start gap-2" data-testid="button-download-integration-pdf">
                       <Download className="w-4 h-4" />
