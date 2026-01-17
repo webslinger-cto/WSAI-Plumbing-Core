@@ -167,6 +167,41 @@ function UserPasswordManagement() {
     },
   });
 
+  const deleteUserMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const res = await apiRequest("DELETE", `/api/admin/users/${userId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({
+        title: "User deleted",
+        description: "The user account has been removed.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to delete user",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDeleteUser = (user: SystemUser) => {
+    if (user.isSuperAdmin) {
+      toast({
+        title: "Cannot delete",
+        description: "Super admin accounts cannot be deleted.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (confirm(`Are you sure you want to delete ${user.fullName || user.username}? This action cannot be undone.`)) {
+      deleteUserMutation.mutate(user.id);
+    }
+  };
+
   const togglePasswordVisibility = (userId: string) => {
     setShowPasswords(prev => ({ ...prev, [userId]: !prev[userId] }));
   };
@@ -245,6 +280,7 @@ function UserPasswordManagement() {
                       <th className="px-4 py-3 text-left text-sm font-medium">Username</th>
                       <th className="px-4 py-3 text-left text-sm font-medium">Password</th>
                       <th className="px-4 py-3 text-left text-sm font-medium">Status</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -311,6 +347,19 @@ function UserPasswordManagement() {
                             <Badge variant="outline" className="bg-muted text-muted-foreground">
                               Inactive
                             </Badge>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {!user.isSuperAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeleteUser(user)}
+                              disabled={deleteUserMutation.isPending}
+                              data-testid={`button-delete-user-${user.id}`}
+                            >
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
                           )}
                         </td>
                       </tr>

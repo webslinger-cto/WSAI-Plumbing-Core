@@ -242,6 +242,29 @@ export async function registerRoutes(
     }
   });
 
+  // Delete user
+  app.delete("/api/admin/users/:userId", async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Prevent deletion of super admin
+      if (user.isSuperAdmin) {
+        return res.status(403).json({ error: "Cannot delete super admin account" });
+      }
+
+      await storage.deleteUser(userId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      res.status(500).json({ error: "Failed to delete user" });
+    }
+  });
+
   // Technicians
   app.get("/api/technicians", async (req, res) => {
     try {

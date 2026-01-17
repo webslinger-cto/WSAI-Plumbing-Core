@@ -104,6 +104,7 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<User>): Promise<User | undefined>;
+  deleteUser(id: string): Promise<boolean>;
   getUsers(): Promise<User[]>;
 
   // Technicians
@@ -561,6 +562,10 @@ export class MemStorage implements IStorage {
     const updated = { ...user, ...updates };
     this.users.set(id, updated);
     return updated;
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    return this.users.delete(id);
   }
 
   // Technicians
@@ -1695,6 +1700,11 @@ export class DatabaseStorage implements IStorage {
   async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> {
     const [user] = await db.update(users).set(updates).where(eq(users.id, id)).returning();
     return user;
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    const result = await db.delete(users).where(eq(users.id, id));
+    return true;
   }
 
   // Technicians
