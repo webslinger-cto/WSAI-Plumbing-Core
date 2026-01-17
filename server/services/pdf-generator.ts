@@ -859,3 +859,354 @@ export function generateThreeWayComparisonPDF(): PDFKit.PDFDocument {
 
   return doc;
 }
+
+export function generateReadmePDF(): PDFKit.PDFDocument {
+  const doc = new PDFDocument({ margin: 50 });
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  // ============ COVER PAGE ============
+  doc.moveDown(4);
+  doc.fontSize(32).font("Helvetica-Bold").fillColor("#1e40af").text("Emergency Chicago Sewer Experts", { align: "center" });
+  doc.fontSize(28).font("Helvetica-Bold").fillColor("#dc2626").text("CRM Platform", { align: "center" });
+  doc.moveDown(1);
+  doc.fontSize(14).font("Helvetica").fillColor("#666666").text("Field Service Management System", { align: "center" });
+  doc.moveDown(0.5);
+  doc.fontSize(12).text("Technical Documentation & User Guide", { align: "center" });
+  doc.moveDown(4);
+  doc.fontSize(10).fillColor("#999999").text(`Version 2.0 | ${today}`, { align: "center" });
+  doc.moveDown(0.5);
+  doc.text("Powered by WebSlingerAI", { align: "center" });
+  
+  // ============ EXECUTIVE SUMMARY ============
+  doc.addPage();
+  doc.fillColor("#000000");
+  doc.fontSize(20).font("Helvetica-Bold").fillColor("#1e40af").text("Executive Summary");
+  doc.moveDown(0.5);
+  doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke("#1e40af");
+  doc.moveDown(1);
+  
+  doc.fontSize(11).font("Helvetica").fillColor("#333333").text(
+    "The Emergency Chicago Sewer Experts CRM is a comprehensive field service management platform designed specifically for sewer and plumbing service businesses. Built with modern web technologies, it provides end-to-end management of the customer lifecycle from lead capture through job completion and payment collection.",
+    { align: "justify" }
+  );
+  doc.moveDown(1);
+  
+  doc.font("Helvetica-Bold").text("Key Business Benefits:");
+  doc.moveDown(0.3);
+  doc.font("Helvetica");
+  const benefits = [
+    "Quote-First Workflow: Jobs are only created when customers accept quotes, reducing wasted technician time",
+    "Multi-Source Lead Integration: Automatic capture from eLocal, Networx, Angi, Thumbtack, Inquirly, and Zapier",
+    "Real-Time GPS Tracking: Monitor technician locations and auto-dispatch to closest available tech",
+    "Automated Customer Communication: Email and SMS notifications for appointments, reminders, and status updates",
+    "Comprehensive Financial Tracking: Revenue, costs, commissions, and payroll with detailed breakdowns",
+    "Role-Based Access: Tailored interfaces for admins, dispatchers, technicians, and salespersons",
+    "SEO Content Integration: 3-app ecosystem for automated content generation from completed jobs"
+  ];
+  benefits.forEach(b => {
+    doc.text(`  • ${b}`, { indent: 10 });
+  });
+  
+  doc.moveDown(1);
+  doc.font("Helvetica-Bold").text("Target Users:");
+  doc.moveDown(0.3);
+  doc.font("Helvetica");
+  doc.text("  • Business owners seeking operational visibility and financial analytics");
+  doc.text("  • Office dispatchers managing schedules and customer communications");
+  doc.text("  • Field technicians needing mobile access to job details and quote creation");
+  doc.text("  • Sales teams tracking leads, commissions, and conversion rates");
+  
+  // ============ TECHNOLOGY STACK ============
+  doc.addPage();
+  doc.fontSize(20).font("Helvetica-Bold").fillColor("#1e40af").text("Technology Stack");
+  doc.moveDown(0.5);
+  doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke("#1e40af");
+  doc.moveDown(1);
+  doc.fillColor("#333333");
+  
+  // Frontend
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Frontend");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  const frontendStack = [
+    ["React 18", "Modern component-based UI framework with hooks and concurrent features"],
+    ["TypeScript", "Type-safe development with full IDE support"],
+    ["Vite", "Lightning-fast build tool with hot module replacement"],
+    ["TanStack Query", "Powerful data fetching, caching, and synchronization"],
+    ["Tailwind CSS", "Utility-first CSS framework for rapid styling"],
+    ["Radix UI / shadcn", "Accessible, unstyled UI primitives with customization"],
+    ["Wouter", "Lightweight client-side routing (~1.5KB)"],
+    ["Recharts", "Composable charting library for analytics dashboards"],
+    ["Leaflet", "Interactive maps for GPS tracking and location visualization"],
+    ["Framer Motion", "Production-ready animations and transitions"]
+  ];
+  frontendStack.forEach(([tech, desc]) => {
+    doc.font("Helvetica-Bold").text(`  ${tech}: `, { continued: true });
+    doc.font("Helvetica").text(desc);
+  });
+  
+  doc.moveDown(1);
+  
+  // Backend
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Backend");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  const backendStack = [
+    ["Node.js", "JavaScript runtime for server-side execution"],
+    ["Express.js", "Minimal, flexible web application framework"],
+    ["TypeScript", "Shared type definitions between frontend and backend"],
+    ["PostgreSQL", "Robust relational database with JSON support"],
+    ["Drizzle ORM", "Type-safe ORM with excellent TypeScript integration"],
+    ["Passport.js", "Session-based authentication middleware"],
+    ["PDFKit", "PDF generation for quotes, reports, and documentation"],
+    ["Resend", "Modern email API for transactional emails"],
+    ["Twilio/SignalWire", "SMS and voice communication services"]
+  ];
+  backendStack.forEach(([tech, desc]) => {
+    doc.font("Helvetica-Bold").text(`  ${tech}: `, { continued: true });
+    doc.font("Helvetica").text(desc);
+  });
+  
+  doc.moveDown(1);
+  
+  // Development & Build
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Development & Build");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  const devStack = [
+    ["ESBuild", "Ultra-fast bundler for production builds"],
+    ["Drizzle Kit", "Database schema migrations and management"],
+    ["Zod", "Runtime type validation with TypeScript inference"],
+    ["React Hook Form", "Performant form handling with validation"]
+  ];
+  devStack.forEach(([tech, desc]) => {
+    doc.font("Helvetica-Bold").text(`  ${tech}: `, { continued: true });
+    doc.font("Helvetica").text(desc);
+  });
+  
+  // ============ INTEGRATIONS ============
+  doc.addPage();
+  doc.fontSize(20).font("Helvetica-Bold").fillColor("#1e40af").text("External Integrations");
+  doc.moveDown(0.5);
+  doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke("#1e40af");
+  doc.moveDown(1);
+  doc.fillColor("#333333");
+  
+  // Lead Sources
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Lead Source Webhooks");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  const leadSources = [
+    ["eLocal", "POST /api/webhooks/elocal", "Real-time lead capture with service type mapping"],
+    ["Networx", "POST /api/webhooks/networx", "Automatic lead creation with customer details"],
+    ["Angi (HomeAdvisor)", "POST /api/webhooks/angi", "Signature-verified webhook integration"],
+    ["Thumbtack", "POST /api/webhooks/thumbtack", "Basic auth protected lead intake"],
+    ["Inquirly", "POST /api/webhooks/inquirly", "Direct API integration with status sync"],
+    ["Zapier", "POST /api/webhooks/zapier", "Flexible automation for custom sources"]
+  ];
+  leadSources.forEach(([source, endpoint, desc]) => {
+    doc.font("Helvetica-Bold").text(`  ${source}`, { continued: false });
+    doc.font("Helvetica").text(`    Endpoint: ${endpoint}`);
+    doc.text(`    ${desc}`);
+    doc.moveDown(0.3);
+  });
+  
+  doc.moveDown(0.5);
+  
+  // Communication
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Communication Services");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.font("Helvetica-Bold").text("  Resend Email API");
+  doc.font("Helvetica").text("    Transactional emails for quotes, confirmations, and reminders");
+  doc.moveDown(0.3);
+  doc.font("Helvetica-Bold").text("  Twilio SMS");
+  doc.font("Helvetica").text("    Appointment reminders and technician dispatch notifications");
+  doc.moveDown(0.3);
+  doc.font("Helvetica-Bold").text("  SignalWire");
+  doc.font("Helvetica").text("    Alternative voice/SMS provider with call logging");
+  
+  doc.moveDown(1);
+  
+  // 3-App Ecosystem
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("3-App SEO Content Ecosystem");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("This CRM is part of a connected 3-app system for automated SEO content generation:");
+  doc.moveDown(0.3);
+  doc.font("Helvetica-Bold").text("  1. Emergency Chicago Sewer Experts CRM (This App)");
+  doc.font("Helvetica").text("     Manages leads, jobs, and pushes job data to Builder 1");
+  doc.moveDown(0.2);
+  doc.font("Helvetica-Bold").text("  2. Replit Builder 1 (webslingeraiglassseo.com)");
+  doc.font("Helvetica").text("     Receives job data, generates SEO content, sends back for review");
+  doc.moveDown(0.2);
+  doc.font("Helvetica-Bold").text("  3. EmergencyChicagoSewerExperts.replit.app");
+  doc.font("Helvetica").text("     Public website that receives approved content for publication");
+  
+  // ============ CORE WORKFLOW ============
+  doc.addPage();
+  doc.fontSize(20).font("Helvetica-Bold").fillColor("#1e40af").text("Core Business Workflow");
+  doc.moveDown(0.5);
+  doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke("#1e40af");
+  doc.moveDown(1);
+  doc.fillColor("#333333");
+  
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Quote-to-Job Workflow (RightFlow CRM Style)");
+  doc.moveDown(0.5);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("IMPORTANT: Jobs are ONLY created when a customer accepts a quote. There is no direct job creation.", { underline: true });
+  doc.moveDown(0.5);
+  
+  const workflowSteps = [
+    ["1. Lead Capture", "Leads arrive from various sources (webhooks, manual entry, phone calls)"],
+    ["2. Create Quote", "Dispatcher or salesperson creates quote with customer info and pricebook items"],
+    ["3. Send Quote", "Quote is sent via email/SMS with a unique public link"],
+    ["4. Customer Views", "System tracks when customer opens and views the quote"],
+    ["5. Customer Accepts", "Customer clicks accept button on public quote page"],
+    ["6. Auto-Job Creation", "Accepted quote automatically becomes a job with 'pending' status"],
+    ["7. Dispatch", "Dispatcher assigns a technician or uses auto-dispatch to closest tech"],
+    ["8. En Route", "Technician marks status as 'en_route', customer receives SMS notification"],
+    ["9. On Site", "Technician arrives and marks status as 'on_site'"],
+    ["10. Job Complete", "Technician completes work, logs costs, captures photos, marks complete"]
+  ];
+  
+  workflowSteps.forEach(([step, desc]) => {
+    doc.font("Helvetica-Bold").text(step, { continued: true });
+    doc.font("Helvetica").text(` - ${desc}`);
+    doc.moveDown(0.2);
+  });
+  
+  doc.moveDown(1);
+  
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Automated Customer Notifications");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  const notifications = [
+    "Immediate confirmation when job is scheduled",
+    "48-hour reminder before appointment",
+    "24-hour reminder before appointment",
+    "Day-of reminder with technician details",
+    "Technician en route notification with ETA",
+    "Job completion confirmation with summary"
+  ];
+  notifications.forEach(n => {
+    doc.text(`  • ${n}`);
+  });
+  
+  // ============ SPECIAL FEATURES ============
+  doc.addPage();
+  doc.fontSize(20).font("Helvetica-Bold").fillColor("#1e40af").text("Special Features");
+  doc.moveDown(0.5);
+  doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke("#1e40af");
+  doc.moveDown(1);
+  doc.fillColor("#333333");
+  
+  const specialFeatures = [
+    {
+      name: "God Mode (Super Admin Role Switching)",
+      desc: "Super administrators can instantly switch views to see the application as any role - including specific technicians or salespersons by name. Perfect for training, troubleshooting, or understanding user experience."
+    },
+    {
+      name: "Master Customer Data List",
+      desc: "Aggregated customer database combining data from leads, jobs, quotes, and calls. Auto-generated tags identify high-value ($5000+), repeat customers, lapsed accounts, and more. Supports CSV export for marketing campaigns."
+    },
+    {
+      name: "Real-Time GPS Technician Tracking",
+      desc: "Interactive map showing all technician locations in real-time. Dispatchers can see who's closest to a job site and make informed assignment decisions."
+    },
+    {
+      name: "Auto-Dispatch to Closest Technician",
+      desc: "Automatically finds and notifies the nearest available technician based on GPS coordinates. Reduces response time and improves customer satisfaction."
+    },
+    {
+      name: "Mobile Quote Builder",
+      desc: "Field technicians can create professional quotes on-site using the pricebook. Quotes include tax calculations and are sent directly to customers."
+    },
+    {
+      name: "Commission Tracking & Payroll",
+      desc: "Comprehensive earnings tracking for technicians and salespersons. Includes hourly rates, job commissions, bonuses, and detailed tax calculations."
+    },
+    {
+      name: "Call Logging with Phone Integration",
+      desc: "Log incoming/outgoing calls with customer information. Links calls to existing leads and tracks call outcomes for analytics."
+    },
+    {
+      name: "Quote Status Tracking",
+      desc: "Monitor when quotes are sent, viewed, accepted, or rejected. Automated follow-ups for pending quotes."
+    },
+    {
+      name: "Job Cost Tracking",
+      desc: "Track all job costs including labor, materials, travel, and equipment. Calculate profit margins in real-time."
+    },
+    {
+      name: "Photo & Video Documentation",
+      desc: "Capture before/during/after photos and videos with GPS tagging. Essential for insurance claims and quality assurance."
+    }
+  ];
+  
+  specialFeatures.forEach((f, i) => {
+    if (i > 0 && i % 5 === 0) {
+      doc.addPage();
+      doc.fontSize(20).font("Helvetica-Bold").fillColor("#1e40af").text("Special Features (continued)");
+      doc.moveDown(0.5);
+      doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke("#1e40af");
+      doc.moveDown(1);
+      doc.fillColor("#333333");
+    }
+    doc.fontSize(12).font("Helvetica-Bold").fillColor("#1e40af").text(f.name);
+    doc.fontSize(10).font("Helvetica").fillColor("#333333").text(f.desc, { align: "justify" });
+    doc.moveDown(0.7);
+  });
+  
+  // ============ USER ROLES ============
+  doc.addPage();
+  doc.fontSize(20).font("Helvetica-Bold").fillColor("#1e40af").text("User Roles & Permissions");
+  doc.moveDown(0.5);
+  doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke("#1e40af");
+  doc.moveDown(1);
+  doc.fillColor("#333333");
+  
+  const roles = [
+    {
+      role: "Administrator",
+      access: ["Full system access", "All leads, jobs, quotes, and customers", "Technician and salesperson management", "Financial analytics and payroll", "System settings and integrations", "Marketing ROI and SEO content", "God Mode role switching (if super admin)"]
+    },
+    {
+      role: "Dispatcher",
+      access: ["Lead management and call logging", "Quote creation and sending", "Job scheduling and assignment", "Technician GPS tracking", "Customer communications", "Daily operations dashboard"]
+    },
+    {
+      role: "Technician",
+      access: ["Assigned jobs only", "Job status updates", "Quote creation in field", "Photo/video capture", "Personal earnings dashboard", "Location sharing"]
+    },
+    {
+      role: "Salesperson",
+      access: ["Assigned leads", "Quote creation and tracking", "Commission dashboard", "Sales analytics", "Customer outreach tools"]
+    }
+  ];
+  
+  roles.forEach(r => {
+    doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text(r.role);
+    doc.moveDown(0.3);
+    doc.fontSize(10).font("Helvetica").fillColor("#333333");
+    r.access.forEach(a => {
+      doc.text(`  • ${a}`);
+    });
+    doc.moveDown(0.7);
+  });
+  
+  // ============ FOOTER ============
+  doc.addPage();
+  doc.moveDown(8);
+  doc.fontSize(16).font("Helvetica-Bold").fillColor("#1e40af").text("Emergency Chicago Sewer Experts CRM", { align: "center" });
+  doc.moveDown(0.5);
+  doc.fontSize(12).font("Helvetica").fillColor("#666666").text("Professional Field Service Management", { align: "center" });
+  doc.moveDown(2);
+  doc.fontSize(10).fillColor("#999999").text("For support or questions, contact your system administrator.", { align: "center" });
+  doc.moveDown(0.5);
+  doc.text(`Documentation generated: ${today}`, { align: "center" });
+  doc.moveDown(1);
+  doc.fontSize(9).text("Powered by WebSlingerAI", { align: "center" });
+
+  return doc;
+}

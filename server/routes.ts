@@ -53,7 +53,7 @@ import {
 } from "./services/automation";
 import * as smsService from "./services/sms";
 import { dispatchToClosestTechnician } from "./services/dispatch";
-import { generateApplicationPDF, generateComparisonPDF, generateHouseCallProComparisonPDF, generateTestResultsPDF, generateThreeWayComparisonPDF } from "./services/pdf-generator";
+import { generateApplicationPDF, generateComparisonPDF, generateHouseCallProComparisonPDF, generateTestResultsPDF, generateThreeWayComparisonPDF, generateReadmePDF } from "./services/pdf-generator";
 import { pushJobToBuilder1 } from "./services/builder1-integration";
 
 export async function registerRoutes(
@@ -4549,6 +4549,22 @@ ${emailContent}
     } catch (error) {
       console.error("HouseCall Pro comparison PDF generation error:", error);
       res.status(500).json({ error: "Failed to generate HouseCall Pro comparison PDF" });
+    }
+  });
+
+  // README PDF - Comprehensive system documentation
+  app.get("/api/docs/readme", async (req, res) => {
+    try {
+      const doc = generateReadmePDF();
+      
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", "attachment; filename=Emergency-Chicago-Sewer-Experts-CRM-README.pdf");
+      
+      doc.pipe(res);
+      doc.end();
+    } catch (error) {
+      console.error("README PDF generation error:", error);
+      res.status(500).json({ error: "Failed to generate README PDF" });
     }
   });
 
