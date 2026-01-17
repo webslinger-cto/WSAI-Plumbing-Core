@@ -31,6 +31,16 @@ When a job is scheduled, the system sends automated notifications:
 - **Day of**: Technician arrival reminder
 - **If changes occur**: Automated outreach for rescheduling
 
+### Master Customer Data List
+The Outreach page includes a comprehensive Master Customer List for promotions and targeted outreach:
+- **Data Aggregation**: Combines data from leads, jobs, quotes, and calls by phone number
+- **Customer Metrics**: Total spend, job count, quote count, call count, service history
+- **Auto-Generated Tags**: high-value ($5000+), mid-value ($1000+), repeat (2+ jobs), recent (90 days), lapsed (1+ year), has-email
+- **Status Classification**: customer (has completed jobs), lead (no completed jobs), lost (cancelled/rejected)
+- **Filtering**: By name/phone/email, status, tags, and city
+- **CSV Export**: Export all or selected customers for external marketing tools
+- **API Endpoint**: GET /api/customers/master-list
+
 ## System Architecture
 
 ### Frontend
