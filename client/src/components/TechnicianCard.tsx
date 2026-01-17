@@ -35,8 +35,8 @@ const statusColors = {
 
 const classificationColors: Record<TechnicianClassification, string> = {
   senior: "bg-blue-500/10 text-blue-500 border-blue-500/30",
-  junior: "bg-orange-500/10 text-orange-500 border-orange-500/30",
-  digger: "bg-amber-500/10 text-amber-600 border-amber-500/30",
+  junior: "bg-sky-500/10 text-sky-500 border-sky-500/30",
+  digger: "bg-slate-500/10 text-slate-400 border-slate-500/30",
 };
 
 export default function TechnicianCard({ technician, onClick }: TechnicianCardProps) {

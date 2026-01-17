@@ -166,7 +166,7 @@ export default function LeadsPage() {
                       className={`${
                         (selectedLead.leadScore || 50) >= 80 ? "bg-green-500/10 text-green-400 border-green-500/30" :
                         (selectedLead.leadScore || 50) >= 60 ? "bg-yellow-500/10 text-yellow-400 border-yellow-500/30" :
-                        (selectedLead.leadScore || 50) >= 40 ? "bg-orange-500/10 text-orange-400 border-orange-500/30" :
+                        (selectedLead.leadScore || 50) >= 40 ? "bg-sky-500/10 text-sky-400 border-sky-500/30" :
                         "bg-red-500/10 text-red-400 border-red-500/30"
                       }`}
                       data-testid="badge-lead-score"

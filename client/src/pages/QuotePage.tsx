@@ -582,7 +582,7 @@ export default function QuotePage() {
                     >
                       <div className={`absolute left-0 top-2 bottom-2 w-0.5 rounded-full ${
                         state.completed ? "bg-gradient-to-b from-green-500 to-green-300" :
-                        state.issue ? "bg-gradient-to-b from-red-500 to-orange-500" :
+                        state.issue ? "bg-gradient-to-b from-red-500 to-red-400" :
                         "bg-muted"
                       }`} />
                       

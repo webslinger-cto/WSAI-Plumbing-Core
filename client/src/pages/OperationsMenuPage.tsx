@@ -118,7 +118,7 @@ function AdminOperationsContent() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Zap className="w-5 h-5 text-orange-500" />
+            <Zap className="w-5 h-5 text-primary" />
             Automation Features
           </CardTitle>
         </CardHeader>

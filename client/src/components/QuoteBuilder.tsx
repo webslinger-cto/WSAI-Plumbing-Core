@@ -263,7 +263,7 @@ export default function QuoteBuilder({
 
   const typeColors = {
     labor: "bg-blue-500/10 text-blue-400 border-blue-500/30",
-    material: "bg-orange-500/10 text-orange-400 border-orange-500/30",
+    material: "bg-slate-500/10 text-slate-400 border-slate-500/30",
     service: "bg-green-500/10 text-green-400 border-green-500/30",
   };
 

@@ -68,7 +68,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-const EXPENSE_COLORS = ["#f97316", "#3b82f6", "#10b981", "#8b5cf6", "#f43f5e"];
+const EXPENSE_COLORS = ["#3b82f6", "#0ea5e9", "#10b981", "#8b5cf6", "#ef4444"];
 
 export default function JobCostsAnalytics({ timeRange }: { timeRange: string }) {
   const { data: roiData, isLoading: roiLoading } = useQuery<ROIAnalytics>({
@@ -176,7 +176,7 @@ export default function JobCostsAnalytics({ timeRange }: { timeRange: string }) 
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2 mb-2">
-              <Briefcase className="h-4 w-4 text-orange-500" />
+              <Briefcase className="h-4 w-4 text-blue-500" />
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Costs</p>
             </div>
             <p className="text-2xl font-bold" data-testid="text-job-costs">
@@ -304,7 +304,7 @@ export default function JobCostsAnalytics({ timeRange }: { timeRange: string }) 
         <Card>
           <CardContent className="pt-4">
             <p className="text-xs text-muted-foreground">Labor</p>
-            <p className="text-lg font-bold text-orange-500">{formatCurrency(analytics.totalLaborCost)}</p>
+            <p className="text-lg font-bold text-blue-500">{formatCurrency(analytics.totalLaborCost)}</p>
           </CardContent>
         </Card>
         <Card>

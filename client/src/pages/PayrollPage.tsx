@@ -394,7 +394,7 @@ export default function PayrollPage() {
   const getAvatarColor = (name: string) => {
     const colors = [
       "bg-red-500",
-      "bg-orange-500",
+      "bg-sky-500",
       "bg-amber-500",
       "bg-yellow-500",
       "bg-lime-500",
