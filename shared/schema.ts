@@ -190,18 +190,29 @@ export const calls = pgTable("calls", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   leadId: varchar("lead_id").references(() => leads.id),
   jobId: varchar("job_id"),
+  quoteId: varchar("quote_id"), // linked quote if converted
   callerPhone: text("caller_phone").notNull(),
   callerName: text("caller_name"),
+  callerEmail: text("caller_email"),
+  callerAddress: text("caller_address"),
+  serviceType: text("service_type"), // type of service requested
   direction: text("direction").notNull().default("inbound"), // inbound, outbound
   status: text("status").notNull().default("completed"), // ringing, answered, completed, missed, voicemail
+  outcome: text("outcome"), // scheduled, quoted, callback_requested, not_interested, wrong_number
   duration: integer("duration"), // in seconds
   recordingUrl: text("recording_url"),
+  transcription: text("transcription"),
   notes: text("notes"),
   handledBy: varchar("handled_by"), // dispatcher/user id
+  provider: text("provider"), // twilio, signalwire, google_voice, zapier, manual
+  externalId: text("external_id"), // external call SID from provider
+  scheduledCallback: timestamp("scheduled_callback"), // follow-up scheduled
+  priority: text("priority").default("normal"), // low, normal, high, urgent
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
 
-export const insertCallSchema = createInsertSchema(calls).omit({ id: true, createdAt: true });
+export const insertCallSchema = createInsertSchema(calls).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertCall = z.infer<typeof insertCallSchema>;
 export type Call = typeof calls.$inferSelect;
 

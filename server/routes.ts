@@ -859,6 +859,101 @@ export async function registerRoutes(
     res.status(201).json(call);
   });
 
+  app.patch("/api/calls/:id", async (req, res) => {
+    try {
+      // Validate and sanitize input
+      const allowedFields = [
+        'callerName', 'callerPhone', 'callerEmail', 'callerAddress', 'serviceType',
+        'direction', 'status', 'outcome', 'duration', 'recordingUrl', 'transcription',
+        'notes', 'handledBy', 'provider', 'externalId', 'scheduledCallback', 'priority',
+        'leadId', 'jobId', 'quoteId'
+      ];
+      
+      const updates: Record<string, any> = {};
+      for (const key of allowedFields) {
+        if (req.body[key] !== undefined) {
+          // Handle special types
+          if (key === 'scheduledCallback' && req.body[key]) {
+            updates[key] = new Date(req.body[key]);
+          } else if (key === 'duration' && req.body[key]) {
+            updates[key] = parseInt(req.body[key]);
+          } else {
+            updates[key] = req.body[key];
+          }
+        }
+      }
+      
+      const call = await storage.updateCall(req.params.id, updates);
+      if (!call) return res.status(404).json({ error: "Call not found" });
+      res.json(call);
+    } catch (error) {
+      console.error("Error updating call:", error);
+      res.status(500).json({ error: "Failed to update call" });
+    }
+  });
+
+  app.get("/api/calls/scheduled", async (req, res) => {
+    try {
+      const calls = await storage.getScheduledCallbacks();
+      res.json(calls);
+    } catch (error) {
+      console.error("Error fetching scheduled callbacks:", error);
+      res.status(500).json({ error: "Failed to fetch scheduled callbacks" });
+    }
+  });
+
+  // Convert call to quote - creates a quote from call data
+  app.post("/api/calls/:id/convert-to-quote", async (req, res) => {
+    try {
+      const call = await storage.getCall(req.params.id);
+      if (!call) return res.status(404).json({ error: "Call not found" });
+
+      // Check if already converted
+      if (call.quoteId) {
+        return res.status(400).json({ error: "Call already converted to quote", quoteId: call.quoteId });
+      }
+
+      // Try to extract city from address (format: "123 Main St, Chicago, IL 60601")
+      let city = "";
+      if (call.callerAddress) {
+        const parts = call.callerAddress.split(",").map(p => p.trim());
+        if (parts.length >= 2) {
+          city = parts[1]; // Usually the second part is the city
+        }
+      }
+
+      // Create a quote with the call's customer info
+      const quote = await storage.createQuote({
+        customerName: call.callerName || "Unknown Caller",
+        customerPhone: call.callerPhone,
+        customerEmail: call.callerEmail || undefined,
+        address: call.callerAddress || "",
+        city: city || undefined,
+        serviceType: call.serviceType || "general",
+        status: "draft",
+        notes: call.notes ? `${call.notes}\n\nConverted from call ${call.id.slice(0, 8)}` : `Converted from call ${call.id.slice(0, 8)}`,
+        lineItems: "[]",
+        laborEntries: "[]",
+        subtotal: "0",
+        laborTotal: "0",
+        taxRate: "0.1025",
+        taxAmount: "0",
+        total: "0",
+      });
+
+      // Link the quote to the call
+      await storage.updateCall(call.id, { 
+        quoteId: quote.id, 
+        outcome: "quoted" 
+      });
+
+      res.status(201).json(quote);
+    } catch (error) {
+      console.error("Error converting call to quote:", error);
+      res.status(500).json({ error: "Failed to convert call to quote" });
+    }
+  });
+
   // Jobs
   app.get("/api/jobs", async (req, res) => {
     try {
@@ -2056,6 +2151,230 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Twilio SMS webhook error:", error);
       // Still return valid TwiML
+      res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
+    }
+  });
+
+  // ==========================================
+  // Universal Call Integration Webhooks
+  // ==========================================
+
+  // Universal inbound call webhook - accepts calls from any provider (Google Voice, Zapier, custom integrations)
+  app.post("/api/webhooks/calls/inbound", async (req, res) => {
+    try {
+      const {
+        callerPhone,
+        callerName,
+        callerEmail,
+        callerAddress,
+        serviceType,
+        direction = "inbound",
+        status = "completed",
+        outcome,
+        duration,
+        recordingUrl,
+        transcription,
+        notes,
+        provider = "zapier",
+        externalId,
+        priority = "normal",
+      } = req.body;
+
+      if (!callerPhone) {
+        return res.status(400).json({ error: "callerPhone is required" });
+      }
+
+      console.log(`[Call Webhook] ${provider} incoming call from ${callerPhone}`);
+
+      // Log the webhook
+      await storage.createWebhookLog({
+        source: `call-webhook-${provider}`,
+        endpoint: "/api/webhooks/calls/inbound",
+        method: "POST",
+        payload: JSON.stringify(req.body),
+      });
+
+      // Create the call record
+      const call = await storage.createCall({
+        callerPhone,
+        callerName: callerName || null,
+        callerEmail: callerEmail || null,
+        callerAddress: callerAddress || null,
+        serviceType: serviceType || null,
+        direction,
+        status,
+        outcome: outcome || null,
+        duration: duration ? parseInt(duration) : null,
+        recordingUrl: recordingUrl || null,
+        transcription: transcription || null,
+        notes: notes || null,
+        provider,
+        externalId: externalId || null,
+        priority,
+      });
+
+      res.status(201).json({ 
+        success: true, 
+        callId: call.id,
+        message: "Call logged successfully" 
+      });
+    } catch (error) {
+      console.error("Call webhook error:", error);
+      res.status(500).json({ error: "Failed to log call" });
+    }
+  });
+
+  // Google Voice specific webhook (via Zapier or IFTTT)
+  app.post("/api/webhooks/google-voice", async (req, res) => {
+    try {
+      const { 
+        phoneNumber, 
+        contactName, 
+        callType, // missed, voicemail, received
+        voicemailUrl,
+        transcription,
+        timestamp 
+      } = req.body;
+
+      console.log(`[Google Voice] ${callType} call from ${phoneNumber}`);
+
+      await storage.createWebhookLog({
+        source: "google-voice",
+        endpoint: "/api/webhooks/google-voice",
+        method: "POST",
+        payload: JSON.stringify(req.body),
+      });
+
+      // Map Google Voice call types to our status
+      const statusMap: Record<string, string> = {
+        missed: "missed",
+        voicemail: "voicemail",
+        received: "answered",
+        placed: "completed",
+      };
+
+      const call = await storage.createCall({
+        callerPhone: phoneNumber || "",
+        callerName: contactName || null,
+        direction: callType === "placed" ? "outbound" : "inbound",
+        status: statusMap[callType] || "completed",
+        recordingUrl: voicemailUrl || null,
+        transcription: transcription || null,
+        provider: "google_voice",
+        notes: timestamp ? `Received at: ${timestamp}` : null,
+      });
+
+      res.status(201).json({ success: true, callId: call.id });
+    } catch (error) {
+      console.error("Google Voice webhook error:", error);
+      res.status(500).json({ error: "Failed to process Google Voice call" });
+    }
+  });
+
+  // Zapier webhook for custom call integrations
+  app.post("/api/webhooks/zapier/call", async (req, res) => {
+    try {
+      // Zapier sends data in various formats, so we normalize it
+      const {
+        phone,
+        caller_phone,
+        callerPhone,
+        name,
+        caller_name,
+        callerName,
+        email,
+        address,
+        service,
+        service_type,
+        type, // inbound, outbound
+        call_status,
+        status,
+        call_duration,
+        duration,
+        recording,
+        recording_url,
+        notes,
+        external_id,
+      } = req.body;
+
+      const normalizedPhone = phone || caller_phone || callerPhone;
+      
+      if (!normalizedPhone) {
+        return res.status(400).json({ error: "Phone number is required (phone, caller_phone, or callerPhone)" });
+      }
+
+      console.log(`[Zapier] Call webhook from ${normalizedPhone}`);
+
+      await storage.createWebhookLog({
+        source: "zapier-call",
+        endpoint: "/api/webhooks/zapier/call",
+        method: "POST",
+        payload: JSON.stringify(req.body),
+      });
+
+      const call = await storage.createCall({
+        callerPhone: normalizedPhone,
+        callerName: name || caller_name || callerName || null,
+        callerEmail: email || null,
+        callerAddress: address || null,
+        serviceType: service || service_type || null,
+        direction: type === "outbound" ? "outbound" : "inbound",
+        status: call_status || status || "completed",
+        duration: call_duration || duration ? parseInt(call_duration || duration) : null,
+        recordingUrl: recording || recording_url || null,
+        notes: notes || null,
+        provider: "zapier",
+        externalId: external_id || null,
+      });
+
+      res.status(201).json({ 
+        success: true, 
+        callId: call.id,
+        message: "Call logged via Zapier"
+      });
+    } catch (error) {
+      console.error("Zapier call webhook error:", error);
+      res.status(500).json({ error: "Failed to log call from Zapier" });
+    }
+  });
+
+  // SignalWire incoming voice webhook
+  app.post("/api/webhooks/signalwire/voice", async (req, res) => {
+    try {
+      const { From, To, CallSid, CallStatus } = req.body;
+
+      console.log(`[SignalWire Voice] Incoming call from ${From} to ${To}, Status: ${CallStatus}`);
+
+      await storage.createWebhookLog({
+        source: "signalwire-voice-incoming",
+        endpoint: "/api/webhooks/signalwire/voice",
+        method: "POST",
+        payload: JSON.stringify(req.body),
+      });
+
+      // Create call record
+      await storage.createCall({
+        callerPhone: From || "",
+        direction: "inbound",
+        status: CallStatus === "ringing" ? "ringing" : "answered",
+        provider: "signalwire",
+        externalId: CallSid,
+      });
+
+      // Return LaML to forward the call (similar to Twilio TwiML)
+      const laml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Thank you for calling Chicago Sewer Experts. Please hold while we connect you.</Say>
+  <Dial callerId="${To}" timeout="30">
+    ${FORWARDING_PHONE_NUMBER}
+  </Dial>
+  <Say voice="alice">We're sorry, no one is available. Please leave a message after the beep.</Say>
+  <Record maxLength="120" />
+</Response>`;
+
+      res.type("text/xml").send(laml);
+    } catch (error) {
+      console.error("SignalWire voice webhook error:", error);
       res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
     }
   });

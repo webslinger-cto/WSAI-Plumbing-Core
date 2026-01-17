@@ -152,7 +152,10 @@ export interface IStorage {
   getCall(id: string): Promise<Call | undefined>;
   getCalls(): Promise<Call[]>;
   getRecentCalls(limit: number): Promise<Call[]>;
+  getCallsByOutcome(outcome: string): Promise<Call[]>;
+  getScheduledCallbacks(): Promise<Call[]>;
   createCall(call: InsertCall): Promise<Call>;
+  updateCall(id: string, updates: Partial<Call>): Promise<Call | undefined>;
 
   // Jobs
   getJob(id: string): Promise<Job | undefined>;
@@ -1954,6 +1957,21 @@ export class DatabaseStorage implements IStorage {
   async createCall(insertCall: InsertCall): Promise<Call> {
     const [call] = await db.insert(calls).values(insertCall).returning();
     return call;
+  }
+
+  async updateCall(id: string, updates: Partial<Call>): Promise<Call | undefined> {
+    const [call] = await db.update(calls).set({ ...updates, updatedAt: new Date() }).where(eq(calls.id, id)).returning();
+    return call;
+  }
+
+  async getCallsByOutcome(outcome: string): Promise<Call[]> {
+    return await db.select().from(calls).where(eq(calls.outcome, outcome)).orderBy(desc(calls.createdAt));
+  }
+
+  async getScheduledCallbacks(): Promise<Call[]> {
+    const now = new Date();
+    const allCalls = await db.select().from(calls).orderBy(desc(calls.scheduledCallback));
+    return allCalls.filter(c => c.scheduledCallback && new Date(c.scheduledCallback) > now);
   }
 
   // Jobs

@@ -34,6 +34,7 @@ import PricebookPage from "@/pages/PricebookPage";
 import MarketingROIPage from "@/pages/MarketingROIPage";
 import SEOContentPage from "@/pages/seo-content";
 import EarningsPage from "@/pages/EarningsPage";
+import CallsPage from "@/pages/CallsPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 import BusinessIntakePage from "@/pages/business-intake";
@@ -82,12 +83,7 @@ function DispatcherRouter() {
       <Route path="/quotes" component={QuotesPage} />
       <Route path="/map" component={TechnicianMapPage} />
       <Route path="/staffing" component={StaffingPool} />
-      <Route path="/calls" component={() => (
-        <div className="space-y-4">
-          <h1 className="text-2xl font-bold">Call Log</h1>
-          <p className="text-muted-foreground">Call log page coming soon.</p>
-        </div>
-      )} />
+      <Route path="/calls" component={CallsPage} />
       <Route path="/leads" component={LeadsPage} />
       <Route path="/operations">{() => <OperationsMenuPage role="dispatcher" />}</Route>
       <Route component={NotFound} />
