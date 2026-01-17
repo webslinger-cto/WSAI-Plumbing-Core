@@ -113,10 +113,42 @@ export async function registerRoutes(
         fullName: user.fullName,
         technicianId: technician?.id || null,
         salespersonId: salesperson?.id || null,
+        requiresPasswordSetup: user.requiresPasswordSetup || false,
+        isSuperAdmin: user.isSuperAdmin || false,
       });
     } catch (error) {
       console.error("Login error:", error);
       res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // Password setup for first-time login
+  app.post("/api/auth/setup-password", async (req, res) => {
+    try {
+      const { userId, password } = req.body;
+      if (!userId || !password) {
+        return res.status(400).json({ error: "User ID and password required" });
+      }
+
+      if (password.length < 6) {
+        return res.status(400).json({ error: "Password must be at least 6 characters" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      await storage.updateUser(userId, {
+        password: password,
+        viewablePassword: password,
+        requiresPasswordSetup: false,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Password setup error:", error);
+      res.status(500).json({ error: "Failed to set password" });
     }
   });
 
