@@ -314,18 +314,18 @@ export default function QuoteBuilder({
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Quote - Chicago Sewer Experts</title>
+        <title>Quote - Emergency Chicago Sewer Experts</title>
         <style>
           body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
           .header { text-align: center; margin-bottom: 30px; }
-          .header h1 { color: #b22222; margin: 0; }
+          .header h1 { color: #3b82f6; margin: 0; }
           .header p { color: #666; margin: 5px 0; }
           .customer-info { background: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
           table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-          th { background: #b22222; color: white; padding: 10px; text-align: left; }
+          th { background: #3b82f6; color: white; padding: 10px; text-align: left; }
           .totals { text-align: right; margin-top: 20px; }
           .totals p { margin: 5px 0; }
-          .total-line { font-size: 18px; font-weight: bold; color: #b22222; }
+          .total-line { font-size: 18px; font-weight: bold; color: #3b82f6; }
           .notes { background: #fff3cd; padding: 15px; border-radius: 5px; margin-top: 20px; }
           .footer { margin-top: 40px; text-align: center; color: #666; font-size: 12px; }
           @media print {
@@ -336,7 +336,7 @@ export default function QuoteBuilder({
       </head>
       <body>
         <div class="header">
-          <h1>Chicago Sewer Experts</h1>
+          <h1>Emergency Chicago Sewer Experts</h1>
           <p>Professional Sewer & Drain Services</p>
           <p>Quote Date: ${today}</p>
         </div>
@@ -347,7 +347,7 @@ export default function QuoteBuilder({
           <p><strong>Address:</strong> ${quoteData.customerAddress}</p>
         </div>
         
-        <h3 style="color: #b22222;">Services & Materials</h3>
+        <h3 style="color: #3b82f6;">Services & Materials</h3>
         <table>
           <thead>
             <tr>
@@ -374,7 +374,7 @@ export default function QuoteBuilder({
         ${quoteData.notes ? `<div class="notes"><strong>Notes:</strong> ${quoteData.notes}</div>` : ""}
         
         <div class="footer">
-          <p>Thank you for choosing Chicago Sewer Experts!</p>
+          <p>Thank you for choosing Emergency Chicago Sewer Experts!</p>
           <p>This quote is valid for 30 days from the date above.</p>
         </div>
       </body>
@@ -831,7 +831,7 @@ export default function QuoteBuilder({
           <CardContent className="space-y-4">
             <div className="text-center space-y-3">
               <p className="text-sm text-muted-foreground">
-                Thank you for choosing Chicago Sewer Experts!
+                Thank you for choosing Emergency Chicago Sewer Experts!
               </p>
               <p className="text-sm">
                 Your technician today was <span className="font-semibold text-foreground">{technicianName}</span>
@@ -857,7 +857,7 @@ export default function QuoteBuilder({
                   Scan to Review
                 </p>
                 <p className="text-[10px] text-muted-foreground">
-                  Or visit: google.com/maps and search "Chicago Sewer Experts"
+                  Or visit: google.com/maps and search "Emergency Chicago Sewer Experts"
                 </p>
               </div>
             </div>

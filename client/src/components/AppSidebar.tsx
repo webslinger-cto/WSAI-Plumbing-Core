@@ -125,8 +125,8 @@ export default function AppSidebar({ role, username, onLogout }: AppSidebarProps
             data-testid="img-cse-mascot"
           />
           <div className="flex-1 min-w-0">
-            <h2 className="font-bold text-sm tracking-wide truncate">Chicago Sewer</h2>
-            <p className="text-xs text-muted-foreground">Experts CRM</p>
+            <h2 className="font-bold text-sm tracking-wide truncate">Emergency Chicago</h2>
+            <p className="text-xs text-muted-foreground">Sewer Experts CRM</p>
           </div>
         </div>
       </SidebarHeader>

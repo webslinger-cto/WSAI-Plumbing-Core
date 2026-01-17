@@ -30,7 +30,7 @@ export default function OperationsMenuPage({ role, username }: OperationsMenuPag
       <div className="text-center mb-8">
         <h1 className="text-3xl font-bold" data-testid="text-operations-title">Operations Guide</h1>
         <p className="text-muted-foreground mt-2">
-          Your role-specific guide to Chicago Sewer Experts CRM
+          Your role-specific guide to Emergency Chicago Sewer Experts CRM
         </p>
         <Badge variant="outline" className="mt-3 text-sm">
           {role === "admin" ? "Administrator" : role === "dispatcher" ? "Dispatcher" : role === "salesperson" ? "Sales" : "Technician"} View
@@ -383,7 +383,7 @@ function TechnicianOperationsContent({ username }: { username?: string }) {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-muted-foreground">
-            As a field technician, you are the face of Chicago Sewer Experts. 
+            As a field technician, you are the face of Emergency Chicago Sewer Experts. 
             You perform on-site work, create quotes, and ensure customer satisfaction.
           </p>
           

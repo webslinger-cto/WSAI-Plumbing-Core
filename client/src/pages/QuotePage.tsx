@@ -505,12 +505,12 @@ export default function QuotePage() {
         <div className="flex items-center gap-3">
           <img 
             src={cseMascot} 
-            alt="Chicago Sewer Experts" 
+            alt="Emergency Chicago Sewer Experts" 
             className="w-12 h-12 object-contain"
             data-testid="img-quote-mascot"
           />
           <div>
-            <h1 className="text-lg font-bold tracking-wide uppercase">Chicago Sewer Experts</h1>
+            <h1 className="text-lg font-bold tracking-wide uppercase">Emergency Chicago Sewer Experts</h1>
             <p className="text-xs text-muted-foreground">Field Checklist & Quote Tool</p>
           </div>
         </div>

@@ -97,7 +97,7 @@ export default function PublicQuotePage() {
             <AlertCircle className="w-16 h-16 mx-auto mb-4 text-destructive" />
             <h1 className="text-2xl font-bold mb-2">Quote Not Found</h1>
             <p className="text-muted-foreground">
-              This quote link may have expired or is invalid. Please contact Chicago Sewer Experts for assistance.
+              This quote link may have expired or is invalid. Please contact Emergency Chicago Sewer Experts for assistance.
             </p>
             <div className="mt-6">
               <a href="tel:7083987600" className="inline-flex items-center gap-2 text-primary hover:underline">
@@ -143,13 +143,13 @@ export default function PublicQuotePage() {
       <div className="bg-[#1a1a1a] text-white py-4 px-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
-            <img src={cseMascot} alt="Chicago Sewer Experts" className="h-12 w-auto" />
+            <img src={cseMascot} alt="Emergency Chicago Sewer Experts" className="h-12 w-auto" />
             <div>
-              <h1 className="font-bold text-lg">Chicago Sewer Experts</h1>
+              <h1 className="font-bold text-lg">Emergency Chicago Sewer Experts</h1>
               <p className="text-sm text-gray-300">Professional Sewer & Drain Services</p>
             </div>
           </div>
-          <a href="tel:7083987600" className="flex items-center gap-2 text-orange-400 hover:text-orange-300">
+          <a href="tel:7083987600" className="flex items-center gap-2 text-blue-400 hover:text-blue-300">
             <Phone className="w-4 h-4" />
             (708) 398-7600
           </a>
@@ -372,7 +372,7 @@ export default function PublicQuotePage() {
 
         <div className="text-center mt-8 text-sm text-muted-foreground">
           <p>Questions? Call us at <a href="tel:7083987600" className="text-primary hover:underline">(708) 398-7600</a></p>
-          <p className="mt-1">Chicago Sewer Experts - Professional Sewer & Drain Services</p>
+          <p className="mt-1">Emergency Chicago Sewer Experts - Professional Sewer & Drain Services</p>
         </div>
       </div>
     </div>
