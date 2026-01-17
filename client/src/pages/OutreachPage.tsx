@@ -80,67 +80,10 @@ interface FilteredLead {
   city: string;
 }
 
-// todo: remove mock functionality
-const mockCampaigns: Campaign[] = [
-  {
-    id: "1",
-    name: "Winter Drain Cleaning Special",
-    type: "email",
-    status: "active",
-    targetAudience: "Previous Customers",
-    leadCount: 245,
-    sentCount: 198,
-    responseCount: 23,
-    createdAt: "2025-12-01",
-    scheduledAt: "2025-12-05",
-  },
-  {
-    id: "2",
-    name: "Follow-up: Lost Leads Q4",
-    type: "call",
-    status: "scheduled",
-    targetAudience: "Lost Leads",
-    leadCount: 89,
-    sentCount: 0,
-    responseCount: 0,
-    createdAt: "2025-12-03",
-    scheduledAt: "2025-12-10",
-  },
-  {
-    id: "3",
-    name: "Holiday Discount Offer",
-    type: "email",
-    status: "draft",
-    targetAudience: "All Leads",
-    leadCount: 412,
-    sentCount: 0,
-    responseCount: 0,
-    createdAt: "2025-12-06",
-  },
-  {
-    id: "4",
-    name: "Sewer Inspection Reminder",
-    type: "email",
-    status: "completed",
-    targetAudience: "Previous Customers",
-    leadCount: 156,
-    sentCount: 156,
-    responseCount: 34,
-    createdAt: "2025-11-15",
-    scheduledAt: "2025-11-20",
-  },
-];
+// Start with empty campaigns - data comes from API
+const initialCampaigns: Campaign[] = [];
 
-const mockFilteredLeads: FilteredLead[] = [
-  { id: "1", name: "Leonard Willis", email: "lwillis@email.com", phone: "708-289-7471", status: "converted", lastContact: "2025-10-15", service: "Sewer Main", city: "Chicago" },
-  { id: "2", name: "Chanie Evans", email: "chanieevans@yahoo.com", phone: "773-966-9820", status: "converted", lastContact: "2025-09-22", service: "Flood Control", city: "Chicago" },
-  { id: "3", name: "Anthony Cunningham", email: "broantcun@gmail.com", phone: "708-897-6156", status: "lost", lastContact: "2025-11-01", service: "Drain Clog", city: "Harvey" },
-  { id: "4", name: "Takala Kelley", phone: "708-872-0048", status: "converted", lastContact: "2025-08-30", service: "Plumbing", city: "Calumet City" },
-  { id: "5", name: "Rosevelt Payne", email: "rpayne2552@gmail.com", phone: "331-216-3033", status: "lost", lastContact: "2025-10-28", service: "Plumbing", city: "Oswego" },
-  { id: "6", name: "Melendez Smalley", email: "melendez12@gmail.com", phone: "773-891-8323", status: "converted", lastContact: "2025-07-14", service: "Sewer Main", city: "Chicago" },
-  { id: "7", name: "Maria Santos", email: "msantos@email.com", phone: "312-555-0123", status: "lost", lastContact: "2025-11-10", service: "Drain Cleaning", city: "Chicago" },
-  { id: "8", name: "James Wilson", email: "jwilson@gmail.com", phone: "708-555-0456", status: "converted", lastContact: "2025-06-20", service: "Sewer Repair", city: "Oak Park" },
-];
+const initialFilteredLeads: FilteredLead[] = [];
 
 const emailTemplates = [
   { id: "1", name: "Seasonal Discount", subject: "Exclusive Winter Savings for Our Valued Customers" },
@@ -157,7 +100,7 @@ export default function OutreachPage() {
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
-  const [campaigns, setCampaigns] = useState<Campaign[]>(mockCampaigns);
+  const [campaigns, setCampaigns] = useState<Campaign[]>(initialCampaigns);
   
   // Campaign builder state
   const [campaignForm, setCampaignForm] = useState({
@@ -197,7 +140,7 @@ export default function OutreachPage() {
     }
   };
 
-  const filteredLeads = mockFilteredLeads.filter((lead) => {
+  const filteredLeads = initialFilteredLeads.filter((lead) => {
     const matchesSearch = lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       lead.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       lead.phone.includes(searchTerm);

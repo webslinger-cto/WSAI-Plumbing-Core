@@ -1,5 +1,6 @@
-import { useState } from "react";
-import TechnicianCard, { type Technician, type TechnicianClassification } from "@/components/TechnicianCard";
+import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import TechnicianCard, { type Technician as TechnicianCardType, type TechnicianClassification } from "@/components/TechnicianCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,101 +21,46 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, Phone, DollarSign, TrendingUp, Pencil, Save } from "lucide-react";
+import { Search, Plus, Phone, DollarSign, TrendingUp, Pencil, Save, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import type { Technician } from "@shared/schema";
+import { Card, CardContent } from "@/components/ui/card";
 
 const CLASSIFICATION_OPTIONS: TechnicianClassification[] = ["senior", "junior", "digger"];
-
-// todo: remove mock functionality and replace with API data
-const initialMockTechnicians: Technician[] = [
-  {
-    id: "1",
-    name: "Mike Johnson",
-    initials: "MJ",
-    phone: "(312) 555-0123",
-    totalJobs: 156,
-    completedJobs: 142,
-    canceledJobs: 14,
-    revenue: 28450,
-    conversionRate: 78,
-    status: "online",
-    classification: "senior",
-    hourlyRate: 75,
-    commissionRate: 0.15,
-  },
-  {
-    id: "2",
-    name: "Carlos Rodriguez",
-    initials: "CR",
-    phone: "(773) 555-0456",
-    totalJobs: 98,
-    completedJobs: 85,
-    canceledJobs: 13,
-    revenue: 19200,
-    conversionRate: 72,
-    status: "busy",
-    classification: "senior",
-    hourlyRate: 70,
-    commissionRate: 0.12,
-  },
-  {
-    id: "3",
-    name: "David Smith",
-    initials: "DS",
-    phone: "(708) 555-0789",
-    totalJobs: 67,
-    completedJobs: 58,
-    canceledJobs: 9,
-    revenue: 12800,
-    conversionRate: 65,
-    status: "offline",
-    classification: "junior",
-    hourlyRate: 45,
-    commissionRate: 0.08,
-  },
-  {
-    id: "4",
-    name: "James Williams",
-    initials: "JW",
-    phone: "(630) 555-0321",
-    totalJobs: 89,
-    completedJobs: 81,
-    canceledJobs: 8,
-    revenue: 16750,
-    conversionRate: 74,
-    status: "online",
-    classification: "junior",
-    hourlyRate: 50,
-    commissionRate: 0.10,
-  },
-  {
-    id: "5",
-    name: "Robert Brown",
-    initials: "RB",
-    phone: "(847) 555-0654",
-    totalJobs: 45,
-    completedJobs: 38,
-    canceledJobs: 7,
-    revenue: 8900,
-    conversionRate: 62,
-    status: "offline",
-    classification: "digger",
-    hourlyRate: 35,
-    commissionRate: 0.05,
-  },
-];
 
 export default function TechniciansPage() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
-  const [technicians, setTechnicians] = useState<Technician[]>(initialMockTechnicians);
-  const [selectedTech, setSelectedTech] = useState<Technician | null>(null);
+  const [selectedTech, setSelectedTech] = useState<TechnicianCardType | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
     classification: "" as TechnicianClassification,
     hourlyRate: 0,
     commissionRate: 0,
   });
+
+  const { data: techniciansData = [], isLoading } = useQuery<Technician[]>({
+    queryKey: ["/api/technicians"],
+  });
+
+  // Transform API data to card format
+  const technicians: TechnicianCardType[] = useMemo(() => {
+    return techniciansData.map(tech => ({
+      id: tech.id,
+      name: tech.fullName || tech.userId || "Unknown",
+      initials: (tech.fullName || "??").split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2),
+      phone: tech.phone || "",
+      totalJobs: 0,
+      completedJobs: 0,
+      canceledJobs: 0,
+      revenue: 0,
+      conversionRate: 0,
+      status: (tech.status as "online" | "offline" | "busy") || "offline",
+      classification: (tech.classification as TechnicianClassification) || "junior",
+      hourlyRate: parseFloat(String(tech.hourlyRate || 0)),
+      commissionRate: parseFloat(String(tech.commissionRate || 0)),
+    }));
+  }, [techniciansData]);
 
   const filteredTechs = technicians.filter((tech) =>
     tech.name.toLowerCase().includes(search.toLowerCase())
@@ -133,17 +79,7 @@ export default function TechniciansPage() {
 
   const saveChanges = () => {
     if (selectedTech) {
-      const validatedForm = {
-        classification: editForm.classification,
-        hourlyRate: Math.max(0, editForm.hourlyRate),
-        commissionRate: Math.max(0, Math.min(1, editForm.commissionRate)),
-      };
-      setTechnicians(prev => prev.map(tech => 
-        tech.id === selectedTech.id 
-          ? { ...tech, ...validatedForm }
-          : tech
-      ));
-      const updated = { ...selectedTech, ...validatedForm };
+      const updated = { ...selectedTech, ...editForm };
       setSelectedTech(updated);
       setIsEditing(false);
       toast({ 
@@ -183,20 +119,38 @@ export default function TechniciansPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredTechs.map((tech) => (
-          <TechnicianCard
-            key={tech.id}
-            technician={tech}
-            onClick={setSelectedTech}
-          />
-        ))}
-        {filteredTechs.length === 0 && (
-          <div className="col-span-full text-center py-12 text-muted-foreground">
-            No technicians found matching your search
-          </div>
-        )}
-      </div>
+      {isLoading ? (
+        <div className="text-center py-12 text-muted-foreground">Loading technicians...</div>
+      ) : technicians.length === 0 ? (
+        <Card className="col-span-full">
+          <CardContent className="py-16 text-center">
+            <Users className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
+            <h3 className="text-lg font-semibold mb-2">No technicians yet</h3>
+            <p className="text-muted-foreground mb-4">
+              Add your first technician to start tracking field performance
+            </p>
+            <Button data-testid="button-add-first-technician">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Technician
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredTechs.map((tech) => (
+            <TechnicianCard
+              key={tech.id}
+              technician={tech}
+              onClick={setSelectedTech}
+            />
+          ))}
+          {filteredTechs.length === 0 && (
+            <div className="col-span-full text-center py-12 text-muted-foreground">
+              No technicians found matching your search
+            </div>
+          )}
+        </div>
+      )}
 
       <Dialog open={!!selectedTech} onOpenChange={(open) => { if (!open) { setSelectedTech(null); setIsEditing(false); } }}>
         <DialogContent className="max-w-lg">

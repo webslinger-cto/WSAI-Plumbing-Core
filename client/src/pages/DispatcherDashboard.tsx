@@ -82,11 +82,8 @@ interface EmergencyTeamMember {
   callsHandled: number;
 }
 
-const mockEmergencyTeam: EmergencyTeamMember[] = [
-  { id: "1", technicianId: "1", technicianName: "Mike Johnson", phone: "(312) 555-0101", isOnCall: true, isPrimary: true, callsHandled: 12 },
-  { id: "2", technicianId: "2", technicianName: "Carlos Rodriguez", phone: "(312) 555-0102", isOnCall: true, isPrimary: false, callsHandled: 8 },
-  { id: "3", technicianId: "3", technicianName: "David Smith", phone: "(312) 555-0103", isOnCall: false, isPrimary: false, callsHandled: 5 },
-];
+// Emergency team populated from actual technicians
+const initialEmergencyTeam: EmergencyTeamMember[] = [];
 
 const quoteStatusConfig: Record<string, { label: string; color: string }> = {
   draft: { label: "Draft", color: "bg-muted text-muted-foreground" },
@@ -520,7 +517,7 @@ function EmergencyTeamMemberCard({
 
 function CallTeamTab({ technicians }: { technicians: Technician[] }) {
   const { toast } = useToast();
-  const [emergencyTeam, setEmergencyTeam] = useState<EmergencyTeamMember[]>(mockEmergencyTeam);
+  const [emergencyTeam, setEmergencyTeam] = useState<EmergencyTeamMember[]>(initialEmergencyTeam);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [selectedTechToAdd, setSelectedTechToAdd] = useState<string>("");
 

@@ -1588,10 +1588,10 @@ export class MemStorage implements IStorage {
 export class DatabaseStorage implements IStorage {
   // Initialize database with seed data if empty
   async initialize(): Promise<void> {
-    // Check if admin user exists
-    const existingAdmin = await this.getUserByUsername("admin");
-    if (existingAdmin) {
-      console.log("Database already seeded, skipping initialization");
+    // Check if any user exists (skip seeding if so)
+    const existingUsers = await this.getUsers();
+    if (existingUsers.length > 0) {
+      console.log("Database has existing users, skipping seed initialization");
       return;
     }
 
