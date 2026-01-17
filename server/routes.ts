@@ -152,6 +152,96 @@ export async function registerRoutes(
     }
   });
 
+  // Admin user management
+  app.get("/api/admin/users", async (req, res) => {
+    try {
+      const users = await storage.getUsers();
+      res.json(users.map(user => ({
+        id: user.id,
+        username: user.username,
+        fullName: user.fullName,
+        role: user.role,
+        email: user.email,
+        phone: user.phone,
+        isActive: user.isActive,
+        viewablePassword: user.viewablePassword || null,
+        requiresPasswordSetup: user.requiresPasswordSetup || false,
+        isSuperAdmin: user.isSuperAdmin || false,
+      })));
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ error: "Failed to fetch users" });
+    }
+  });
+
+  app.post("/api/admin/users", async (req, res) => {
+    try {
+      const { username, fullName, role, email, phone, initialPassword, requiresPasswordSetup, isSuperAdmin } = req.body;
+      
+      if (!username) {
+        return res.status(400).json({ error: "Username is required" });
+      }
+
+      const existingUser = await storage.getUserByUsername(username);
+      if (existingUser) {
+        return res.status(400).json({ error: "Username already exists" });
+      }
+
+      const password = initialPassword || "temp123";
+      const newUser = await storage.createUser({
+        username,
+        password,
+        role: role || "technician",
+        fullName: fullName || null,
+        email: email || null,
+        phone: phone || null,
+        isActive: true,
+        viewablePassword: password,
+        requiresPasswordSetup: requiresPasswordSetup !== false,
+        isSuperAdmin: isSuperAdmin || false,
+      });
+
+      res.json({
+        id: newUser.id,
+        username: newUser.username,
+        fullName: newUser.fullName,
+        role: newUser.role,
+        requiresPasswordSetup: newUser.requiresPasswordSetup,
+        isSuperAdmin: newUser.isSuperAdmin,
+      });
+    } catch (error) {
+      console.error("Error creating user:", error);
+      res.status(500).json({ error: "Failed to create user" });
+    }
+  });
+
+  app.post("/api/admin/users/:userId/reset-password", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { password } = req.body;
+
+      if (!password || password.length < 6) {
+        return res.status(400).json({ error: "Password must be at least 6 characters" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      await storage.updateUser(userId, {
+        password,
+        viewablePassword: password,
+        requiresPasswordSetup: false,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error resetting password:", error);
+      res.status(500).json({ error: "Failed to reset password" });
+    }
+  });
+
   // Technicians
   app.get("/api/technicians", async (req, res) => {
     try {

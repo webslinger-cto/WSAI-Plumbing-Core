@@ -168,6 +168,384 @@ const initialEmployees: EmployeeAccess[] = [
   },
 ];
 
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Key, RefreshCw, UserPlus, Crown, EyeOff } from "lucide-react";
+
+interface SystemUser {
+  id: string;
+  username: string;
+  fullName: string | null;
+  role: string;
+  email: string | null;
+  phone: string | null;
+  isActive: boolean;
+  viewablePassword: string | null;
+  requiresPasswordSetup: boolean;
+  isSuperAdmin: boolean;
+}
+
+function UserPasswordManagement() {
+  const { toast } = useToast();
+  const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
+  const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+  const [newUser, setNewUser] = useState({
+    username: "",
+    fullName: "",
+    role: "technician" as "admin" | "dispatcher" | "technician" | "salesperson",
+    email: "",
+    phone: "",
+    initialPassword: "",
+    requiresPasswordSetup: true,
+    isSuperAdmin: false,
+  });
+
+  const { data: users = [], isLoading, refetch } = useQuery<SystemUser[]>({
+    queryKey: ["/api/admin/users"],
+  });
+
+  const createUserMutation = useMutation({
+    mutationFn: async (userData: typeof newUser) => {
+      const res = await apiRequest("POST", "/api/admin/users", userData);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      setIsAddUserOpen(false);
+      setNewUser({
+        username: "",
+        fullName: "",
+        role: "technician",
+        email: "",
+        phone: "",
+        initialPassword: "",
+        requiresPasswordSetup: true,
+        isSuperAdmin: false,
+      });
+      toast({
+        title: "User created",
+        description: "The new user account has been created.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to create user",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: async ({ userId, newPassword }: { userId: string; newPassword: string }) => {
+      const res = await apiRequest("POST", `/api/admin/users/${userId}/reset-password`, { password: newPassword });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({
+        title: "Password reset",
+        description: "The user's password has been updated.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to reset password",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const togglePasswordVisibility = (userId: string) => {
+    setShowPasswords(prev => ({ ...prev, [userId]: !prev[userId] }));
+  };
+
+  const getRoleBadgeColor = (role: string) => {
+    switch (role) {
+      case "admin": return "bg-red-500/20 text-red-300 border-red-500/30";
+      case "dispatcher": return "bg-blue-500/20 text-blue-300 border-blue-500/30";
+      case "technician": return "bg-green-500/20 text-green-300 border-green-500/30";
+      case "salesperson": return "bg-purple-500/20 text-purple-300 border-purple-500/30";
+      default: return "bg-muted";
+    }
+  };
+
+  const handleCreateUser = () => {
+    if (!newUser.username) {
+      toast({
+        title: "Missing information",
+        description: "Username is required.",
+        variant: "destructive",
+      });
+      return;
+    }
+    createUserMutation.mutate(newUser);
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-muted-foreground">
+          Loading users...
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Key className="w-5 h-5" />
+                User Account Management
+              </CardTitle>
+              <CardDescription>
+                View and manage user accounts. Passwords are viewable by IT team for support purposes.
+              </CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-users">
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Refresh
+              </Button>
+              <Button onClick={() => setIsAddUserOpen(true)} data-testid="button-add-user">
+                <UserPlus className="w-4 h-4 mr-2" />
+                Add User
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {users.length === 0 ? (
+              <div className="py-8 text-center text-muted-foreground">
+                No users found. Add users to get started.
+              </div>
+            ) : (
+              <div className="border rounded-md overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-sm font-medium">User</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">Role</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">Username</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">Password</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {users.map((user) => (
+                      <tr key={user.id} className="hover:bg-muted/30" data-testid={`row-user-${user.id}`}>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarFallback className="text-xs">
+                                {(user.fullName || user.username).slice(0, 2).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="font-medium flex items-center gap-2">
+                                {user.fullName || user.username}
+                                {user.isSuperAdmin && (
+                                  <span title="Super Admin"><Crown className="w-4 h-4 text-yellow-500" /></span>
+                                )}
+                              </div>
+                              {user.email && (
+                                <div className="text-xs text-muted-foreground">{user.email}</div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant="outline" className={getRoleBadgeColor(user.role)}>
+                            {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-sm">{user.username}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <code className="bg-muted px-2 py-1 rounded text-sm font-mono">
+                              {showPasswords[user.id] 
+                                ? (user.viewablePassword || "Not set") 
+                                : "••••••••"
+                              }
+                            </code>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => togglePasswordVisibility(user.id)}
+                              data-testid={`button-toggle-password-${user.id}`}
+                            >
+                              {showPasswords[user.id] ? (
+                                <EyeOff className="w-4 h-4" />
+                              ) : (
+                                <Eye className="w-4 h-4" />
+                              )}
+                            </Button>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {user.requiresPasswordSetup ? (
+                            <Badge variant="outline" className="bg-yellow-500/20 text-yellow-300 border-yellow-500/30">
+                              Pending Setup
+                            </Badge>
+                          ) : user.isActive ? (
+                            <Badge variant="outline" className="bg-green-500/20 text-green-300 border-green-500/30">
+                              Active
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="bg-muted text-muted-foreground">
+                              Inactive
+                            </Badge>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New User</DialogTitle>
+            <DialogDescription>
+              Create a new user account. If "Requires password setup" is enabled, the user will set their own password on first login.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="new-username">Username</Label>
+                <Input
+                  id="new-username"
+                  placeholder="Enter username"
+                  value={newUser.username}
+                  onChange={(e) => setNewUser((prev) => ({ ...prev, username: e.target.value }))}
+                  data-testid="input-new-username"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-fullname">Full Name</Label>
+                <Input
+                  id="new-fullname"
+                  placeholder="Full name"
+                  value={newUser.fullName}
+                  onChange={(e) => setNewUser((prev) => ({ ...prev, fullName: e.target.value }))}
+                  data-testid="input-new-fullname"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="new-email">Email</Label>
+                <Input
+                  id="new-email"
+                  type="email"
+                  placeholder="email@example.com"
+                  value={newUser.email}
+                  onChange={(e) => setNewUser((prev) => ({ ...prev, email: e.target.value }))}
+                  data-testid="input-new-email"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-phone">Phone</Label>
+                <Input
+                  id="new-phone"
+                  placeholder="(555) 123-4567"
+                  value={newUser.phone}
+                  onChange={(e) => setNewUser((prev) => ({ ...prev, phone: e.target.value }))}
+                  data-testid="input-new-phone"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-role">Role</Label>
+              <Select
+                value={newUser.role}
+                onValueChange={(v) => setNewUser((prev) => ({ ...prev, role: v as typeof newUser.role }))}
+              >
+                <SelectTrigger id="new-role" data-testid="select-new-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="dispatcher">Dispatcher</SelectItem>
+                  <SelectItem value="technician">Technician</SelectItem>
+                  <SelectItem value="salesperson">Salesperson</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-password">Initial Password</Label>
+              <Input
+                id="new-password"
+                type="text"
+                placeholder="Temporary password for first login"
+                value={newUser.initialPassword}
+                onChange={(e) => setNewUser((prev) => ({ ...prev, initialPassword: e.target.value }))}
+                data-testid="input-new-password"
+              />
+              <p className="text-xs text-muted-foreground">
+                This is a temporary password. The user will be required to change it on first login.
+              </p>
+            </div>
+            <div className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50">
+              <div>
+                <Label>Requires Password Setup</Label>
+                <p className="text-xs text-muted-foreground">
+                  User must set their own password on first login
+                </p>
+              </div>
+              <Switch
+                checked={newUser.requiresPasswordSetup}
+                onCheckedChange={(checked) => setNewUser((prev) => ({ ...prev, requiresPasswordSetup: checked }))}
+                data-testid="switch-requires-password-setup"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4 p-3 rounded-md bg-yellow-500/10 border border-yellow-500/20">
+              <div>
+                <Label className="flex items-center gap-2">
+                  <Crown className="w-4 h-4 text-yellow-500" />
+                  Super Admin (God Mode)
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Full access to edit/change anything in the system
+                </p>
+              </div>
+              <Switch
+                checked={newUser.isSuperAdmin}
+                onCheckedChange={(checked) => setNewUser((prev) => ({ ...prev, isSuperAdmin: checked }))}
+                data-testid="switch-super-admin"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddUserOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleCreateUser} 
+              disabled={createUserMutation.isPending}
+              data-testid="button-create-user"
+            >
+              {createUserMutation.isPending ? "Creating..." : "Create User"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export default function SettingsPage() {
   const { toast } = useToast();
   const [employees, setEmployees] = useState<EmployeeAccess[]>(initialEmployees);
@@ -396,10 +774,14 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="access" className="space-y-6">
-        <TabsList className="grid w-full max-w-lg grid-cols-4">
+        <TabsList className="grid w-full max-w-2xl grid-cols-5">
           <TabsTrigger value="access" data-testid="tab-access">
             <Shield className="w-4 h-4 mr-2" />
             Access
+          </TabsTrigger>
+          <TabsTrigger value="users" data-testid="tab-users">
+            <Users className="w-4 h-4 mr-2" />
+            Users
           </TabsTrigger>
           <TabsTrigger value="notifications" data-testid="tab-notifications">
             <Bell className="w-4 h-4 mr-2" />
@@ -572,6 +954,10 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="users" className="space-y-6">
+          <UserPasswordManagement />
         </TabsContent>
 
         <TabsContent value="notifications" className="space-y-6">

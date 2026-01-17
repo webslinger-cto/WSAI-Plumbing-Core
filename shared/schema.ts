@@ -31,6 +31,7 @@ export const insertUserSchema = createInsertSchema(users).pick({
   fullName: true,
   phone: true,
   email: true,
+  isActive: true,
   isSuperAdmin: true,
   requiresPasswordSetup: true,
   setupToken: true,
