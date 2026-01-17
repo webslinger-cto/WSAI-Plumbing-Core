@@ -836,10 +836,31 @@ export const employeePayRates = pgTable("employee_pay_rates", {
   commissionRate: decimal("commission_rate", { precision: 5, scale: 2 }),
   salaryAmount: decimal("salary_amount", { precision: 10, scale: 2 }),
   payFrequency: text("pay_frequency").default("weekly"), // weekly, biweekly, monthly
+  residenceState: text("residence_state").default("IL"), // State of residence for tax calculation
+  filingStatus: text("filing_status").default("single"), // single, married, head_of_household
+  federalAllowances: integer("federal_allowances").default(1),
+  stateAllowances: integer("state_allowances").default(1),
   effectiveDate: timestamp("effective_date").notNull().default(sql`now()`),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });
+
+// State tax rates configuration
+export const stateTaxRates = pgTable("state_tax_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  stateCode: text("state_code").notNull().unique(), // e.g., "IL", "IN", "WI"
+  stateName: text("state_name").notNull(),
+  flatRate: decimal("flat_rate", { precision: 5, scale: 4 }), // For flat-rate states like IL (4.95%)
+  hasProgressiveTax: boolean("has_progressive_tax").default(false),
+  brackets: text("brackets"), // JSON string for progressive brackets if applicable
+  noIncomeTax: boolean("no_income_tax").default(false), // For states like TX, FL, etc.
+  effectiveDate: timestamp("effective_date").notNull().default(sql`now()`),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertStateTaxRateSchema = createInsertSchema(stateTaxRates).omit({ id: true, createdAt: true });
+export type InsertStateTaxRate = z.infer<typeof insertStateTaxRateSchema>;
+export type StateTaxRate = typeof stateTaxRates.$inferSelect;
 
 export const insertEmployeePayRateSchema = createInsertSchema(employeePayRates).omit({ id: true, createdAt: true });
 export type InsertEmployeePayRate = z.infer<typeof insertEmployeePayRateSchema>;
