@@ -292,6 +292,7 @@ export const quotes = pgTable("quotes", {
   customerPhone: text("customer_phone"),
   customerEmail: text("customer_email"),
   address: text("address"),
+  preferredContactMethod: text("preferred_contact_method"), // email, sms, both
   lineItems: text("line_items"), // JSON string of line items
   laborEntries: text("labor_entries"), // JSON string of labor entries for payroll
   subtotal: decimal("subtotal"),

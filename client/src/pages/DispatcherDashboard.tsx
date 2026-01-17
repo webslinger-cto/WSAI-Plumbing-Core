@@ -3,6 +3,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -826,6 +827,7 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
   const [materialsCost, setMaterialsCost] = useState(0);
   const [taxRate, setTaxRate] = useState(0);
   const [notes, setNotes] = useState("");
+  const [preferredContactMethod, setPreferredContactMethod] = useState<string[]>(["email"]);
 
   // Fetch all quotes
   const { data: allQuotes = [], isLoading: quotesLoading } = useQuery<Quote[]>({
@@ -923,6 +925,7 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
     setMaterialsCost(0);
     setTaxRate(0);
     setNotes("");
+    setPreferredContactMethod(["email"]);
   };
 
   // Handle job selection - auto-fill customer info
@@ -966,6 +969,7 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
     setNotes(quote.notes || "");
     setLaborFee(parseFloat(quote.laborTotal || "0"));
     setMaterialsCost(0);
+    setPreferredContactMethod(quote.preferredContactMethod ? quote.preferredContactMethod.split(",") : ["email"]);
     
     try {
       const items = JSON.parse(quote.lineItems || "[]");
@@ -997,6 +1001,7 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
         customerPhone,
         customerEmail,
         address,
+        preferredContactMethod: preferredContactMethod.join(","),
         lineItems: JSON.stringify(validLineItems),
         laborTotal: laborFee.toString(),
         subtotal: subtotal.toString(),
@@ -1211,6 +1216,48 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                   data-testid="input-zipcode"
                 />
               </div>
+              <div className="space-y-3 pt-2">
+                <Label>Preferred Contact Method</Label>
+                <div className="flex flex-wrap gap-6">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="contact-email"
+                      checked={preferredContactMethod.includes("email")}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setPreferredContactMethod([...preferredContactMethod, "email"]);
+                        } else {
+                          setPreferredContactMethod(preferredContactMethod.filter(m => m !== "email"));
+                        }
+                      }}
+                      data-testid="checkbox-contact-email"
+                    />
+                    <label htmlFor="contact-email" className="text-sm font-medium cursor-pointer">
+                      Email
+                    </label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="contact-sms"
+                      checked={preferredContactMethod.includes("sms")}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setPreferredContactMethod([...preferredContactMethod, "sms"]);
+                        } else {
+                          setPreferredContactMethod(preferredContactMethod.filter(m => m !== "sms"));
+                        }
+                      }}
+                      data-testid="checkbox-contact-sms"
+                    />
+                    <label htmlFor="contact-sms" className="text-sm font-medium cursor-pointer">
+                      Text Message
+                    </label>
+                  </div>
+                </div>
+                {preferredContactMethod.length === 0 && (
+                  <p className="text-sm text-amber-500">Please select at least one contact method</p>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -1403,7 +1450,7 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                 <Button
                   className="w-full"
                   onClick={() => saveQuoteMutation.mutate("sent")}
-                  disabled={!customerName || !address || saveQuoteMutation.isPending}
+                  disabled={!customerName || !address || preferredContactMethod.length === 0 || saveQuoteMutation.isPending}
                   data-testid="button-send-quote"
                 >
                   <Send className="w-4 h-4 mr-2" />
@@ -1413,7 +1460,7 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                   variant="ghost"
                   className="w-full"
                   onClick={() => saveQuoteMutation.mutate("draft")}
-                  disabled={!customerName || !address || saveQuoteMutation.isPending}
+                  disabled={!customerName || !address || preferredContactMethod.length === 0 || saveQuoteMutation.isPending}
                   data-testid="button-save-draft"
                 >
                   <Save className="w-4 h-4 mr-2" />
