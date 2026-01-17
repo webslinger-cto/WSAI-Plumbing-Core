@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import AppSidebar from "@/components/AppSidebar";
 import LoginPage from "@/components/LoginPage";
+import PasswordSetupPage from "@/components/PasswordSetupPage";
 
 export const YELP_REVIEW_URL = "https://www.yelp.com/biz/chicago-sewer-experts-lyons-3?adjust_creative=microsoft&utm_campaign=yelp_feed&utm_medium=feed_v2&utm_source=microsoft";
 import AdminDashboard from "@/pages/AdminDashboard";
@@ -44,6 +45,8 @@ interface AuthState {
   technicianId: string | null;
   salespersonId: string | null;
   fullName: string;
+  requiresPasswordSetup: boolean;
+  isSuperAdmin: boolean;
 }
 
 function AdminRouter() {
@@ -151,6 +154,8 @@ interface LoginResponse {
   fullName: string | null;
   technicianId: string | null;
   salespersonId: string | null;
+  requiresPasswordSetup?: boolean;
+  isSuperAdmin?: boolean;
 }
 
 function App() {
@@ -163,6 +168,8 @@ function App() {
     technicianId: null,
     salespersonId: null,
     fullName: "",
+    requiresPasswordSetup: false,
+    isSuperAdmin: false,
   });
 
   // Always use dark mode for premium marble background
@@ -179,7 +186,16 @@ function App() {
       technicianId: loginData.technicianId,
       salespersonId: loginData.salespersonId,
       fullName: loginData.fullName || loginData.username,
+      requiresPasswordSetup: loginData.requiresPasswordSetup || false,
+      isSuperAdmin: loginData.isSuperAdmin || false,
     });
+    if (!loginData.requiresPasswordSetup) {
+      setLocation("/");
+    }
+  };
+
+  const handlePasswordSetupComplete = () => {
+    setAuth(prev => ({ ...prev, requiresPasswordSetup: false }));
     setLocation("/");
   };
 
@@ -192,6 +208,8 @@ function App() {
       technicianId: null,
       salespersonId: null,
       fullName: "",
+      requiresPasswordSetup: false,
+      isSuperAdmin: false,
     });
   };
 
@@ -226,6 +244,22 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <LoginPage onLogin={handleLogin} />
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  // Show password setup screen for first-time users
+  if (auth.requiresPasswordSetup) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <PasswordSetupPage
+            userId={auth.userId}
+            username={auth.username}
+            onComplete={handlePasswordSetupComplete}
+          />
           <Toaster />
         </TooltipProvider>
       </QueryClientProvider>
