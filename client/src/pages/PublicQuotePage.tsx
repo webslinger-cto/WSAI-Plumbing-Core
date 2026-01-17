@@ -28,7 +28,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import cseMascot from "@assets/cse-mascot.png";
+import cseLogo from "@assets/cse-logo.jpg";
 import type { Quote } from "@shared/schema";
 
 interface QuoteLineItem {
@@ -143,7 +143,7 @@ export default function PublicQuotePage() {
       <div className="bg-[#1a1a1a] text-white py-4 px-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
-            <img src={cseMascot} alt="Emergency Chicago Sewer Experts" className="h-12 w-auto" />
+            <img src={cseLogo} alt="Emergency Chicago Sewer Experts" className="h-12 w-auto rounded" />
             <div>
               <h1 className="font-bold text-lg">Emergency Chicago Sewer Experts</h1>
               <p className="text-sm text-gray-300">Professional Sewer & Drain Services</p>

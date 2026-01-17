@@ -55,7 +55,7 @@ import {
 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import cseMascot from "@assets/cse-mascot.png";
+import cseLogo from "@assets/cse-logo.jpg";
 import JobTimeline from "@/components/JobTimeline";
 import type { Job } from "@shared/schema";
 
@@ -504,10 +504,10 @@ export default function QuotePage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b">
         <div className="flex items-center gap-3">
           <img 
-            src={cseMascot} 
+            src={cseLogo} 
             alt="Emergency Chicago Sewer Experts" 
-            className="w-12 h-12 object-contain"
-            data-testid="img-quote-mascot"
+            className="w-12 h-12 object-contain rounded"
+            data-testid="img-quote-logo"
           />
           <div>
             <h1 className="text-lg font-bold tracking-wide uppercase">Emergency Chicago Sewer Experts</h1>

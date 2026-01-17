@@ -38,7 +38,7 @@ import {
   Tag,
   TrendingUp,
 } from "lucide-react";
-import cseMascot from "@assets/cse-mascot.png";
+import cseLogo from "@assets/cse-logo.jpg";
 
 interface AppSidebarProps {
   role: "admin" | "dispatcher" | "technician" | "salesperson";
@@ -118,10 +118,10 @@ export default function AppSidebar({ role, username, onLogout }: AppSidebarProps
       <SidebarHeader className="border-b border-sidebar-border p-4">
         <div className="flex items-center gap-3">
           <img 
-            src={cseMascot} 
-            alt="CSE Mascot" 
-            className="w-12 h-12 object-contain"
-            data-testid="img-cse-mascot"
+            src={cseLogo} 
+            alt="Emergency Chicago Sewer Experts" 
+            className="w-14 h-14 object-contain rounded"
+            data-testid="img-cse-logo"
           />
           <div className="flex-1 min-w-0">
             <h2 className="font-bold text-sm tracking-wide truncate">Emergency Chicago</h2>
