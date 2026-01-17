@@ -100,11 +100,20 @@ export default function EarningsPage({ technicianId, salespersonId, fullName }: 
   const filteredJobs = useMemo(() => {
     return jobs.filter(job => {
       if (technicianId && job.assignedTechnicianId !== technicianId) return false;
+      if (salespersonId && job.assignedSalespersonId !== salespersonId) return false;
       const jobDate = job.completedAt ? new Date(job.completedAt) : job.createdAt ? new Date(job.createdAt) : null;
       if (!jobDate) return false;
       return jobDate >= rangeStart && jobDate <= rangeEnd;
     });
-  }, [jobs, technicianId, rangeStart, rangeEnd]);
+  }, [jobs, technicianId, salespersonId, rangeStart, rangeEnd]);
+
+  const filteredCommissions = useMemo(() => {
+    return commissions.filter(c => {
+      const commDate = c.calculatedAt ? new Date(c.calculatedAt) : null;
+      if (!commDate) return true;
+      return commDate >= rangeStart && commDate <= rangeEnd;
+    });
+  }, [commissions, rangeStart, rangeEnd]);
 
   const completedJobs = filteredJobs.filter(j => j.status === "completed");
   const totalRevenue = completedJobs.reduce((sum, j) => sum + parseFloat(j.totalRevenue || "0"), 0);
@@ -214,19 +223,19 @@ export default function EarningsPage({ technicianId, salespersonId, fullName }: 
   const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
   const commissionData = useMemo(() => {
-    const totalCommission = commissions.reduce((sum, c) => sum + parseFloat(c.commissionAmount || "0"), 0);
-    const paidCommissions = commissions.filter(c => c.status === "paid");
-    const pendingCommissions = commissions.filter(c => c.status === "pending");
-    const approvedCommissions = commissions.filter(c => c.status === "approved");
+    const totalCommission = filteredCommissions.reduce((sum, c) => sum + parseFloat(c.commissionAmount || "0"), 0);
+    const paidCommissions = filteredCommissions.filter(c => c.status === "paid");
+    const pendingCommissions = filteredCommissions.filter(c => c.status === "pending");
+    const approvedCommissions = filteredCommissions.filter(c => c.status === "approved");
     
     return {
       totalCommission,
       paidAmount: paidCommissions.reduce((sum, c) => sum + parseFloat(c.commissionAmount || "0"), 0),
       pendingAmount: pendingCommissions.reduce((sum, c) => sum + parseFloat(c.commissionAmount || "0"), 0),
       approvedAmount: approvedCommissions.reduce((sum, c) => sum + parseFloat(c.commissionAmount || "0"), 0),
-      count: commissions.length,
+      count: filteredCommissions.length,
     };
-  }, [commissions]);
+  }, [filteredCommissions]);
 
   if (isLoading) {
     return (
