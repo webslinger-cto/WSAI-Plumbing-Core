@@ -1,13 +1,13 @@
 import { useState, useEffect, useLayoutEffect } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Crown, Eye } from "lucide-react";
+import { Crown, Eye, User } from "lucide-react";
 import AppSidebar from "@/components/AppSidebar";
 import LoginPage from "@/components/LoginPage";
 import PasswordSetupPage from "@/components/PasswordSetupPage";
@@ -146,6 +146,136 @@ interface LoginResponse {
   isSuperAdmin?: boolean;
 }
 
+interface TechnicianInfo {
+  id: string;
+  name: string;
+  userId: string | null;
+}
+
+interface SalespersonInfo {
+  id: string;
+  name: string;
+  userId: string | null;
+}
+
+interface GodModeRoleSwitcherProps {
+  currentRole: string;
+  currentTechnicianId: string | null;
+  currentSalespersonId: string | null;
+  onRoleChange: (role: "admin" | "dispatcher" | "technician" | "salesperson") => void;
+  onTechnicianChange: (id: string, name: string) => void;
+  onSalespersonChange: (id: string, name: string) => void;
+}
+
+function GodModeRoleSwitcher({ 
+  currentRole, 
+  currentTechnicianId, 
+  currentSalespersonId,
+  onRoleChange, 
+  onTechnicianChange,
+  onSalespersonChange 
+}: GodModeRoleSwitcherProps) {
+  const { data: technicians = [] } = useQuery<TechnicianInfo[]>({
+    queryKey: ["/api/technicians"],
+  });
+  
+  const { data: salespersons = [] } = useQuery<SalespersonInfo[]>({
+    queryKey: ["/api/salespersons"],
+  });
+
+  const handleValueChange = (value: string) => {
+    if (value === "admin" || value === "dispatcher") {
+      onRoleChange(value);
+    } else if (value.startsWith("tech:")) {
+      const techId = value.replace("tech:", "");
+      const tech = technicians.find(t => t.id === techId);
+      if (tech) {
+        onTechnicianChange(tech.id, tech.name);
+      }
+    } else if (value.startsWith("sales:")) {
+      const salesId = value.replace("sales:", "");
+      const sales = salespersons.find(s => s.id === salesId);
+      if (sales) {
+        onSalespersonChange(sales.id, sales.name);
+      }
+    }
+  };
+
+  const getCurrentValue = () => {
+    if (currentRole === "admin" || currentRole === "dispatcher") {
+      return currentRole;
+    }
+    if (currentRole === "technician" && currentTechnicianId) {
+      return `tech:${currentTechnicianId}`;
+    }
+    if (currentRole === "salesperson" && currentSalespersonId) {
+      return `sales:${currentSalespersonId}`;
+    }
+    return "admin";
+  };
+
+  const getCurrentLabel = () => {
+    if (currentRole === "admin") return "Admin";
+    if (currentRole === "dispatcher") return "Dispatcher";
+    if (currentRole === "technician" && currentTechnicianId) {
+      const tech = technicians.find(t => t.id === currentTechnicianId);
+      return tech ? tech.name : "Technician";
+    }
+    if (currentRole === "salesperson" && currentSalespersonId) {
+      const sales = salespersons.find(s => s.id === currentSalespersonId);
+      return sales ? sales.name : "Salesperson";
+    }
+    return "Admin";
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <Badge variant="outline" className="bg-yellow-500/10 text-yellow-500 border-yellow-500/30 gap-1">
+        <Crown className="w-3 h-3" />
+        God Mode
+      </Badge>
+      <div className="flex items-center gap-2">
+        <Eye className="w-4 h-4 text-muted-foreground" />
+        <Select value={getCurrentValue()} onValueChange={handleValueChange}>
+          <SelectTrigger className="w-[180px] h-8" data-testid="select-view-as-role">
+            <div className="flex items-center gap-2">
+              <User className="w-3 h-3" />
+              <span className="truncate">{getCurrentLabel()}</span>
+            </div>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectLabel>Roles</SelectLabel>
+              <SelectItem value="admin">Admin</SelectItem>
+              <SelectItem value="dispatcher">Dispatcher</SelectItem>
+            </SelectGroup>
+            {technicians.length > 0 && (
+              <SelectGroup>
+                <SelectLabel>Technicians</SelectLabel>
+                {technicians.map((tech) => (
+                  <SelectItem key={tech.id} value={`tech:${tech.id}`}>
+                    {tech.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )}
+            {salespersons.length > 0 && (
+              <SelectGroup>
+                <SelectLabel>Salespersons</SelectLabel>
+                {salespersons.map((sales) => (
+                  <SelectItem key={sales.id} value={`sales:${sales.id}`}>
+                    {sales.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [location, setLocation] = useLocation();
   const [auth, setAuth] = useState<AuthState>({
@@ -162,9 +292,21 @@ function App() {
   
   // Super admin role switching - allows viewing the app as different roles
   const [viewAsRole, setViewAsRole] = useState<"admin" | "dispatcher" | "technician" | "salesperson" | null>(null);
+  // Selected person when viewing as technician or salesperson
+  const [viewAsTechnicianId, setViewAsTechnicianId] = useState<string | null>(null);
+  const [viewAsTechnicianName, setViewAsTechnicianName] = useState<string>("Technician");
+  const [viewAsSalespersonId, setViewAsSalespersonId] = useState<string | null>(null);
+  const [viewAsSalespersonName, setViewAsSalespersonName] = useState<string>("Salesperson");
   
   // The effective role is either the "view as" role (for super admins) or the actual role
   const effectiveRole = auth.isSuperAdmin && viewAsRole ? viewAsRole : auth.role;
+  
+  // Effective IDs for technician/salesperson views
+  const effectiveTechnicianId = auth.isSuperAdmin && viewAsRole === "technician" ? viewAsTechnicianId : auth.technicianId;
+  const effectiveSalespersonId = auth.isSuperAdmin && viewAsRole === "salesperson" ? viewAsSalespersonId : auth.salespersonId;
+  const effectiveFullName = auth.isSuperAdmin && viewAsRole === "technician" ? viewAsTechnicianName 
+    : auth.isSuperAdmin && viewAsRole === "salesperson" ? viewAsSalespersonName 
+    : auth.fullName;
 
   // Always use dark mode for premium marble background
   useLayoutEffect(() => {
@@ -281,32 +423,27 @@ function App() {
                 <div className="flex-1" />
                 
                 {auth.isSuperAdmin && (
-                  <div className="flex items-center gap-3">
-                    <Badge variant="outline" className="bg-yellow-500/10 text-yellow-500 border-yellow-500/30 gap-1">
-                      <Crown className="w-3 h-3" />
-                      God Mode
-                    </Badge>
-                    <div className="flex items-center gap-2">
-                      <Eye className="w-4 h-4 text-muted-foreground" />
-                      <Select
-                        value={viewAsRole || auth.role || "admin"}
-                        onValueChange={(v) => {
-                          setViewAsRole(v as typeof viewAsRole);
-                          setLocation("/");
-                        }}
-                      >
-                        <SelectTrigger className="w-[140px] h-8" data-testid="select-view-as-role">
-                          <SelectValue placeholder="View as..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="admin">Admin</SelectItem>
-                          <SelectItem value="dispatcher">Dispatcher</SelectItem>
-                          <SelectItem value="technician">Technician</SelectItem>
-                          <SelectItem value="salesperson">Salesperson</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+                  <GodModeRoleSwitcher
+                    currentRole={viewAsRole || auth.role || "admin"}
+                    currentTechnicianId={viewAsTechnicianId}
+                    currentSalespersonId={viewAsSalespersonId}
+                    onRoleChange={(role) => {
+                      setViewAsRole(role);
+                      setLocation("/");
+                    }}
+                    onTechnicianChange={(id, name) => {
+                      setViewAsTechnicianId(id);
+                      setViewAsTechnicianName(name);
+                      setViewAsRole("technician");
+                      setLocation("/");
+                    }}
+                    onSalespersonChange={(id, name) => {
+                      setViewAsSalespersonId(id);
+                      setViewAsSalespersonName(name);
+                      setViewAsRole("salesperson");
+                      setLocation("/");
+                    }}
+                  />
                 )}
               </header>
               <main className="flex-1 overflow-auto p-6">
@@ -316,15 +453,15 @@ function App() {
                   <DispatcherRouter />
                 ) : effectiveRole === "salesperson" ? (
                   <SalespersonRouter 
-                    salespersonId={auth.salespersonId || ""} 
+                    salespersonId={effectiveSalespersonId || ""} 
                     userId={auth.userId}
-                    fullName={auth.fullName}
+                    fullName={effectiveFullName}
                   />
                 ) : (
                   <TechnicianRouter 
-                    technicianId={auth.technicianId || ""} 
+                    technicianId={effectiveTechnicianId || ""} 
                     userId={auth.userId}
-                    fullName={auth.fullName}
+                    fullName={effectiveFullName}
                   />
                 )}
               </main>
