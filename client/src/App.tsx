@@ -33,6 +33,7 @@ import SalesAnalyticsPage from "@/pages/SalesAnalyticsPage";
 import PricebookPage from "@/pages/PricebookPage";
 import MarketingROIPage from "@/pages/MarketingROIPage";
 import SEOContentPage from "@/pages/seo-content";
+import EarningsPage from "@/pages/EarningsPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 import BusinessIntakePage from "@/pages/business-intake";
@@ -101,18 +102,9 @@ function TechnicianRouter({ technicianId, userId, fullName }: { technicianId: st
         {() => <TechnicianDashboard technicianId={technicianId} userId={userId} fullName={fullName} />}
       </Route>
       <Route path="/quote" component={QuotePage} />
-      <Route path="/jobs" component={() => (
-        <div className="space-y-4">
-          <h1 className="text-2xl font-bold">My Jobs</h1>
-          <p className="text-muted-foreground">Jobs history page coming soon.</p>
-        </div>
-      )} />
-      <Route path="/earnings" component={() => (
-        <div className="space-y-4">
-          <h1 className="text-2xl font-bold">Earnings</h1>
-          <p className="text-muted-foreground">Earnings report page coming soon.</p>
-        </div>
-      )} />
+      <Route path="/earnings">
+        {() => <EarningsPage technicianId={technicianId} fullName={fullName} />}
+      </Route>
       <Route path="/operations">{() => <OperationsMenuPage role="technician" username={fullName} />}</Route>
       <Route component={NotFound} />
     </Switch>
@@ -135,12 +127,9 @@ function SalespersonRouter({ salespersonId, userId, fullName }: { salespersonId:
       <Route path="/analytics">
         {() => <SalesAnalyticsPage salespersonId={salespersonId} fullName={fullName} />}
       </Route>
-      <Route path="/earnings" component={() => (
-        <div className="space-y-4">
-          <h1 className="text-2xl font-bold">My Commissions</h1>
-          <p className="text-muted-foreground">Detailed commission report coming soon.</p>
-        </div>
-      )} />
+      <Route path="/earnings">
+        {() => <EarningsPage salespersonId={salespersonId} fullName={fullName} />}
+      </Route>
       <Route path="/operations">{() => <OperationsMenuPage role="salesperson" username={fullName} />}</Route>
       <Route component={NotFound} />
     </Switch>
