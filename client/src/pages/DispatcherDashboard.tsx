@@ -955,7 +955,7 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
   // Load quote for editing
   const loadQuoteForEdit = (quote: Quote) => {
     setEditingQuoteId(quote.id);
-    setSelectedJobId(quote.jobId);
+    setSelectedJobId(quote.jobId || "");
     setSelectedTechnicianId(quote.technicianId || "");
     setCustomerName(quote.customerName);
     setCustomerPhone(quote.customerPhone || "");
@@ -991,7 +991,7 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
       const validLineItems = lineItems.filter(item => item.description || item.customDescription);
       
       const quoteData = {
-        jobId: selectedJobId,
+        jobId: selectedJobId || undefined, // Optional - job is created when quote is accepted
         technicianId: selectedTechnicianId || undefined,
         customerName,
         customerPhone,
@@ -1156,33 +1156,6 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Form */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Job Selection */}
-          <Card>
-            <CardHeader className="pb-4">
-              <CardTitle className="text-base">Link to Job</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <Label>Select an existing job (auto-fills customer info)</Label>
-                <Select value={selectedJobId} onValueChange={handleJobSelect}>
-                  <SelectTrigger data-testid="select-job">
-                    <SelectValue placeholder="Select a job..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableJobs.map((job) => (
-                      <SelectItem key={job.id} value={job.id}>
-                        {job.customerName} - {job.address} ({job.status})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {!selectedJobId && (
-                  <p className="text-sm text-amber-500">A job must be selected to create a quote</p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Customer Information */}
           <Card>
             <CardHeader className="pb-4">
@@ -1430,7 +1403,7 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                 <Button
                   className="w-full"
                   onClick={() => saveQuoteMutation.mutate("sent")}
-                  disabled={!selectedJobId || !customerName || saveQuoteMutation.isPending}
+                  disabled={!customerName || !address || saveQuoteMutation.isPending}
                   data-testid="button-send-quote"
                 >
                   <Send className="w-4 h-4 mr-2" />
@@ -1440,7 +1413,7 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                   variant="ghost"
                   className="w-full"
                   onClick={() => saveQuoteMutation.mutate("draft")}
-                  disabled={!selectedJobId || !customerName || saveQuoteMutation.isPending}
+                  disabled={!customerName || !address || saveQuoteMutation.isPending}
                   data-testid="button-save-draft"
                 >
                   <Save className="w-4 h-4 mr-2" />

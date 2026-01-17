@@ -286,7 +286,7 @@ export type JobTimelineEvent = typeof jobTimelineEvents.$inferSelect;
 // Quotes table
 export const quotes = pgTable("quotes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  jobId: varchar("job_id").references(() => jobs.id), // Optional - populated when quote is accepted and job is created
   technicianId: varchar("technician_id").references(() => technicians.id),
   customerName: text("customer_name").notNull(),
   customerPhone: text("customer_phone"),
