@@ -6,6 +6,31 @@ Emergency Chicago Sewer Experts CRM is a lead management and customer relationsh
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
+## Core Business Workflow
+
+### Quote-to-Job Workflow (RightFlow CRM Style)
+Jobs are ONLY created when a customer accepts a quote. There is no direct job creation.
+
+1. **Create Quote** - Dispatcher or salesperson creates a quote with customer info, service line items from pricebook
+2. **Send Quote** - Quote is sent to customer via email/SMS with a public link
+3. **Customer Views** - Customer views the quote (tracked)
+4. **Customer Accepts** - When customer accepts the quote:
+   - Quote status changes to "accepted"
+   - A job is AUTOMATICALLY created from the quote data
+   - Job appears on the dispatch board with "pending" status
+5. **Job Assigned** - Dispatcher assigns a technician to the job
+6. **Driving** - Technician marks status as "en_route"
+7. **Arrived** - Technician marks status as "on_site"
+8. **Finished** - Technician marks job complete
+
+### Automated Customer Notifications
+When a job is scheduled, the system sends automated notifications:
+- **Immediate**: Job scheduled confirmation
+- **48 hours before**: Appointment reminder
+- **24 hours before**: Appointment reminder
+- **Day of**: Technician arrival reminder
+- **If changes occur**: Automated outreach for rescheduling
+
 ## System Architecture
 
 ### Frontend

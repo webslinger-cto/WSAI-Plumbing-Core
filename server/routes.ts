@@ -1316,16 +1316,78 @@ export async function registerRoutes(
   });
 
   app.patch("/api/quotes/:id", async (req, res) => {
-    const updates = { ...req.body };
-    const dateFields = ['sentAt', 'viewedAt', 'acceptedAt', 'declinedAt', 'expiresAt'];
-    dateFields.forEach(field => {
-      if (updates[field] && typeof updates[field] === 'string') {
-        updates[field] = new Date(updates[field]);
+    try {
+      const updates = { ...req.body };
+      const dateFields = ['sentAt', 'viewedAt', 'acceptedAt', 'declinedAt', 'expiresAt'];
+      dateFields.forEach(field => {
+        if (updates[field] && typeof updates[field] === 'string') {
+          updates[field] = new Date(updates[field]);
+        }
+      });
+      
+      // Get original quote to check status change
+      const originalQuote = await storage.getQuote(req.params.id);
+      if (!originalQuote) return res.status(404).json({ error: "Quote not found" });
+      
+      // Update the quote
+      const quote = await storage.updateQuote(req.params.id, updates);
+      if (!quote) return res.status(404).json({ error: "Quote not found" });
+      
+      // If status changed to 'accepted', automatically create a job
+      if (updates.status === 'accepted' && originalQuote.status !== 'accepted') {
+        // Parse lineItems if it's a string
+        let lineItemsArray: Array<{description?: string}> = [];
+        if (quote.lineItems) {
+          try {
+            const parsed = typeof quote.lineItems === 'string' 
+              ? JSON.parse(quote.lineItems) 
+              : quote.lineItems;
+            lineItemsArray = Array.isArray(parsed) ? parsed : [];
+          } catch (e) {
+            console.warn('Failed to parse quote lineItems:', e);
+            lineItemsArray = [];
+          }
+        }
+        
+        // Validate required fields before creating job
+        if (!quote.customerName || !quote.address) {
+          return res.status(400).json({ 
+            error: "Cannot create job: quote is missing required customer name or address" 
+          });
+        }
+        
+        const jobData = {
+          customerName: quote.customerName,
+          customerPhone: quote.customerPhone || 'No phone provided',
+          customerEmail: quote.customerEmail || undefined,
+          address: quote.address,
+          serviceType: lineItemsArray?.[0]?.description || 'Sewer Service',
+          description: `Job created from accepted quote #${quote.id.substring(0, 8)}`,
+          status: 'pending',
+          priority: 'normal',
+        };
+        
+        const newJob = await storage.createJob(jobData);
+        console.log(`Job ${newJob.id} created from accepted quote ${quote.id}`);
+        
+        // Update quote with job link
+        await storage.updateQuote(quote.id, { jobId: newJob.id });
+        
+        // Create timeline event
+        await storage.createJobTimelineEvent({
+          jobId: newJob.id,
+          eventType: 'job_created',
+          description: `Job created from accepted quote. Total: $${quote.total}`,
+        });
+        
+        return res.json({ quote, job: newJob });
       }
-    });
-    const quote = await storage.updateQuote(req.params.id, updates);
-    if (!quote) return res.status(404).json({ error: "Quote not found" });
-    res.json(quote);
+      
+      res.json(quote);
+    } catch (error) {
+      console.error("Error updating quote:", error);
+      res.status(500).json({ error: "Failed to update quote" });
+    }
   });
 
   // Generate public link token for a quote
@@ -1373,12 +1435,64 @@ export async function registerRoutes(
       const quote = await storage.getQuoteByToken(req.params.token);
       if (!quote) return res.status(404).json({ error: "Quote not found" });
       
+      // Update quote status to accepted
       const updatedQuote = await storage.updateQuote(quote.id, { 
         status: 'accepted', 
         acceptedAt: new Date() 
       });
       
-      res.json(updatedQuote);
+      // When quote is accepted, automatically create a job
+      // Parse lineItems if it's a string
+      let lineItemsArray: Array<{description?: string}> = [];
+      if (quote.lineItems) {
+        try {
+          const parsed = typeof quote.lineItems === 'string' 
+            ? JSON.parse(quote.lineItems) 
+            : quote.lineItems;
+          lineItemsArray = Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+          console.warn('Failed to parse quote lineItems:', e);
+          lineItemsArray = [];
+        }
+      }
+      
+      // Validate required fields before creating job
+      if (!quote.customerName || !quote.address) {
+        return res.status(400).json({ 
+          error: "Cannot create job: quote is missing required customer name or address" 
+        });
+      }
+      
+      const jobData = {
+        customerName: quote.customerName,
+        customerPhone: quote.customerPhone || 'No phone provided',
+        customerEmail: quote.customerEmail || undefined,
+        address: quote.address,
+        serviceType: lineItemsArray?.[0]?.description || 'Sewer Service',
+        description: `Job created from accepted quote #${quote.id.substring(0, 8)}`,
+        status: 'pending', // Ready for technician assignment
+        priority: 'normal',
+      };
+      
+      const newJob = await storage.createJob(jobData);
+      console.log(`Job ${newJob.id} created from accepted quote ${quote.id}`);
+      
+      // Link the quote to the newly created job if not already linked
+      if (!quote.jobId) {
+        await storage.updateQuote(quote.id, { jobId: newJob.id });
+      }
+      
+      // Create job timeline event
+      await storage.createJobTimelineEvent({
+        jobId: newJob.id,
+        eventType: 'job_created',
+        description: `Job created from accepted quote. Total: $${quote.total}`,
+      });
+      
+      // Note: Automated notifications (48hr, 24hr, day-of reminders) 
+      // will be triggered by the automation service when the job gets scheduled
+      
+      res.json({ quote: updatedQuote, job: newJob });
     } catch (error) {
       console.error("Error accepting quote:", error);
       res.status(500).json({ error: "Failed to accept quote" });
