@@ -23,15 +23,12 @@ import {
   Wrench,
   ClipboardList,
   DollarSign,
-  Upload,
   Megaphone,
   Phone,
   UserCog,
-  Download,
   Wallet,
   Briefcase,
   Receipt,
-  BookOpen,
   MapPin,
   BarChart3,
   Navigation,
@@ -57,11 +54,7 @@ const adminMenuItems = [
   { title: "Quote Templates", url: "/quote-templates", icon: FileText },
   { title: "Pricebook", url: "/pricebook", icon: Tag },
   { title: "Marketing ROI", url: "/marketing", icon: TrendingUp },
-  { title: "SEO Content", url: "/seo-content", icon: Megaphone },
   { title: "Payroll", url: "/payroll", icon: Wallet },
-  { title: "Import Data", url: "/import", icon: Upload },
-  { title: "Export Data", url: "/export", icon: Download },
-  { title: "Operations Guide", url: "/operations", icon: BookOpen },
 ];
 
 const dispatcherMenuItems = [
@@ -72,14 +65,12 @@ const dispatcherMenuItems = [
   { title: "Staffing Pool", url: "/staffing", icon: UserCog },
   { title: "Calls", url: "/calls", icon: Phone },
   { title: "Leads", url: "/leads", icon: Users },
-  { title: "Operations Guide", url: "/operations", icon: BookOpen },
 ];
 
 const techMenuItems = [
   { title: "My Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Quote Tool", url: "/quote", icon: FileText },
   { title: "Earnings", url: "/earnings", icon: DollarSign },
-  { title: "Operations Guide", url: "/operations", icon: BookOpen },
 ];
 
 const salesMenuItems = [
@@ -91,7 +82,6 @@ const salesMenuItems = [
   { title: "Location Tracking", url: "/location", icon: Navigation },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Commissions", url: "/earnings", icon: DollarSign },
-  { title: "Operations Guide", url: "/operations", icon: BookOpen },
 ];
 
 export default function AppSidebar({ role, username, onLogout }: AppSidebarProps) {

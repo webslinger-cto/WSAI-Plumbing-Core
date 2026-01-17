@@ -45,6 +45,9 @@ import {
   Trash2,
   DollarSign,
   Clock,
+  BookOpen,
+  FileUp,
+  FileDown,
 } from "lucide-react";
 
 type FeaturePermission = {
@@ -733,7 +736,7 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="access" className="space-y-6">
-        <TabsList className="grid w-full max-w-2xl grid-cols-5">
+        <TabsList className="flex flex-wrap gap-1 w-full max-w-4xl h-auto p-1">
           <TabsTrigger value="access" data-testid="tab-access">
             <Shield className="w-4 h-4 mr-2" />
             Access
@@ -749,6 +752,18 @@ export default function SettingsPage() {
           <TabsTrigger value="integrations" data-testid="tab-integrations">
             <FileEdit className="w-4 h-4 mr-2" />
             Integrations
+          </TabsTrigger>
+          <TabsTrigger value="import" data-testid="tab-import">
+            <FileUp className="w-4 h-4 mr-2" />
+            Import
+          </TabsTrigger>
+          <TabsTrigger value="export" data-testid="tab-export">
+            <FileDown className="w-4 h-4 mr-2" />
+            Export
+          </TabsTrigger>
+          <TabsTrigger value="operations" data-testid="tab-operations">
+            <BookOpen className="w-4 h-4 mr-2" />
+            Operations
           </TabsTrigger>
           <TabsTrigger value="general" data-testid="tab-general">
             <Settings className="w-4 h-4 mr-2" />
@@ -1323,6 +1338,199 @@ export default function SettingsPage() {
                       data-testid="switch-tech-self-schedule"
                     />
                   </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="import" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileUp className="w-5 h-5" />
+                Import Data
+              </CardTitle>
+              <CardDescription>
+                Upload CSV or Excel files from eLocal, Networx, and other lead sources
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="border-2 border-dashed rounded-xl p-12 text-center border-border hover:border-primary/50 transition-colors">
+                <div className="mx-auto w-16 h-16 rounded-xl bg-muted flex items-center justify-center mb-4">
+                  <Upload className="w-8 h-8 text-muted-foreground" />
+                </div>
+                <h3 className="font-semibold mb-1">Drop files here</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Supports CSV and Excel files (.csv, .xlsx)
+                </p>
+                <input
+                  type="file"
+                  id="import-file-upload"
+                  className="hidden"
+                  accept=".csv,.xlsx"
+                  multiple
+                />
+                <Button asChild data-testid="button-browse-import-files">
+                  <label htmlFor="import-file-upload" className="cursor-pointer">
+                    Browse Files
+                  </label>
+                </Button>
+              </div>
+              <div className="mt-6 p-4 bg-muted/30 rounded-lg">
+                <h4 className="font-medium mb-2">Supported Sources</h4>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary">eLocal</Badge>
+                  <Badge variant="secondary">Networx</Badge>
+                  <Badge variant="secondary">Angi</Badge>
+                  <Badge variant="secondary">Thumbtack</Badge>
+                  <Badge variant="secondary">Inquirly</Badge>
+                  <Badge variant="secondary">Zapier</Badge>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="export" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileDown className="w-5 h-5" />
+                Export Data
+              </CardTitle>
+              <CardDescription>
+                Download all CRM data including leads, jobs, technicians, and quotes
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <Card className="border">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="p-2 rounded-lg bg-green-500/10">
+                        <Download className="w-5 h-5 text-green-500" />
+                      </div>
+                      <div>
+                        <h4 className="font-medium">CSV Export</h4>
+                        <p className="text-sm text-muted-foreground">For Excel, Google Sheets</p>
+                      </div>
+                    </div>
+                    <Button variant="outline" className="w-full" data-testid="button-export-csv-settings">
+                      <Download className="w-4 h-4 mr-2" />
+                      Download CSV
+                    </Button>
+                  </CardContent>
+                </Card>
+                <Card className="border">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="p-2 rounded-lg bg-blue-500/10">
+                        <Download className="w-5 h-5 text-blue-500" />
+                      </div>
+                      <div>
+                        <h4 className="font-medium">PDF Report</h4>
+                        <p className="text-sm text-muted-foreground">Formatted document</p>
+                      </div>
+                    </div>
+                    <Button variant="outline" className="w-full" data-testid="button-export-pdf-settings">
+                      <Download className="w-4 h-4 mr-2" />
+                      Download Report
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+              <div className="p-4 bg-muted/30 rounded-lg">
+                <h4 className="font-medium mb-2">What's Included</h4>
+                <ul className="text-sm text-muted-foreground space-y-1">
+                  <li>All leads with contact info and source tracking</li>
+                  <li>Jobs with scheduling and revenue data</li>
+                  <li>Technician performance metrics</li>
+                  <li>Quote history with pricing details</li>
+                </ul>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="operations" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BookOpen className="w-5 h-5" />
+                Operations Guide
+              </CardTitle>
+              <CardDescription>
+                Your role-specific guide to Emergency Chicago Sewer Experts CRM
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <h4 className="font-semibold flex items-center gap-2">
+                    <Users className="w-4 h-4" /> Lead Management
+                  </h4>
+                  <ul className="text-sm text-muted-foreground space-y-1 ml-6">
+                    <li>View all incoming leads from all sources</li>
+                    <li>Monitor lead conversion rates by source</li>
+                    <li>Track cost-per-lead and ROI by channel</li>
+                    <li>Configure webhook endpoints for lead sources</li>
+                  </ul>
+                </div>
+                <div className="space-y-2">
+                  <h4 className="font-semibold flex items-center gap-2">
+                    <Wrench className="w-4 h-4" /> Technician Management
+                  </h4>
+                  <ul className="text-sm text-muted-foreground space-y-1 ml-6">
+                    <li>Add and manage technician profiles</li>
+                    <li>Set hourly rates and skills</li>
+                    <li>View availability and workload</li>
+                    <li>Review earnings and performance</li>
+                  </ul>
+                </div>
+              </div>
+              
+              <Separator />
+              
+              <div>
+                <h4 className="font-medium mb-3">Lead Sources & Webhooks</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 px-3">Source</th>
+                        <th className="text-left py-2 px-3">Endpoint</th>
+                        <th className="text-left py-2 px-3">Authentication</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      <tr><td className="py-2 px-3">eLocal</td><td className="py-2 px-3 font-mono text-xs">/api/webhooks/elocal</td><td className="py-2 px-3">None</td></tr>
+                      <tr><td className="py-2 px-3">Networx</td><td className="py-2 px-3 font-mono text-xs">/api/webhooks/networx</td><td className="py-2 px-3">None</td></tr>
+                      <tr><td className="py-2 px-3">Angi</td><td className="py-2 px-3 font-mono text-xs">/api/webhooks/angi</td><td className="py-2 px-3">x-angi-key header</td></tr>
+                      <tr><td className="py-2 px-3">Thumbtack</td><td className="py-2 px-3 font-mono text-xs">/api/webhooks/thumbtack</td><td className="py-2 px-3">Basic Auth</td></tr>
+                      <tr><td className="py-2 px-3">Zapier</td><td className="py-2 px-3 font-mono text-xs">/api/webhooks/zapier/lead</td><td className="py-2 px-3">None</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
+              <Separator />
+              
+              <div>
+                <h4 className="font-medium mb-3">Documentation Downloads</h4>
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  <a href="/3-app-integration-guide.pdf" download>
+                    <Button variant="outline" className="w-full justify-start gap-2" data-testid="button-download-integration-pdf">
+                      <Download className="w-4 h-4" />
+                      <span>3-App Integration Guide</span>
+                    </Button>
+                  </a>
+                  <a href="/api/documentation/pdf" download>
+                    <Button variant="outline" className="w-full justify-start gap-2" data-testid="button-download-docs-pdf">
+                      <Download className="w-4 h-4" />
+                      <span>CRM Documentation</span>
+                    </Button>
+                  </a>
                 </div>
               </div>
             </CardContent>
