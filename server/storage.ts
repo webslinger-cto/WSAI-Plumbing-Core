@@ -114,6 +114,7 @@ export interface IStorage {
   getAvailableTechnicians(): Promise<Technician[]>;
   createTechnician(tech: InsertTechnician): Promise<Technician>;
   updateTechnician(id: string, updates: Partial<Technician>): Promise<Technician | undefined>;
+  deleteTechnicianByUserId(userId: string): Promise<boolean>;
 
   // Salespersons
   getSalesperson(id: string): Promise<Salesperson | undefined>;
@@ -122,6 +123,7 @@ export interface IStorage {
   getAvailableSalespersons(): Promise<Salesperson[]>;
   createSalesperson(sp: InsertSalesperson): Promise<Salesperson>;
   updateSalesperson(id: string, updates: Partial<Salesperson>): Promise<Salesperson | undefined>;
+  deleteSalespersonByUserId(userId: string): Promise<boolean>;
 
   // Sales Commissions
   getSalesCommission(id: string): Promise<SalesCommission | undefined>;
@@ -619,6 +621,16 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
+  async deleteTechnicianByUserId(userId: string): Promise<boolean> {
+    for (const [id, tech] of this.technicians.entries()) {
+      if (tech.userId === userId) {
+        this.technicians.delete(id);
+        return true;
+      }
+    }
+    return false;
+  }
+
   // Salespersons (stub implementations for MemStorage)
   async getSalesperson(_id: string): Promise<Salesperson | undefined> {
     return undefined;
@@ -642,6 +654,10 @@ export class MemStorage implements IStorage {
 
   async updateSalesperson(_id: string, _updates: Partial<Salesperson>): Promise<Salesperson | undefined> {
     return undefined;
+  }
+
+  async deleteSalespersonByUserId(_userId: string): Promise<boolean> {
+    return false; // Stub implementation
   }
 
   // Sales Commissions (stub implementations for MemStorage)
@@ -1736,6 +1752,11 @@ export class DatabaseStorage implements IStorage {
     return tech;
   }
 
+  async deleteTechnicianByUserId(userId: string): Promise<boolean> {
+    await db.delete(technicians).where(eq(technicians.userId, userId));
+    return true;
+  }
+
   // Salespersons
   async getSalesperson(id: string): Promise<Salesperson | undefined> {
     const [sp] = await db.select().from(salespersons).where(eq(salespersons.id, id));
@@ -1765,6 +1786,11 @@ export class DatabaseStorage implements IStorage {
   async updateSalesperson(id: string, updates: Partial<Salesperson>): Promise<Salesperson | undefined> {
     const [sp] = await db.update(salespersons).set(updates).where(eq(salespersons.id, id)).returning();
     return sp;
+  }
+
+  async deleteSalespersonByUserId(userId: string): Promise<boolean> {
+    await db.delete(salespersons).where(eq(salespersons.userId, userId));
+    return true;
   }
 
   // Sales Commissions

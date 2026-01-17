@@ -188,10 +188,11 @@ export async function registerRoutes(
       }
 
       const password = initialPassword || "temp123";
+      const userRole = role || "technician";
       const newUser = await storage.createUser({
         username,
         password,
-        role: role || "technician",
+        role: userRole,
         fullName: fullName || null,
         email: email || null,
         phone: phone || null,
@@ -200,6 +201,29 @@ export async function registerRoutes(
         requiresPasswordSetup: requiresPasswordSetup !== false,
         isSuperAdmin: isSuperAdmin || false,
       });
+
+      // If technician role, also create a technician record linked to this user
+      if (userRole === "technician") {
+        await storage.createTechnician({
+          userId: newUser.id,
+          fullName: fullName || username,
+          phone: phone || "",
+          email: email || null,
+          status: "off_duty",
+          skillLevel: "standard",
+        });
+      }
+
+      // If salesperson role, also create a salesperson record linked to this user
+      if (userRole === "salesperson") {
+        await storage.createSalesperson({
+          userId: newUser.id,
+          fullName: fullName || username,
+          phone: phone || "",
+          email: email || null,
+          status: "off_duty",
+        });
+      }
 
       res.json({
         id: newUser.id,
@@ -255,6 +279,13 @@ export async function registerRoutes(
       // Prevent deletion of super admin
       if (user.isSuperAdmin) {
         return res.status(403).json({ error: "Cannot delete super admin account" });
+      }
+
+      // Delete linked technician/salesperson record if exists
+      if (user.role === "technician") {
+        await storage.deleteTechnicianByUserId(userId);
+      } else if (user.role === "salesperson") {
+        await storage.deleteSalespersonByUserId(userId);
       }
 
       await storage.deleteUser(userId);
