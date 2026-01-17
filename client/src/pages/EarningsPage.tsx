@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -13,16 +14,16 @@ import {
 import {
   DollarSign,
   TrendingUp,
-  TrendingDown,
   Briefcase,
   Target,
   Award,
   ArrowUpRight,
-  ArrowDownRight,
   Calendar,
   CheckCircle2,
   Clock,
   Percent,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -38,12 +39,10 @@ import {
   PieChart,
   Pie,
   Cell,
-  LineChart,
-  Line,
 } from "recharts";
-import { format, subDays, startOfMonth, endOfMonth, eachDayOfInterval, parseISO, startOfWeek, endOfWeek } from "date-fns";
+import { format, subDays, eachDayOfInterval } from "date-fns";
 import { useState, useMemo } from "react";
-import type { Job, Quote, JobRevenueEvent, PayrollRecord } from "@shared/schema";
+import type { Job, Quote, SalesCommission } from "@shared/schema";
 
 interface EarningsPageProps {
   technicianId?: string;
@@ -63,21 +62,24 @@ const CHART_COLORS = {
 export default function EarningsPage({ technicianId, salespersonId, fullName }: EarningsPageProps) {
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d" | "year">("30d");
 
-  const { data: jobs = [] } = useQuery<Job[]>({
-    queryKey: ["/api/jobs"],
+  const { data: jobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
+    queryKey: technicianId 
+      ? ["/api/jobs", { technicianId }]
+      : ["/api/jobs"],
   });
 
-  const { data: quotes = [] } = useQuery<Quote[]>({
+  const { data: quotes = [], isLoading: quotesLoading } = useQuery<Quote[]>({
     queryKey: ["/api/quotes"],
   });
 
-  const { data: revenueEvents = [] } = useQuery<JobRevenueEvent[]>({
-    queryKey: ["/api/job-revenue-events", technicianId ? { technicianId } : {}],
+  const { data: commissions = [], isLoading: commissionsLoading } = useQuery<SalesCommission[]>({
+    queryKey: salespersonId 
+      ? ["/api/salespersons", salespersonId, "commissions"]
+      : ["/api/sales-commissions"],
+    enabled: !!salespersonId,
   });
 
-  const { data: payrollRecords = [] } = useQuery<PayrollRecord[]>({
-    queryKey: technicianId ? ["/api/payroll/records", { technicianId }] : ["/api/payroll/records"],
-  });
+  const isLoading = jobsLoading || quotesLoading || (salespersonId && commissionsLoading);
 
   const getDateRange = () => {
     const now = new Date();
@@ -110,8 +112,18 @@ export default function EarningsPage({ technicianId, salespersonId, fullName }: 
   const totalLabor = completedJobs.reduce((sum, j) => sum + parseFloat(j.laborCost || "0"), 0);
   const totalMaterials = completedJobs.reduce((sum, j) => sum + parseFloat(j.materialsCost || "0"), 0);
 
-  const acceptedQuotes = quotes.filter(q => q.status === "accepted");
-  const sentQuotes = quotes.filter(q => ["sent", "viewed", "accepted", "declined"].includes(q.status));
+  const completedJobIds = useMemo(() => new Set(completedJobs.map(j => j.id)), [completedJobs]);
+  
+  const filteredQuotes = useMemo(() => {
+    return quotes.filter(q => {
+      if (q.jobId && completedJobIds.has(q.jobId)) return true;
+      if (!technicianId && !salespersonId) return true;
+      return false;
+    });
+  }, [quotes, completedJobIds, technicianId, salespersonId]);
+
+  const acceptedQuotes = filteredQuotes.filter(q => q.status === "accepted");
+  const sentQuotes = filteredQuotes.filter(q => ["sent", "viewed", "accepted", "declined"].includes(q.status));
   const conversionRate = sentQuotes.length > 0 ? (acceptedQuotes.length / sentQuotes.length) * 100 : 0;
 
   const upsellData = useMemo(() => {
@@ -185,10 +197,10 @@ export default function EarningsPage({ technicianId, salespersonId, fullName }: 
   ];
 
   const quoteConversionData = useMemo(() => {
-    const sent = quotes.filter(q => q.status === "sent").length;
-    const viewed = quotes.filter(q => q.status === "viewed").length;
-    const accepted = quotes.filter(q => q.status === "accepted").length;
-    const declined = quotes.filter(q => q.status === "declined").length;
+    const sent = filteredQuotes.filter(q => q.status === "sent").length;
+    const viewed = filteredQuotes.filter(q => q.status === "viewed").length;
+    const accepted = filteredQuotes.filter(q => q.status === "accepted").length;
+    const declined = filteredQuotes.filter(q => q.status === "declined").length;
 
     return [
       { name: "Sent", value: sent, color: "#3b82f6" },
@@ -196,10 +208,66 @@ export default function EarningsPage({ technicianId, salespersonId, fullName }: 
       { name: "Accepted", value: accepted, color: "#10b981" },
       { name: "Declined", value: declined, color: "#ef4444" },
     ];
-  }, [quotes]);
+  }, [filteredQuotes]);
 
   const avgJobValue = completedJobs.length > 0 ? totalRevenue / completedJobs.length : 0;
   const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+  const commissionData = useMemo(() => {
+    const totalCommission = commissions.reduce((sum, c) => sum + parseFloat(c.commissionAmount || "0"), 0);
+    const paidCommissions = commissions.filter(c => c.status === "paid");
+    const pendingCommissions = commissions.filter(c => c.status === "pending");
+    const approvedCommissions = commissions.filter(c => c.status === "approved");
+    
+    return {
+      totalCommission,
+      paidAmount: paidCommissions.reduce((sum, c) => sum + parseFloat(c.commissionAmount || "0"), 0),
+      pendingAmount: pendingCommissions.reduce((sum, c) => sum + parseFloat(c.commissionAmount || "0"), 0),
+      approvedAmount: approvedCommissions.reduce((sum, c) => sum + parseFloat(c.commissionAmount || "0"), 0),
+      count: commissions.length,
+    };
+  }, [commissions]);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6 p-1">
+        <div className="flex items-center justify-between">
+          <div>
+            <Skeleton className="h-8 w-48 mb-2" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+          <Skeleton className="h-10 w-32" />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardContent className="pt-6">
+                <Skeleton className="h-16 w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <Skeleton className="h-6 w-32" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-[300px] w-full" />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <Skeleton className="h-6 w-24" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-[200px] w-full" />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 p-1">
@@ -305,6 +373,45 @@ export default function EarningsPage({ technicianId, salespersonId, fullName }: 
           </CardContent>
         </Card>
       </div>
+
+      {salespersonId && commissionData.count > 0 && (
+        <Card className="bg-gradient-to-br from-amber-500/5 to-amber-500/10 border-amber-500/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Award className="w-5 h-5 text-amber-400" />
+              Commission Summary
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="p-4 rounded-lg bg-muted/50 text-center">
+                <p className="text-2xl font-bold text-amber-400">
+                  ${commissionData.totalCommission.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">Total Earned</p>
+              </div>
+              <div className="p-4 rounded-lg bg-muted/50 text-center">
+                <p className="text-2xl font-bold text-emerald-400">
+                  ${commissionData.paidAmount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">Paid Out</p>
+              </div>
+              <div className="p-4 rounded-lg bg-muted/50 text-center">
+                <p className="text-2xl font-bold text-blue-400">
+                  ${commissionData.approvedAmount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">Approved</p>
+              </div>
+              <div className="p-4 rounded-lg bg-muted/50 text-center">
+                <p className="text-2xl font-bold text-orange-400">
+                  ${commissionData.pendingAmount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">Pending</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">

@@ -78,7 +78,6 @@ const dispatcherMenuItems = [
 const techMenuItems = [
   { title: "My Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Quote Tool", url: "/quote", icon: FileText },
-  { title: "My Jobs", url: "/jobs", icon: ClipboardList },
   { title: "Earnings", url: "/earnings", icon: DollarSign },
   { title: "Operations Guide", url: "/operations", icon: BookOpen },
 ];
