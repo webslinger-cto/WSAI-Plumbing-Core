@@ -1461,6 +1461,7 @@ export default function DispatcherDashboard() {
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [activeTab, setActiveTab] = useState("dispatch");
+  const [showCustomerSnapshot, setShowCustomerSnapshot] = useState(false);
 
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
     queryKey: ["/api/jobs"],
@@ -1524,7 +1525,6 @@ export default function DispatcherDashboard() {
   const enRouteJobs = jobs.filter(j => j.status === "en_route");
   const onSiteJobs = jobs.filter(j => ["on_site", "in_progress"].includes(j.status));
 
-  const newLeads = leads.filter(l => l.status === "new");
   const availableTechs = technicians.filter(t => t.status === "available");
 
   return (
@@ -1604,23 +1604,23 @@ export default function DispatcherDashboard() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="cursor-pointer hover-elevate" onClick={() => setShowCustomerSnapshot(true)} data-testid="card-customer-snapshot">
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-md bg-amber-500/20">
                     <User className="w-5 h-5 text-amber-400" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold" data-testid="text-new-leads">{newLeads.length}</p>
-                    <p className="text-sm text-muted-foreground">New Leads</p>
+                    <p className="text-2xl font-bold" data-testid="text-customer-count">{jobs.length}</p>
+                    <p className="text-sm text-muted-foreground">Customer Snapshot</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
+          <div className="grid grid-cols-1 gap-6">
+            <div>
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg">Job Board</CardTitle>
@@ -1712,52 +1712,6 @@ export default function DispatcherDashboard() {
                       </ScrollArea>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="space-y-6">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Phone className="w-4 h-4" />
-                    Recent Calls
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <ScrollArea className="h-[200px]">
-                    {callsLoading ? (
-                      <div className="p-4 text-center text-muted-foreground">Loading...</div>
-                    ) : calls.length === 0 ? (
-                      <div className="p-4 text-center text-muted-foreground">No recent calls</div>
-                    ) : (
-                      calls.slice(0, 10).map((call) => (
-                        <CallItem key={call.id} call={call} />
-                      ))
-                    )}
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <User className="w-4 h-4" />
-                    New Leads
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <ScrollArea className="h-[200px]">
-                    {leadsLoading ? (
-                      <div className="p-4 text-center text-muted-foreground">Loading...</div>
-                    ) : newLeads.length === 0 ? (
-                      <div className="p-4 text-center text-muted-foreground">No new leads</div>
-                    ) : (
-                      newLeads.slice(0, 10).map((lead) => (
-                        <LeadItem key={lead.id} lead={lead} />
-                      ))
-                    )}
-                  </ScrollArea>
                 </CardContent>
               </Card>
             </div>
@@ -1868,6 +1822,87 @@ export default function DispatcherDashboard() {
               </TabsContent>
             </Tabs>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCustomerSnapshot} onOpenChange={setShowCustomerSnapshot}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <User className="w-5 h-5" />
+              Customer Snapshot
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-4">
+            <ScrollArea className="h-[500px]">
+              {jobs.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No customer data available
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {jobs
+                    .reduce((acc: Array<{ name: string; phone: string; email: string; address: string; jobCount: number; lastService: Date | null; totalValue: number }>, job) => {
+                      const existing = acc.find(c => c.name === job.customerName && c.address === job.address);
+                      if (existing) {
+                        existing.jobCount++;
+                        if (job.createdAt && (!existing.lastService || new Date(job.createdAt) > existing.lastService)) {
+                          existing.lastService = new Date(job.createdAt);
+                        }
+                      } else {
+                        acc.push({
+                          name: job.customerName,
+                          phone: job.customerPhone,
+                          email: job.customerEmail || '',
+                          address: job.address,
+                          jobCount: 1,
+                          lastService: job.createdAt ? new Date(job.createdAt) : null,
+                          totalValue: 0
+                        });
+                      }
+                      return acc;
+                    }, [])
+                    .sort((a, b) => (b.lastService?.getTime() || 0) - (a.lastService?.getTime() || 0))
+                    .map((customer, index) => (
+                      <Card key={index} data-testid={`customer-snapshot-${index}`}>
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1">
+                              <p className="font-medium" data-testid={`text-customer-name-${index}`}>{customer.name}</p>
+                              <p className="text-sm text-muted-foreground flex items-center gap-1">
+                                <MapPin className="w-3 h-3" />
+                                {customer.address}
+                              </p>
+                              <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                                {customer.phone && (
+                                  <span className="flex items-center gap-1">
+                                    <Phone className="w-3 h-3" />
+                                    {customer.phone}
+                                  </span>
+                                )}
+                                {customer.email && (
+                                  <span>{customer.email}</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <Badge className="bg-primary/20 text-primary">
+                                {customer.jobCount} job{customer.jobCount !== 1 ? 's' : ''}
+                              </Badge>
+                              {customer.lastService && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Last: {format(customer.lastService, "MMM d, yyyy")}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
