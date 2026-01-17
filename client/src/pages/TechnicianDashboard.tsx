@@ -14,8 +14,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Popover,
@@ -116,6 +118,8 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
   const [showQuoteBuilder, setShowQuoteBuilder] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [arrivingJobId, setArrivingJobId] = useState<string | null>(null);
+  const [showLeadFeeDialog, setShowLeadFeeDialog] = useState(false);
+  const [jobToConfirm, setJobToConfirm] = useState<Job | null>(null);
   const [isLocationTrackingEnabled, setIsLocationTrackingEnabled] = useState(() => {
     const saved = localStorage.getItem(`locationTracking_${technicianId}`);
     return saved === "true";
@@ -242,17 +246,34 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
   });
 
   const confirmMutation = useMutation({
-    mutationFn: async (jobId: string) => {
+    mutationFn: async ({ jobId, acceptLeadFee }: { jobId: string; acceptLeadFee: boolean }) => {
+      // First accept the lead fee
+      if (acceptLeadFee) {
+        await apiRequest("POST", `/api/job-lead-fees`, { 
+          jobId, 
+          technicianId: technicianId,
+          amount: "125"
+        });
+      }
+      // Then confirm the job
       return apiRequest("POST", `/api/jobs/${jobId}/confirm`, { technicianId: technicianId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
-      toast({ title: "Job Confirmed", description: "You have confirmed this job assignment." });
+      setShowLeadFeeDialog(false);
+      setJobToConfirm(null);
+      toast({ title: "Job Confirmed", description: "You have accepted the $125 lead fee and confirmed this job." });
     },
     onError: () => {
       toast({ title: "Error", description: "Could not confirm the job.", variant: "destructive" });
     },
   });
+
+  // Open lead fee dialog before confirming
+  const handleConfirmClick = (job: Job) => {
+    setJobToConfirm(job);
+    setShowLeadFeeDialog(true);
+  };
 
   const enRouteMutation = useMutation({
     mutationFn: async (jobId: string) => {
@@ -391,7 +412,7 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
       case "assigned":
         return (
           <Button
-            onClick={(e) => { e.stopPropagation(); confirmMutation.mutate(job.id); }}
+            onClick={(e) => { e.stopPropagation(); handleConfirmClick(job); }}
             disabled={confirmMutation.isPending}
             data-testid={`button-confirm-job-${job.id}`}
           >
@@ -754,6 +775,65 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
           </Card>
         </div>
       </div>
+
+      <Dialog open={showLeadFeeDialog} onOpenChange={setShowLeadFeeDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Accept Lead Fee</DialogTitle>
+            <DialogDescription>
+              To confirm this job, you must accept the lead fee.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Customer:</span>
+                <span className="font-medium">{jobToConfirm?.customerName}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Service:</span>
+                <span className="font-medium">{jobToConfirm?.serviceType}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Address:</span>
+                <span className="font-medium text-right max-w-[200px] truncate">{jobToConfirm?.address}</span>
+              </div>
+              <div className="border-t pt-3 mt-3">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">Lead Fee:</span>
+                  <span className="text-2xl font-bold text-primary">$125.00</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground mt-4">
+              By accepting, you agree that $125 will be deducted from your pay for this lead.
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowLeadFeeDialog(false);
+                setJobToConfirm(null);
+              }}
+              data-testid="button-decline-lead-fee"
+            >
+              Decline
+            </Button>
+            <Button
+              onClick={() => {
+                if (jobToConfirm) {
+                  confirmMutation.mutate({ jobId: jobToConfirm.id, acceptLeadFee: true });
+                }
+              }}
+              disabled={confirmMutation.isPending}
+              data-testid="button-accept-lead-fee"
+            >
+              {confirmMutation.isPending ? "Processing..." : "Accept & Confirm Job"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showQuoteBuilder} onOpenChange={setShowQuoteBuilder}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">

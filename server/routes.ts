@@ -1047,6 +1047,37 @@ export async function registerRoutes(
     res.json(updated);
   });
 
+  // Create job lead fee (technician accepts lead fee)
+  app.post("/api/job-lead-fees", async (req, res) => {
+    try {
+      const { jobId, technicianId, amount } = req.body;
+      
+      if (!jobId || !technicianId) {
+        return res.status(400).json({ error: "jobId and technicianId are required" });
+      }
+      
+      const fee = await storage.createJobLeadFee({
+        jobId,
+        technicianId,
+        amount: amount || "125",
+        acceptedAt: new Date(),
+      });
+      
+      // Create timeline event
+      await storage.createJobTimelineEvent({
+        jobId,
+        eventType: "note",
+        description: `Technician accepted $${amount || "125"} lead fee`,
+        createdBy: technicianId,
+      });
+      
+      res.json(fee);
+    } catch (error) {
+      console.error("Error creating job lead fee:", error);
+      res.status(500).json({ error: "Failed to create job lead fee" });
+    }
+  });
+
   app.post("/api/jobs/:id/confirm", async (req, res) => {
     const { technicianId } = req.body;
     const job = await storage.getJob(req.params.id);
