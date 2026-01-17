@@ -4,13 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Eye, EyeOff, Phone } from "lucide-react";
-import { QRCodeSVG } from "qrcode.react";
 import cseLogo from "@assets/cse-logo.png";
-import { YELP_REVIEW_URL } from "@/App";
-
-const HOMEADVISOR_REVIEW_URL = "https://www.homeadvisor.com/rated.ChicagoSewerExperts.65557541.html";
-const ANGI_REVIEW_URL = "https://www.angi.com/companylist/us/il/chicago/chicago-sewer-experts-reviews-1.htm?msockid=24bb858d5e4a60e506b093dc5f346117";
-const BIRDEYE_REVIEW_URL = "https://reviews.birdeye.com/chicago-sewer-experts-166536711725103";
 
 interface LoginResponse {
   id: string;
@@ -66,68 +60,55 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 marble-bg relative">
-      <div className="absolute inset-0 bg-black/60" />
-      <div className="absolute top-4 left-4 flex flex-col items-center gap-0.5 z-10">
-        <span className="text-[10px] font-bold text-primary">HomeAdvisor</span>
-        <div className="bg-white p-1 rounded-md">
-          <QRCodeSVG
-            value={HOMEADVISOR_REVIEW_URL}
-            size={48}
-            level="H"
-            includeMargin={false}
-            data-testid="qr-login-homeadvisor-review"
-          />
-        </div>
-      </div>
-      <div className="absolute top-4 right-4 flex flex-col items-center gap-0.5 z-10">
-        <span className="text-[10px] font-bold text-primary">Yelp</span>
-        <div className="bg-white p-1 rounded-md">
-          <QRCodeSVG
-            value={YELP_REVIEW_URL}
-            size={48}
-            level="H"
-            includeMargin={false}
-            data-testid="qr-login-yelp-review"
-          />
-        </div>
-      </div>
-      <div className="absolute bottom-4 left-4 flex flex-col items-center gap-0.5 z-10">
-        <span className="text-[10px] font-bold text-primary">Angi</span>
-        <div className="bg-white p-1 rounded-md">
-          <QRCodeSVG
-            value={ANGI_REVIEW_URL}
-            size={48}
-            level="H"
-            includeMargin={false}
-            data-testid="qr-login-angi-review"
-          />
-        </div>
-      </div>
-      <div className="absolute bottom-4 right-4 flex flex-col items-center gap-0.5 z-10">
-        <span className="text-[10px] font-bold text-primary">Birdeye</span>
-        <div className="bg-white p-1 rounded-md">
-          <QRCodeSVG
-            value={BIRDEYE_REVIEW_URL}
-            size={48}
-            level="H"
-            includeMargin={false}
-            data-testid="qr-login-birdeye-review"
-          />
-        </div>
-      </div>
-      <Card className="w-full max-w-md z-10">
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+      <div 
+        className="absolute inset-0 z-0"
+        style={{
+          backgroundImage: `url(${cseLogo})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+          filter: 'blur(2px)',
+          transform: 'scale(1.1)',
+        }}
+      />
+      <div 
+        className="absolute inset-0 z-[1]"
+        style={{
+          background: 'radial-gradient(ellipse at center, transparent 20%, rgba(0,0,0,0.7) 70%, rgba(0,0,0,0.9) 100%)',
+        }}
+      />
+      <div 
+        className="absolute inset-0 z-[2]"
+        style={{
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, transparent 30%, transparent 70%, rgba(0,0,0,0.5) 100%)',
+        }}
+      />
+      <Card 
+        className="w-full max-w-md z-10 backdrop-blur-sm bg-card/90 border-primary/20"
+        style={{
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(59, 130, 246, 0.1), 0 0 40px rgba(59, 130, 246, 0.15)',
+          transform: 'perspective(1000px) rotateX(2deg)',
+        }}
+      >
         <CardHeader className="text-center space-y-4 pb-2">
-          <div className="mx-auto">
+          <div className="mx-auto relative">
+            <div 
+              className="absolute inset-0 blur-xl opacity-50 bg-primary rounded-full"
+              style={{ transform: 'scale(0.8)' }}
+            />
             <img 
               src={cseLogo} 
               alt="Emergency Chicago Sewer Experts" 
-              className="h-24 w-auto mx-auto"
+              className="h-28 w-auto mx-auto relative z-10 drop-shadow-2xl"
+              style={{
+                filter: 'drop-shadow(0 10px 20px rgba(0,0,0,0.4))',
+              }}
               data-testid="img-cse-logo"
             />
           </div>
           <div>
-            <h1 className="text-base sm:text-lg md:text-xl font-bold tracking-wide" data-testid="text-brand-title">
+            <h1 className="text-base sm:text-lg md:text-xl font-bold tracking-wide bg-gradient-to-r from-primary to-blue-400 bg-clip-text text-transparent" data-testid="text-brand-title">
               Powered by WebSlingerAI
             </h1>
             <p className="text-sm text-muted-foreground mt-1 flex items-center justify-center gap-1">
