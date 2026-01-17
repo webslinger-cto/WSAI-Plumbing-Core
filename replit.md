@@ -78,3 +78,35 @@ Preferred communication style: Simple, everyday language.
 - **@replit/vite-plugin-runtime-error-modal**: Development error overlay.
 - **@replit/vite-plugin-cartographer**: Replit integration.
 - **@replit/vite-plugin-dev-banner**: Development environment banner.
+
+## 3-App Integration System
+
+This CRM is part of a 3-app system for SEO content generation:
+
+1. **Chicago Sewer Experts CRM** (this app)
+   - Manages leads, jobs, technicians, and quotes
+   - Pushes job data to Builder 1 when jobs are created or completed
+   - Receives SEO content from Builder 1 for review/approval
+
+2. **Replit Builder 1** (webslingeraiglassseo.com)
+   - Receives job data from this CRM via webhook
+   - Generates SEO content based on completed jobs
+   - Pushes content back to this CRM and to the frontend site
+
+3. **EmergencyChicagoSewerExperts.replit.app**
+   - Public-facing website
+   - Receives approved SEO content for publication
+
+### Builder 1 Integration Details
+- **Endpoint**: `https://replit-builder-1--jcotham.replit.app/api/v1/inbound/job`
+- **Authentication**: API key in `X-API-KEY` header (stored as `BUILDER1_API_KEY` secret)
+- **Events Pushed**:
+  - `job_created`: When a new job is created (from leads, direct API, or Zapier)
+  - `job_completed`: When a job is marked complete (triggers SEO content generation)
+- **Payload**: Job details + lead information (customer name, address, service type, etc.)
+
+### SEO Content Inbound (from Builder 1)
+- **Endpoint**: `/api/webhooks/seo/content` 
+- **Authentication**: Basic auth with `THUMBTACK_WEBHOOK_USER` and `THUMBTACK_WEBHOOK_PASS`
+- **Content**: SEO articles, blog posts generated from job data
+- **Workflow**: Content arrives → admin reviews → approve/reject → if approved, pushed to frontend site
