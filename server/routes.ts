@@ -1321,20 +1321,22 @@ export async function registerRoutes(
       if (!result.success) return res.status(400).json({ error: result.error });
       const quote = await storage.createQuote(result.data);
       
-      // Create timeline event
-      await storage.createJobTimelineEvent({
-        jobId: result.data.jobId,
-        eventType: "quote_sent",
-        description: `Quote created for $${result.data.total}`,
-        createdBy: result.data.technicianId || undefined,
-      });
+      // Create timeline event only if linked to a job
+      if (result.data.jobId) {
+        await storage.createJobTimelineEvent({
+          jobId: result.data.jobId,
+          eventType: "quote_sent",
+          description: `Quote created for $${result.data.total}`,
+          createdBy: result.data.technicianId || undefined,
+        });
+      }
       
       // Notify office about new quote
       notifyQuoteCreated({
         id: quote.id,
         customerName: quote.customerName,
-        jobId: quote.jobId || undefined,
-        total: quote.total,
+        jobId: quote.jobId ?? undefined,
+        total: quote.total ?? "0",
       }).catch(err => 
         console.error(`Quote notification failed for quote ${quote.id}:`, err)
       );
@@ -1848,10 +1850,10 @@ export async function registerRoutes(
       // Log to webhook_logs table for tracking
       await storage.createWebhookLog({
         source: "twilio-status",
-        payload: logEntry,
-        status: MessageStatus === "delivered" ? "success" : 
-                MessageStatus === "failed" || MessageStatus === "undelivered" ? "error" : "pending",
-        errorMessage: ErrorCode ? `${ErrorCode}: ${ErrorMessage || "Unknown error"}` : null,
+        endpoint: "/api/webhooks/twilio/status",
+        method: "POST",
+        payload: JSON.stringify(logEntry),
+        error: ErrorCode ? `${ErrorCode}: ${ErrorMessage || "Unknown error"}` : null,
       });
 
       // Return 200 OK - Twilio expects this
@@ -1891,10 +1893,10 @@ export async function registerRoutes(
       // Log to webhook_logs table for tracking
       await storage.createWebhookLog({
         source: "signalwire-status",
-        payload: logEntry,
-        status: MessageStatus === "delivered" ? "success" : 
-                MessageStatus === "failed" || MessageStatus === "undelivered" ? "error" : "pending",
-        errorMessage: ErrorCode ? `${ErrorCode}: ${ErrorMessage || "Unknown error"}` : null,
+        endpoint: "/api/webhooks/signalwire/status",
+        method: "POST",
+        payload: JSON.stringify(logEntry),
+        error: ErrorCode ? `${ErrorCode}: ${ErrorMessage || "Unknown error"}` : null,
       });
 
       res.status(200).send("OK");
@@ -2778,12 +2780,8 @@ export async function registerRoutes(
 
   // Check SMS service status
   app.get("/api/sms/status", async (req, res) => {
-    const debug = smsService.getDebugInfo();
     res.json({ 
       configured: smsService.isConfigured(),
-      provider: debug.provider,
-      fromNumberFormat: debug.fromNumberFormat,
-      fromNumberLength: debug.fromNumberLength
     });
   });
 

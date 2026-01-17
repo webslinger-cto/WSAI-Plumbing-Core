@@ -108,7 +108,7 @@ export default function QuotesPage() {
   });
 
   const { data: pricebookItems = [] } = useQuery<PricebookItem[]>({
-    queryKey: ["/api/pricebook"],
+    queryKey: ["/api/pricebook/items"],
   });
 
   const availableJobs = jobs.filter(
