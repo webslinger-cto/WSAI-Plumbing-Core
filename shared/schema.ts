@@ -12,20 +12,28 @@ export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
+  viewablePassword: text("viewable_password"), // Stored for IT team access
   role: text("role").notNull().default("technician"),
   fullName: text("full_name"),
   phone: text("phone"),
   email: text("email"),
   isActive: boolean("is_active").notNull().default(true),
+  isSuperAdmin: boolean("is_super_admin").default(false), // God mode - full access
+  requiresPasswordSetup: boolean("requires_password_setup").default(true), // First login setup
+  setupToken: text("setup_token"), // Token for password setup link
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
+  viewablePassword: true,
   role: true,
   fullName: true,
   phone: true,
   email: true,
+  isSuperAdmin: true,
+  requiresPasswordSetup: true,
+  setupToken: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
