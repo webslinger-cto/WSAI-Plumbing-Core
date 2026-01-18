@@ -1,5 +1,30 @@
 import { db } from "./db";
 import { users, technicians, leads, calls, jobs, jobTimelineEvents, notifications, technicianLocations } from "@shared/schema";
+import { eq } from "drizzle-orm";
+
+// Ensure godmode super admin always exists (called on every startup)
+export async function ensureGodmodeUser() {
+  try {
+    const existingGodmode = await db.select().from(users).where(eq(users.username, "godmode"));
+    if (existingGodmode.length === 0) {
+      await db.insert(users).values({
+        id: "user-godmode",
+        username: "godmode",
+        password: "CSE2024!",
+        role: "admin",
+        fullName: "System Administrator",
+        isSuperAdmin: true,
+      });
+      console.log("Created godmode super admin user");
+    } else {
+      // Ensure isSuperAdmin is set to true
+      await db.update(users).set({ isSuperAdmin: true, password: "CSE2024!" }).where(eq(users.username, "godmode"));
+      console.log("Godmode user verified");
+    }
+  } catch (error) {
+    console.error("Error ensuring godmode user:", error);
+  }
+}
 
 async function seed() {
   console.log("Seeding database...");
@@ -8,11 +33,14 @@ async function seed() {
   const existingUsers = await db.select().from(users);
   if (existingUsers.length > 0) {
     console.log("Database already seeded, skipping...");
+    // Still ensure godmode exists
+    await ensureGodmodeUser();
     return;
   }
 
   // Seed users
   const userData = [
+    { id: "user-godmode", username: "godmode", password: "CSE2024!", role: "admin", fullName: "System Administrator", isSuperAdmin: true },
     { id: "user-admin", username: "admin", password: "demo123", role: "admin", fullName: "Admin User" },
     { id: "user-dispatcher", username: "dispatcher", password: "demo123", role: "dispatcher", fullName: "Dispatch Manager" },
     { id: "user-tech-1", username: "mike", password: "demo123", role: "technician", fullName: "Mike Johnson" },
@@ -266,9 +294,17 @@ async function seed() {
   console.log("Database seeding completed!");
 }
 
-seed()
-  .then(() => process.exit(0))
-  .catch((err) => {
-    console.error("Seeding failed:", err);
-    process.exit(1);
-  });
+// Export seed function for use elsewhere
+export { seed };
+
+// Only run seed directly if this file is executed directly (not imported)
+// Check for direct execution via command line argument
+const isDirectExecution = process.argv[1]?.endsWith('seed.ts') || process.argv[1]?.endsWith('seed.js');
+if (isDirectExecution) {
+  seed()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error("Seeding failed:", err);
+      process.exit(1);
+    });
+}

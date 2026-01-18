@@ -66,6 +66,10 @@ app.use((req, res, next) => {
     await storage.initialize();
   }
 
+  // Always ensure godmode super admin exists
+  const { ensureGodmodeUser } = await import("./seed");
+  await ensureGodmodeUser();
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
