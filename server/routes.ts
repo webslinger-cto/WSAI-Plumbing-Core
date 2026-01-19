@@ -71,6 +71,42 @@ export async function registerRoutes(
     }
   });
 
+  // Clear all test/demo data (leads, jobs, quotes, calls) - USE WITH CAUTION
+  app.get("/api/admin/clear-test-data", async (req, res) => {
+    try {
+      // Delete in order (respecting foreign keys)
+      const { db } = await import("./db");
+      const { 
+        leads, jobs, quotes, calls, jobTimelineEvents, contactAttempts, notifications, 
+        quoteLineItems, jobAttachments, jobChecklists, jobLeadFees, jobRevenueEvents
+      } = await import("@shared/schema");
+      
+      // Clear all related tables first (in dependency order)
+      await db.delete(jobTimelineEvents);
+      await db.delete(contactAttempts);
+      await db.delete(notifications);
+      await db.delete(quoteLineItems);
+      await db.delete(jobAttachments);
+      await db.delete(jobChecklists);
+      await db.delete(jobLeadFees);
+      await db.delete(jobRevenueEvents);
+      
+      // Clear main tables
+      await db.delete(calls);
+      await db.delete(quotes);
+      await db.delete(jobs);
+      await db.delete(leads);
+      
+      res.json({ 
+        success: true, 
+        message: "All test data cleared successfully (leads, jobs, quotes, calls, and related records)"
+      });
+    } catch (error) {
+      console.error("Error clearing test data:", error);
+      res.status(500).json({ success: false, error: String(error) });
+    }
+  });
+
   // Force reset godmode super admin (special recovery endpoint)
   app.get("/api/admin/reset-godmode", async (req, res) => {
     try {
