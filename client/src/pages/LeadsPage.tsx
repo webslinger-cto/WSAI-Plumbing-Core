@@ -9,13 +9,21 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History, Wifi, WifiOff } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { SlaTimer } from "@/components/SlaTimer";
 import { CustomerTimeline } from "@/components/CustomerTimeline";
 import { useToast } from "@/hooks/use-toast";
 import type { Lead as ApiLead } from "@shared/schema";
+
+interface CompanySettingsData {
+  id?: string;
+  leadApiEnabled?: boolean;
+  [key: string]: unknown;
+}
 
 function mapApiLeadToTableLead(lead: ApiLead): Lead & { slaBreach?: boolean } {
   return {
@@ -48,6 +56,33 @@ export default function LeadsPage() {
   const { data: apiLeads = [], isLoading } = useQuery<ApiLead[]>({
     queryKey: ["/api/leads"],
   });
+
+  const { data: settings } = useQuery<CompanySettingsData>({
+    queryKey: ["/api/settings"],
+  });
+
+  const updateSettingsMutation = useMutation({
+    mutationFn: async (data: Partial<CompanySettingsData>) => {
+      const res = await apiRequest("PATCH", "/api/settings", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({
+        title: "Settings updated",
+        description: "Lead API integration setting has been saved.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to update",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const leadApiEnabled = settings?.leadApiEnabled !== false;
 
   const leads = apiLeads.map(mapApiLeadToTableLead);
 
@@ -143,6 +178,34 @@ export default function LeadsPage() {
             Import
           </Button>
         </div>
+      </div>
+
+      <div className={`flex items-center justify-between gap-4 p-3 rounded-lg border ${leadApiEnabled ? 'bg-green-500/10 border-green-500/30' : 'bg-yellow-500/10 border-yellow-500/30'}`}>
+        <div className="flex items-center gap-3">
+          {leadApiEnabled ? (
+            <Wifi className="w-5 h-5 text-green-400" />
+          ) : (
+            <WifiOff className="w-5 h-5 text-yellow-400" />
+          )}
+          <div>
+            <Label htmlFor="leadApiToggle" className="text-sm font-medium cursor-pointer">
+              Lead API Integration
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {leadApiEnabled 
+                ? "Receiving leads from Thumbtack, Angi, Zapier & other sources" 
+                : "Lead webhooks are paused - no new leads will be created"
+              }
+            </p>
+          </div>
+        </div>
+        <Switch
+          id="leadApiToggle"
+          checked={leadApiEnabled}
+          onCheckedChange={(checked) => updateSettingsMutation.mutate({ leadApiEnabled: checked })}
+          disabled={updateSettingsMutation.isPending}
+          data-testid="switch-lead-api-toggle"
+        />
       </div>
 
       <LeadsTable leads={leads} onLeadClick={setSelectedLead} />

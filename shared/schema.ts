@@ -945,6 +945,8 @@ export const companySettings = pgTable("company_settings", {
   // SEO content settings
   seoAutoApprove: boolean("seo_auto_approve").notNull().default(false), // Allow webslingeraiglassseo.com to auto-approve
   seoWebhookSecret: text("seo_webhook_secret"), // HMAC secret for webhook authentication
+  // Lead API/Webhook integration settings
+  leadApiEnabled: boolean("lead_api_enabled").notNull().default(true), // Enable/disable lead API and webhooks (Thumbtack, Angi, etc.)
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
 

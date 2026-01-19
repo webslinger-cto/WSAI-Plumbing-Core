@@ -508,6 +508,96 @@ function UserPasswordManagement() {
   );
 }
 
+interface CompanySettingsData {
+  id?: string;
+  leadApiEnabled?: boolean;
+  [key: string]: unknown;
+}
+
+function LeadApiIntegrationCard() {
+  const { toast } = useToast();
+  
+  const { data: settings, isLoading } = useQuery<CompanySettingsData>({
+    queryKey: ["/api/settings"],
+  });
+
+  const updateSettingsMutation = useMutation({
+    mutationFn: async (data: Partial<CompanySettingsData>) => {
+      const res = await apiRequest("PATCH", "/api/settings", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({
+        title: "Settings updated",
+        description: "Lead API integration setting has been saved.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to update settings",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleToggle = (checked: boolean) => {
+    updateSettingsMutation.mutate({ leadApiEnabled: checked });
+  };
+
+  const isEnabled = settings?.leadApiEnabled !== false;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Upload className="w-5 h-5" />
+          Lead API & Webhook Integration
+        </CardTitle>
+        <CardDescription>
+          Control incoming leads from external sources (Thumbtack, Angi, Zapier, etc.)
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="flex items-center justify-between gap-4 p-4 rounded-lg border bg-muted/30">
+          <div>
+            <Label htmlFor="leadApiEnabled" className="text-base font-medium">Enable Lead API</Label>
+            <p className="text-sm text-muted-foreground">
+              When enabled, leads from Thumbtack, Angi, Networx, Inquirly, Zapier, and other sources will be automatically created in the CRM
+            </p>
+          </div>
+          <Switch
+            id="leadApiEnabled"
+            checked={isEnabled}
+            onCheckedChange={handleToggle}
+            disabled={isLoading || updateSettingsMutation.isPending}
+            data-testid="switch-lead-api-enabled"
+          />
+        </div>
+        {!isEnabled && (
+          <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+            <p className="text-sm text-yellow-400">
+              Lead API is currently <strong>disabled</strong>. No new leads will be created from external webhooks until you enable this setting.
+            </p>
+          </div>
+        )}
+        <div className="p-4 bg-muted/50 rounded-lg space-y-2">
+          <h4 className="font-medium">Supported Lead Sources</h4>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline">Thumbtack</Badge>
+            <Badge variant="outline">Angi</Badge>
+            <Badge variant="outline">eLocal</Badge>
+            <Badge variant="outline">Networx</Badge>
+            <Badge variant="outline">Inquirly</Badge>
+            <Badge variant="outline">Zapier</Badge>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const { toast } = useToast();
   const [employees, setEmployees] = useState<EmployeeAccess[]>(initialEmployees);
@@ -1192,6 +1282,7 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="integrations" className="space-y-6">
+          <LeadApiIntegrationCard />
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

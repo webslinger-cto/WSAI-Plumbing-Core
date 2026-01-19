@@ -31,6 +31,14 @@ When a job is scheduled, the system sends automated notifications:
 - **Day of**: Technician arrival reminder
 - **If changes occur**: Automated outreach for rescheduling
 
+### Lead API Integration Control
+The system includes a toggle to enable/disable lead API and webhook integration:
+- **Settings Page**: Found in Settings > Integrations tab - full configuration with supported sources list
+- **Leads Page**: Quick toggle banner at the top of the page
+- **When Disabled**: All lead webhooks (Thumbtack, Angi, eLocal, Networx, Inquirly, Zapier) return 503 error
+- **When Enabled**: Leads from all sources are automatically created in the CRM
+- **Database Setting**: `company_settings.lead_api_enabled` (defaults to true)
+
 ### Master Customer Data List
 The Outreach page includes a comprehensive Master Customer List for promotions and targeted outreach:
 - **Data Aggregation**: Combines data from leads, jobs, quotes, and calls by phone number

@@ -2695,9 +2695,26 @@ export async function registerRoutes(
   // Lead Provider Webhooks
   // ==========================================
 
+  // Helper function to check if lead API is enabled
+  async function isLeadApiEnabled(): Promise<boolean> {
+    try {
+      const settings = await storage.getCompanySettings();
+      // Default to true if no settings exist
+      return settings?.leadApiEnabled !== false;
+    } catch (error) {
+      console.error("Error checking lead API status:", error);
+      return true; // Default to enabled on error
+    }
+  }
+
   // eLocal webhook - receives leads from eLocal
   app.post("/api/webhooks/elocal", async (req, res) => {
     try {
+      // Check if lead API is enabled
+      if (!(await isLeadApiEnabled())) {
+        console.log("[Webhook] eLocal lead rejected - Lead API is disabled");
+        return res.status(503).json({ error: "Lead API integration is currently disabled" });
+      }
       const { first_name, last_name, phone, email, zip_code, need_id, description } = req.body;
       
       if (!phone) {
@@ -2746,6 +2763,11 @@ export async function registerRoutes(
   // Angi/HomeAdvisor webhook - receives leads from Angi
   app.post("/api/webhooks/angi", async (req, res) => {
     try {
+      // Check if lead API is enabled
+      if (!(await isLeadApiEnabled())) {
+        console.log("[Webhook] Angi lead rejected - Lead API is disabled");
+        return res.status(503).json({ error: "Lead API integration is currently disabled" });
+      }
       // API key authentication (optional - set ANGI_WEBHOOK_KEY to enable)
       const expectedKey = process.env.ANGI_WEBHOOK_KEY;
       if (expectedKey) {
@@ -2803,6 +2825,11 @@ export async function registerRoutes(
   // Thumbtack webhook - receives leads from Thumbtack
   app.post("/api/webhooks/thumbtack", async (req, res) => {
     try {
+      // Check if lead API is enabled
+      if (!(await isLeadApiEnabled())) {
+        console.log("[Webhook] Thumbtack lead rejected - Lead API is disabled");
+        return res.status(503).json({ error: "Lead API integration is currently disabled" });
+      }
       // HTTP Basic Auth (optional - set THUMBTACK_WEBHOOK_USER and THUMBTACK_WEBHOOK_PASS to enable)
       const expectedUser = process.env.THUMBTACK_WEBHOOK_USER;
       const expectedPass = process.env.THUMBTACK_WEBHOOK_PASS;
@@ -2871,6 +2898,11 @@ export async function registerRoutes(
   // Networx webhook - receives leads from Networx
   app.post("/api/webhooks/networx", async (req, res) => {
     try {
+      // Check if lead API is enabled
+      if (!(await isLeadApiEnabled())) {
+        console.log("[Webhook] Networx lead rejected - Lead API is disabled");
+        return res.status(503).json({ error: "Lead API integration is currently disabled" });
+      }
       const { customer_name, phone, email, zip_code, service_type, description } = req.body;
       
       if (!phone) {
@@ -2918,6 +2950,11 @@ export async function registerRoutes(
   app.post("/api/webhooks/zapier/lead", async (req, res) => {
     const startTime = Date.now();
     try {
+      // Check if lead API is enabled
+      if (!(await isLeadApiEnabled())) {
+        console.log("[Webhook] Zapier lead rejected - Lead API is disabled");
+        return res.status(503).json({ error: "Lead API integration is currently disabled" });
+      }
       const { 
         customer_name, 
         name,
@@ -3165,6 +3202,11 @@ export async function registerRoutes(
   // Inquirly webhook - receives leads from Inquirly conversational AI
   app.post("/api/webhooks/inquirly", async (req, res) => {
     try {
+      // Check if lead API is enabled
+      if (!(await isLeadApiEnabled())) {
+        console.log("[Webhook] Inquirly lead rejected - Lead API is disabled");
+        return res.status(503).json({ error: "Lead API integration is currently disabled" });
+      }
       const { 
         contact_name, 
         contact_phone, 
