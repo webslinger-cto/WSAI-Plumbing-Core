@@ -71,35 +71,52 @@ export async function registerRoutes(
     }
   });
 
-  // Clear all test/demo data (leads, jobs, quotes, calls) - USE WITH CAUTION
+  // Clear ALL test/demo data - USE WITH EXTREME CAUTION
   app.get("/api/admin/clear-test-data", async (req, res) => {
     try {
-      // Delete in order (respecting foreign keys)
       const { db } = await import("./db");
-      const { 
-        leads, jobs, quotes, calls, jobTimelineEvents, contactAttempts, notifications, 
-        quoteLineItems, jobAttachments, jobChecklists, jobLeadFees, jobRevenueEvents
-      } = await import("@shared/schema");
+      const { sql } = await import("drizzle-orm");
       
-      // Clear all related tables first (in dependency order)
-      await db.delete(jobTimelineEvents);
-      await db.delete(contactAttempts);
-      await db.delete(notifications);
-      await db.delete(quoteLineItems);
-      await db.delete(jobAttachments);
-      await db.delete(jobChecklists);
-      await db.delete(jobLeadFees);
-      await db.delete(jobRevenueEvents);
+      // Clear ALL tables using raw SQL in dependency order (keeping only godmode user)
+      await db.execute(sql`DELETE FROM job_timeline_events`);
+      await db.execute(sql`DELETE FROM contact_attempts`);
+      await db.execute(sql`DELETE FROM notifications`);
+      await db.execute(sql`DELETE FROM quote_line_items`);
+      await db.execute(sql`DELETE FROM job_attachments`);
+      await db.execute(sql`DELETE FROM job_checklists`);
+      await db.execute(sql`DELETE FROM job_lead_fees`);
+      await db.execute(sql`DELETE FROM job_revenue_events`);
+      await db.execute(sql`DELETE FROM technician_locations`);
+      await db.execute(sql`DELETE FROM shift_logs`);
+      await db.execute(sql`DELETE FROM time_entries`);
+      await db.execute(sql`DELETE FROM payroll_records`);
+      await db.execute(sql`DELETE FROM payroll_periods`);
+      await db.execute(sql`DELETE FROM employee_pay_rates`);
+      await db.execute(sql`DELETE FROM marketing_spend`);
+      await db.execute(sql`DELETE FROM marketing_campaigns`);
+      await db.execute(sql`DELETE FROM webhook_logs`);
+      await db.execute(sql`DELETE FROM content_items`);
+      await db.execute(sql`DELETE FROM content_packs`);
+      await db.execute(sql`DELETE FROM customer_interactions`);
+      await db.execute(sql`DELETE FROM sales_commissions`);
+      await db.execute(sql`DELETE FROM salesperson_locations`);
       
-      // Clear main tables
-      await db.delete(calls);
-      await db.delete(quotes);
-      await db.delete(jobs);
-      await db.delete(leads);
+      // Main operational tables
+      await db.execute(sql`DELETE FROM calls`);
+      await db.execute(sql`DELETE FROM quotes`);
+      await db.execute(sql`DELETE FROM jobs`);
+      await db.execute(sql`DELETE FROM leads`);
+      
+      // Staff tables
+      await db.execute(sql`DELETE FROM technicians`);
+      await db.execute(sql`DELETE FROM salespersons`);
+      
+      // Delete all users EXCEPT godmode
+      await db.execute(sql`DELETE FROM users WHERE username != 'godmode'`);
       
       res.json({ 
         success: true, 
-        message: "All test data cleared successfully (leads, jobs, quotes, calls, and related records)"
+        message: "ALL test data cleared! Only godmode admin account remains."
       });
     } catch (error) {
       console.error("Error clearing test data:", error);
