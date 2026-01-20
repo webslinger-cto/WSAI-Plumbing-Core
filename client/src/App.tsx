@@ -86,7 +86,7 @@ function AdminRouter() {
   );
 }
 
-function DispatcherRouter() {
+function DispatcherRouter({ userId, fullName }: { userId: string; fullName: string }) {
   return (
     <Switch>
       <Route path="/" component={DispatcherDashboard} />
@@ -96,7 +96,7 @@ function DispatcherRouter() {
       <Route path="/staffing" component={StaffingPool} />
       <Route path="/calls" component={CallsPage} />
       <Route path="/leads" component={LeadsPage} />
-      <Route path="/chat" component={DispatchChatPage} />
+      <Route path="/chat">{() => <DispatchChatPage userId={userId} fullName={fullName} />}</Route>
       <Route path="/operations">{() => <OperationsMenuPage role="dispatcher" />}</Route>
       <Route component={NotFound} />
     </Switch>
@@ -574,7 +574,7 @@ function App() {
                 {effectiveRole === "admin" ? (
                   <AdminRouter />
                 ) : effectiveRole === "dispatcher" ? (
-                  <DispatcherRouter />
+                  <DispatcherRouter userId={auth.userId} fullName={effectiveFullName} />
                 ) : effectiveRole === "salesperson" ? (
                   <SalespersonRouter 
                     salespersonId={effectiveSalespersonId || ""} 

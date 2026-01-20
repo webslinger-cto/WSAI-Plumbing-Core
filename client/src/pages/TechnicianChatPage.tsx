@@ -194,21 +194,35 @@ interface TechnicianChatPageProps {
   fullName: string;
 }
 
+// Helper to create fetch with user ID header
+const createAuthFetch = (userId: string) => async (url: string, options?: RequestInit) => {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...options?.headers,
+      'X-User-Id': userId,
+    },
+  });
+  return response;
+};
+
 export default function TechnicianChatPage({ technicianId, userId, fullName }: TechnicianChatPageProps) {
   const { toast } = useToast();
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState('');
   const [statusFilter, setStatusFilter] = useState<'active' | 'closed'>('active');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  const authFetch = createAuthFetch(userId);
 
   const {
     data: threads = [],
     isLoading: threadsLoading,
     refetch: refetchThreads,
   } = useQuery<ChatThread[]>({
-    queryKey: ['/api/chat/threads', statusFilter],
+    queryKey: ['/api/chat/threads', statusFilter, userId],
     queryFn: async () => {
-      const res = await fetch(`/api/chat/threads?status=${statusFilter}`);
+      const res = await authFetch(`/api/chat/threads?status=${statusFilter}`);
       if (!res.ok) throw new Error('Failed to fetch threads');
       return res.json();
     },
@@ -227,9 +241,9 @@ export default function TechnicianChatPage({ technicianId, userId, fullName }: T
     participants: Participant[];
     job: any;
   }>({
-    queryKey: ['/api/chat/threads', selectedThreadId],
+    queryKey: ['/api/chat/threads', selectedThreadId, userId],
     queryFn: async () => {
-      const res = await fetch(`/api/chat/threads/${selectedThreadId}`);
+      const res = await authFetch(`/api/chat/threads/${selectedThreadId}`);
       if (!res.ok) throw new Error('Failed to fetch thread');
       return res.json();
     },
@@ -239,10 +253,12 @@ export default function TechnicianChatPage({ technicianId, userId, fullName }: T
 
   const sendMutation = useMutation({
     mutationFn: async (body: string) => {
-      const res = await apiRequest('POST', `/api/chat/threads/${selectedThreadId}/messages`, {
-        body,
-        client_msg_id: `msg_${Date.now()}`,
+      const res = await authFetch(`/api/chat/threads/${selectedThreadId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body, client_msg_id: `msg_${Date.now()}` }),
       });
+      if (!res.ok) throw new Error('Failed to send message');
       return res.json();
     },
     onSuccess: () => {
@@ -257,7 +273,8 @@ export default function TechnicianChatPage({ technicianId, userId, fullName }: T
 
   const markReadMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest('POST', `/api/chat/threads/${selectedThreadId}/read`);
+      const res = await authFetch(`/api/chat/threads/${selectedThreadId}/read`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to mark read');
     },
     onSuccess: () => {
       refetchThreads();

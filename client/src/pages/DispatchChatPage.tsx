@@ -209,31 +209,51 @@ function ThreadListItem({
   );
 }
 
+// Helper to create fetch with user ID header
+const createAuthFetch = (userId: string) => async (url: string, options?: RequestInit) => {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...options?.headers,
+      'X-User-Id': userId,
+    },
+  });
+  return response;
+};
+
 function NewThreadDialog({
   open,
   onOpenChange,
   onSuccess,
+  userId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: (threadId: string) => void;
+  userId: string;
 }) {
   const { toast } = useToast();
   const [subject, setSubject] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  const authFetch = createAuthFetch(userId);
 
   const { data: users = [] } = useQuery<UserData[]>({
-    queryKey: ['/api/users'],
+    queryKey: ['/api/admin/users'],
     enabled: open,
   });
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest('POST', '/api/chat/threads', {
-        participant_user_ids: selectedUsers,
-        subject: subject || null,
-        visibility: 'internal',
+      const res = await authFetch('/api/chat/threads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          participant_user_ids: selectedUsers,
+          subject: subject || null,
+          visibility: 'internal',
+        }),
       });
+      if (!res.ok) throw new Error('Failed to create thread');
       return res.json();
     },
     onSuccess: (thread) => {
@@ -331,7 +351,7 @@ function NewThreadDialog({
   );
 }
 
-export default function DispatchChatPage() {
+export default function DispatchChatPage({ userId, fullName }: { userId: string; fullName: string }) {
   const { toast } = useToast();
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState('');
@@ -339,18 +359,19 @@ export default function DispatchChatPage() {
   const [showNewThreadDialog, setShowNewThreadDialog] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const { data: currentUser } = useQuery<UserData>({
-    queryKey: ['/api/auth/session'],
-  });
+  const authFetch = createAuthFetch(userId);
+  
+  // Create a pseudo current user object from props
+  const currentUser: UserData = { id: userId, username: fullName, fullName, role: 'dispatcher' };
 
   const {
     data: threads = [],
     isLoading: threadsLoading,
     refetch: refetchThreads,
   } = useQuery<ChatThread[]>({
-    queryKey: ['/api/chat/threads', statusFilter],
+    queryKey: ['/api/chat/threads', statusFilter, userId],
     queryFn: async () => {
-      const res = await fetch(`/api/chat/threads?status=${statusFilter}`);
+      const res = await authFetch(`/api/chat/threads?status=${statusFilter}`);
       if (!res.ok) throw new Error('Failed to fetch threads');
       return res.json();
     },
@@ -369,9 +390,9 @@ export default function DispatchChatPage() {
     participants: Participant[];
     job: any;
   }>({
-    queryKey: ['/api/chat/threads', selectedThreadId],
+    queryKey: ['/api/chat/threads', selectedThreadId, userId],
     queryFn: async () => {
-      const res = await fetch(`/api/chat/threads/${selectedThreadId}`);
+      const res = await authFetch(`/api/chat/threads/${selectedThreadId}`);
       if (!res.ok) throw new Error('Failed to fetch thread');
       return res.json();
     },
@@ -381,10 +402,12 @@ export default function DispatchChatPage() {
 
   const sendMutation = useMutation({
     mutationFn: async (body: string) => {
-      const res = await apiRequest('POST', `/api/chat/threads/${selectedThreadId}/messages`, {
-        body,
-        client_msg_id: `msg_${Date.now()}`,
+      const res = await authFetch(`/api/chat/threads/${selectedThreadId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body, client_msg_id: `msg_${Date.now()}` }),
       });
+      if (!res.ok) throw new Error('Failed to send message');
       return res.json();
     },
     onSuccess: () => {
@@ -399,7 +422,8 @@ export default function DispatchChatPage() {
 
   const markReadMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest('POST', `/api/chat/threads/${selectedThreadId}/read`);
+      const res = await authFetch(`/api/chat/threads/${selectedThreadId}/read`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to mark read');
     },
     onSuccess: () => {
       refetchThreads();
@@ -408,7 +432,8 @@ export default function DispatchChatPage() {
 
   const closeThreadMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest('POST', `/api/chat/threads/${selectedThreadId}/close`);
+      const res = await authFetch(`/api/chat/threads/${selectedThreadId}/close`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to close thread');
     },
     onSuccess: () => {
       toast({ title: 'Thread closed' });
@@ -608,6 +633,7 @@ export default function DispatchChatPage() {
         open={showNewThreadDialog}
         onOpenChange={setShowNewThreadDialog}
         onSuccess={(threadId) => setSelectedThreadId(threadId)}
+        userId={userId}
       />
     </div>
   );
