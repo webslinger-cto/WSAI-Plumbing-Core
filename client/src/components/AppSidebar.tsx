@@ -34,6 +34,7 @@ import {
   Navigation,
   Tag,
   TrendingUp,
+  MessageSquare,
 } from "lucide-react";
 const cseLogo = "/cse-logo.png";
 
@@ -64,6 +65,7 @@ const dispatcherMenuItems = [
   { title: "Technician Map", url: "/map", icon: MapPin },
   { title: "Staffing Pool", url: "/staffing", icon: UserCog },
   { title: "Calls", url: "/calls", icon: Phone },
+  { title: "Messages", url: "/chat", icon: MessageSquare },
   { title: "Leads", url: "/leads", icon: Users },
 ];
 

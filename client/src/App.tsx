@@ -43,6 +43,7 @@ import MarketingROIPage from "@/pages/MarketingROIPage";
 import SEOContentPage from "@/pages/seo-content";
 import EarningsPage from "@/pages/EarningsPage";
 import CallsPage from "@/pages/CallsPage";
+import DispatchChatPage from "@/pages/DispatchChatPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 import BusinessIntakePage from "@/pages/business-intake";
@@ -93,6 +94,7 @@ function DispatcherRouter() {
       <Route path="/staffing" component={StaffingPool} />
       <Route path="/calls" component={CallsPage} />
       <Route path="/leads" component={LeadsPage} />
+      <Route path="/chat" component={DispatchChatPage} />
       <Route path="/operations">{() => <OperationsMenuPage role="dispatcher" />}</Route>
       <Route component={NotFound} />
     </Switch>
