@@ -30,7 +30,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import cseLogo from "@assets/cse-logo.jpg";
+import cseLogo from "@assets/cse-logo.png";
 import type { Quote } from "@shared/schema";
 
 interface QuoteLineItem {

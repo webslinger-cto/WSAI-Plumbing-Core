@@ -55,7 +55,7 @@ import {
 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import cseLogo from "@assets/cse-logo.jpg";
+import cseLogo from "@assets/cse-logo.png";
 import JobTimeline from "@/components/JobTimeline";
 import type { Job } from "@shared/schema";
 

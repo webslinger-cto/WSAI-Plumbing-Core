@@ -176,23 +176,17 @@
     background-color: hsl(var(--background));
   }
 
-  /* Premium black marble background for dark mode */
+  /* Premium dark background for dark mode */
   .dark body,
   body.dark {
-    background-image: url('/attached_assets/BLACK_MARBLE_1765749718013.png');
-    background-size: cover;
-    background-position: center;
+    background: linear-gradient(135deg, hsl(222 47% 8%) 0%, hsl(222 47% 11%) 50%, hsl(222 47% 8%) 100%);
     background-attachment: fixed;
-    background-repeat: no-repeat;
   }
 
-  /* Marble background wrapper for main app */
+  /* Dark background wrapper for main app */
   .marble-bg {
-    background-image: url('/attached_assets/BLACK_MARBLE_1765749718013.png');
-    background-size: cover;
-    background-position: center;
+    background: linear-gradient(135deg, hsl(222 47% 8%) 0%, hsl(222 47% 11%) 50%, hsl(222 47% 8%) 100%);
     background-attachment: fixed;
-    background-repeat: no-repeat;
   }
 
   /* Semi-transparent overlay for content readability */
