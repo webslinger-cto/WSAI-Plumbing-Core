@@ -4,6 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import KPICard from "@/components/KPICard";
 import QuoteBuilder from "@/components/QuoteBuilder";
 import JobTimeline from "@/components/JobTimeline";
+import { JobChat } from "@/components/JobChat";
 import JobAttachments from "@/components/JobAttachments";
 import JobChecklist from "@/components/JobChecklist";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -867,6 +868,7 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
                   Checklist
                 </TabsTrigger>
                 <TabsTrigger value="timeline" data-testid="tab-timeline">Timeline</TabsTrigger>
+                <TabsTrigger value="chat" data-testid="tab-chat">Chat</TabsTrigger>
                 <TabsTrigger value="quote" data-testid="tab-quote">Quote</TabsTrigger>
               </TabsList>
               <TabsContent value="details" className="space-y-4 mt-4">
@@ -954,6 +956,9 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
               </TabsContent>
               <TabsContent value="timeline" className="mt-4">
                 <JobTimeline job={selectedJob} />
+              </TabsContent>
+              <TabsContent value="chat" className="mt-4">
+                <JobChat jobId={selectedJob.id} jobCustomerName={selectedJob.customerName} />
               </TabsContent>
               <TabsContent value="quote" className="mt-4">
                 <QuoteBuilder

@@ -30,6 +30,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { CustomerChat } from "@/components/CustomerChat";
 const cseLogo = "/cse-logo.png";
 import type { Quote } from "@shared/schema";
 
@@ -480,6 +481,9 @@ export default function PublicQuotePage() {
                       Thank you! Our team will contact you shortly to schedule your service.
                     </p>
                   </div>
+                )}
+                {(actionTaken === 'accepted' || quote.status === 'accepted') && token && (
+                  <CustomerChat token={token} customerName={quote.customerName || undefined} />
                 )}
                 {(actionTaken === 'declined' || quote.status === 'declined') && (
                   <div className="text-destructive">

@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import JobTimeline from "@/components/JobTimeline";
+import { JobChat } from "@/components/JobChat";
 import {
   Select,
   SelectContent,
@@ -1795,6 +1796,7 @@ export default function DispatcherDashboard() {
               <TabsList>
                 <TabsTrigger value="details" data-testid="tab-job-details">Details</TabsTrigger>
                 <TabsTrigger value="timeline" data-testid="tab-job-timeline">Timeline</TabsTrigger>
+                <TabsTrigger value="chat" data-testid="tab-job-chat">Chat</TabsTrigger>
               </TabsList>
               <TabsContent value="details" className="space-y-4 mt-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -1839,6 +1841,9 @@ export default function DispatcherDashboard() {
               </TabsContent>
               <TabsContent value="timeline" className="mt-4">
                 <JobTimeline job={selectedJob} />
+              </TabsContent>
+              <TabsContent value="chat" className="mt-4">
+                <JobChat jobId={selectedJob.id} jobCustomerName={selectedJob.customerName} />
               </TabsContent>
             </Tabs>
           )}
