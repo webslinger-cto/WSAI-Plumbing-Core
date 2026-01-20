@@ -34,12 +34,17 @@ import {
   type ContentPack, type InsertContentPack,
   type ContentItem, type InsertContentItem,
   type JobMessage, type InsertJobMessage,
+  type ChatThread, type InsertChatThread,
+  type ChatThreadParticipant, type InsertChatThreadParticipant,
+  type ChatMessage, type InsertChatMessage,
+  type ChatMagicSession, type InsertChatMagicSession,
   users, technicians, salespersons, salesCommissions, salespersonLocations,
   leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
   pricebookItems, pricebookCategories, marketingCampaigns, marketingSpend, businessIntakes,
   timeEntries, payrollPeriods, payrollRecords, employeePayRates, jobLeadFees, jobRevenueEvents, companySettings, quoteLineItems,
   contentPacks, contentItems, jobMessages,
+  chatThreads, chatThreadParticipants, chatMessages, chatMagicSessions, chatEmailNotifications,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -357,6 +362,41 @@ export interface IStorage {
 
   // Reset
   resetJobBoard(): Promise<void>;
+
+  // Thread-Based Chat System
+  getChatThread(id: string): Promise<ChatThread | undefined>;
+  getChatThreadByJob(jobId: string, visibility: 'internal' | 'customer_visible'): Promise<ChatThread | undefined>;
+  getChatThreadsForUser(userId: string, options?: { status?: string; visibility?: string }): Promise<ChatThread[]>;
+  getChatThreadsForCustomer(customerIdentifier: string, jobId: string): Promise<ChatThread[]>;
+  createChatThread(thread: InsertChatThread): Promise<ChatThread>;
+  updateChatThread(id: string, updates: Partial<ChatThread>): Promise<ChatThread | undefined>;
+  
+  // Chat Thread Participants
+  getChatThreadParticipants(threadId: string): Promise<ChatThreadParticipant[]>;
+  getChatThreadParticipant(threadId: string, participantType: string, participantId: string): Promise<ChatThreadParticipant | undefined>;
+  addChatThreadParticipant(participant: InsertChatThreadParticipant): Promise<ChatThreadParticipant>;
+  updateChatThreadParticipantLastRead(threadId: string, participantType: string, participantId: string): Promise<void>;
+  isUserParticipant(threadId: string, userId: string): Promise<boolean>;
+  isCustomerParticipant(threadId: string, customerIdentifier: string): Promise<boolean>;
+  
+  // Chat Messages
+  getChatMessages(threadId: string, options?: { limit?: number; before?: Date }): Promise<ChatMessage[]>;
+  getChatMessage(id: string): Promise<ChatMessage | undefined>;
+  createChatMessage(message: InsertChatMessage): Promise<ChatMessage>;
+  getUnreadCountForParticipant(threadId: string, participantType: string, participantId: string): Promise<number>;
+  getTotalUnreadCountForUser(userId: string): Promise<number>;
+  getTotalUnreadCountForCustomer(customerIdentifier: string, jobId: string): Promise<number>;
+  
+  // Chat Magic Link Sessions
+  getChatMagicSession(jobId: string, tokenHash: string): Promise<ChatMagicSession | undefined>;
+  getChatMagicSessionByJob(jobId: string, customerIdentifier: string): Promise<ChatMagicSession | undefined>;
+  createChatMagicSession(session: InsertChatMagicSession): Promise<ChatMagicSession>;
+  updateChatMagicSessionLastUsed(id: string): Promise<void>;
+  deleteChatMagicSession(id: string): Promise<boolean>;
+  
+  // Chat Email Notification Rate Limiting
+  getLastChatEmailNotification(jobId: string, customerIdentifier: string): Promise<Date | null>;
+  updateChatEmailNotification(jobId: string, customerIdentifier: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -3144,6 +3184,255 @@ export class DatabaseStorage implements IStorage {
   async deleteContentItem(id: string): Promise<boolean> {
     const result = await db.delete(contentItems).where(eq(contentItems.id, id)).returning();
     return result.length > 0;
+  }
+
+  // ============================================
+  // THREAD-BASED CHAT SYSTEM
+  // ============================================
+
+  async getChatThread(id: string): Promise<ChatThread | undefined> {
+    const [thread] = await db.select().from(chatThreads).where(eq(chatThreads.id, id));
+    return thread;
+  }
+
+  async getChatThreadByJob(jobId: string, visibility: 'internal' | 'customer_visible'): Promise<ChatThread | undefined> {
+    const [thread] = await db.select().from(chatThreads)
+      .where(and(
+        eq(chatThreads.relatedJobId, jobId),
+        eq(chatThreads.visibility, visibility)
+      ));
+    return thread;
+  }
+
+  async getChatThreadsForUser(userId: string, options?: { status?: string; visibility?: string }): Promise<ChatThread[]> {
+    const participantRecords = await db.select().from(chatThreadParticipants)
+      .where(and(
+        eq(chatThreadParticipants.participantType, 'user'),
+        eq(chatThreadParticipants.participantId, userId)
+      ));
+    
+    const threadIds = participantRecords.map(p => p.threadId);
+    if (threadIds.length === 0) return [];
+    
+    let query = db.select().from(chatThreads)
+      .where(sql`${chatThreads.id} IN (${sql.join(threadIds.map(id => sql`${id}`), sql`, `)})`);
+    
+    const threads = await query.orderBy(desc(chatThreads.lastMessageAt));
+    
+    return threads.filter(thread => {
+      if (options?.status && thread.status !== options.status) return false;
+      if (options?.visibility && thread.visibility !== options.visibility) return false;
+      return true;
+    });
+  }
+
+  async getChatThreadsForCustomer(customerIdentifier: string, jobId: string): Promise<ChatThread[]> {
+    const participantRecords = await db.select().from(chatThreadParticipants)
+      .where(and(
+        eq(chatThreadParticipants.participantType, 'customer'),
+        eq(chatThreadParticipants.participantId, customerIdentifier)
+      ));
+    
+    const threadIds = participantRecords.map(p => p.threadId);
+    if (threadIds.length === 0) return [];
+    
+    return db.select().from(chatThreads)
+      .where(and(
+        sql`${chatThreads.id} IN (${sql.join(threadIds.map(id => sql`${id}`), sql`, `)})`,
+        eq(chatThreads.relatedJobId, jobId),
+        eq(chatThreads.visibility, 'customer_visible')
+      ))
+      .orderBy(desc(chatThreads.lastMessageAt));
+  }
+
+  async createChatThread(thread: InsertChatThread): Promise<ChatThread> {
+    const [created] = await db.insert(chatThreads).values(thread).returning();
+    return created;
+  }
+
+  async updateChatThread(id: string, updates: Partial<ChatThread>): Promise<ChatThread | undefined> {
+    const [updated] = await db.update(chatThreads)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(chatThreads.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Chat Thread Participants
+  async getChatThreadParticipants(threadId: string): Promise<ChatThreadParticipant[]> {
+    return db.select().from(chatThreadParticipants)
+      .where(eq(chatThreadParticipants.threadId, threadId));
+  }
+
+  async getChatThreadParticipant(threadId: string, participantType: string, participantId: string): Promise<ChatThreadParticipant | undefined> {
+    const [participant] = await db.select().from(chatThreadParticipants)
+      .where(and(
+        eq(chatThreadParticipants.threadId, threadId),
+        eq(chatThreadParticipants.participantType, participantType),
+        eq(chatThreadParticipants.participantId, participantId)
+      ));
+    return participant;
+  }
+
+  async addChatThreadParticipant(participant: InsertChatThreadParticipant): Promise<ChatThreadParticipant> {
+    const [created] = await db.insert(chatThreadParticipants).values(participant).returning();
+    return created;
+  }
+
+  async updateChatThreadParticipantLastRead(threadId: string, participantType: string, participantId: string): Promise<void> {
+    await db.update(chatThreadParticipants)
+      .set({ lastReadAt: new Date() })
+      .where(and(
+        eq(chatThreadParticipants.threadId, threadId),
+        eq(chatThreadParticipants.participantType, participantType),
+        eq(chatThreadParticipants.participantId, participantId)
+      ));
+  }
+
+  async isUserParticipant(threadId: string, userId: string): Promise<boolean> {
+    const participant = await this.getChatThreadParticipant(threadId, 'user', userId);
+    return !!participant;
+  }
+
+  async isCustomerParticipant(threadId: string, customerIdentifier: string): Promise<boolean> {
+    const participant = await this.getChatThreadParticipant(threadId, 'customer', customerIdentifier);
+    return !!participant;
+  }
+
+  // Chat Messages
+  async getChatMessages(threadId: string, options?: { limit?: number; before?: Date }): Promise<ChatMessage[]> {
+    let query = db.select().from(chatMessages)
+      .where(eq(chatMessages.threadId, threadId));
+    
+    const messages = await query.orderBy(desc(chatMessages.createdAt));
+    
+    let result = messages;
+    if (options?.before) {
+      result = result.filter(m => m.createdAt < options.before!);
+    }
+    if (options?.limit) {
+      result = result.slice(0, options.limit);
+    }
+    
+    return result.reverse();
+  }
+
+  async getChatMessage(id: string): Promise<ChatMessage | undefined> {
+    const [message] = await db.select().from(chatMessages).where(eq(chatMessages.id, id));
+    return message;
+  }
+
+  async createChatMessage(message: InsertChatMessage): Promise<ChatMessage> {
+    const [created] = await db.insert(chatMessages).values(message).returning();
+    
+    await db.update(chatThreads)
+      .set({ lastMessageAt: new Date(), updatedAt: new Date() })
+      .where(eq(chatThreads.id, message.threadId));
+    
+    return created;
+  }
+
+  async getUnreadCountForParticipant(threadId: string, participantType: string, participantId: string): Promise<number> {
+    const participant = await this.getChatThreadParticipant(threadId, participantType, participantId);
+    if (!participant) return 0;
+    
+    const messages = await db.select().from(chatMessages)
+      .where(eq(chatMessages.threadId, threadId));
+    
+    let count = 0;
+    for (const msg of messages) {
+      const isOwnMessage = msg.senderType === participantType && msg.senderId === participantId;
+      if (isOwnMessage) continue;
+      
+      if (!participant.lastReadAt || msg.createdAt > participant.lastReadAt) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  async getTotalUnreadCountForUser(userId: string): Promise<number> {
+    const threads = await this.getChatThreadsForUser(userId, { status: 'active' });
+    let total = 0;
+    for (const thread of threads) {
+      total += await this.getUnreadCountForParticipant(thread.id, 'user', userId);
+    }
+    return total;
+  }
+
+  async getTotalUnreadCountForCustomer(customerIdentifier: string, jobId: string): Promise<number> {
+    const threads = await this.getChatThreadsForCustomer(customerIdentifier, jobId);
+    let total = 0;
+    for (const thread of threads) {
+      total += await this.getUnreadCountForParticipant(thread.id, 'customer', customerIdentifier);
+    }
+    return total;
+  }
+
+  // Chat Magic Link Sessions
+  async getChatMagicSession(jobId: string, tokenHash: string): Promise<ChatMagicSession | undefined> {
+    const [session] = await db.select().from(chatMagicSessions)
+      .where(and(
+        eq(chatMagicSessions.jobId, jobId),
+        eq(chatMagicSessions.tokenHash, tokenHash),
+        gte(chatMagicSessions.expiresAt, new Date())
+      ));
+    return session;
+  }
+
+  async getChatMagicSessionByJob(jobId: string, customerIdentifier: string): Promise<ChatMagicSession | undefined> {
+    const [session] = await db.select().from(chatMagicSessions)
+      .where(and(
+        eq(chatMagicSessions.jobId, jobId),
+        eq(chatMagicSessions.customerIdentifier, customerIdentifier),
+        gte(chatMagicSessions.expiresAt, new Date())
+      ))
+      .orderBy(desc(chatMagicSessions.createdAt));
+    return session;
+  }
+
+  async createChatMagicSession(session: InsertChatMagicSession): Promise<ChatMagicSession> {
+    const [created] = await db.insert(chatMagicSessions).values(session).returning();
+    return created;
+  }
+
+  async updateChatMagicSessionLastUsed(id: string): Promise<void> {
+    await db.update(chatMagicSessions)
+      .set({ lastUsedAt: new Date() })
+      .where(eq(chatMagicSessions.id, id));
+  }
+
+  async deleteChatMagicSession(id: string): Promise<boolean> {
+    const result = await db.delete(chatMagicSessions).where(eq(chatMagicSessions.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Chat Email Notification Rate Limiting
+  async getLastChatEmailNotification(jobId: string, customerIdentifier: string): Promise<Date | null> {
+    const [record] = await db.select().from(chatEmailNotifications)
+      .where(and(
+        eq(chatEmailNotifications.jobId, jobId),
+        eq(chatEmailNotifications.customerIdentifier, customerIdentifier)
+      ));
+    return record?.lastNotifiedAt || null;
+  }
+
+  async updateChatEmailNotification(jobId: string, customerIdentifier: string): Promise<void> {
+    const existing = await this.getLastChatEmailNotification(jobId, customerIdentifier);
+    if (existing) {
+      await db.update(chatEmailNotifications)
+        .set({ lastNotifiedAt: new Date() })
+        .where(and(
+          eq(chatEmailNotifications.jobId, jobId),
+          eq(chatEmailNotifications.customerIdentifier, customerIdentifier)
+        ));
+    } else {
+      await db.insert(chatEmailNotifications).values({
+        jobId,
+        customerIdentifier,
+        lastNotifiedAt: new Date()
+      });
+    }
   }
 }
 
