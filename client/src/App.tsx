@@ -45,6 +45,7 @@ import EarningsPage from "@/pages/EarningsPage";
 import CallsPage from "@/pages/CallsPage";
 import DispatchChatPage from "@/pages/DispatchChatPage";
 import TechnicianChatPage from "@/pages/TechnicianChatPage";
+import CustomerChatPage from "@/pages/CustomerChatPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 import BusinessIntakePage from "@/pages/business-intake";
@@ -476,6 +477,18 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <BusinessIntakePage />
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  // Public customer chat page (magic link auth)
+  if (location.startsWith('/customer/chat')) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <CustomerChatPage />
           <Toaster />
         </TooltipProvider>
       </QueryClientProvider>
