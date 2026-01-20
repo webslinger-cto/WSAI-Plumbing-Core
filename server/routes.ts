@@ -53,7 +53,7 @@ import {
 } from "./services/automation";
 import * as smsService from "./services/sms";
 import { dispatchToClosestTechnician } from "./services/dispatch";
-import { generateApplicationPDF, generateComparisonPDF, generateHouseCallProComparisonPDF, generateTestResultsPDF, generateThreeWayComparisonPDF, generateReadmePDF } from "./services/pdf-generator";
+import { generateApplicationPDF, generateComparisonPDF, generateHouseCallProComparisonPDF, generateTestResultsPDF, generateThreeWayComparisonPDF, generateReadmePDF, generateChatSystemPDF } from "./services/pdf-generator";
 import { pushJobToBuilder1 } from "./services/builder1-integration";
 
 // Helper: Notify all dispatchers about technician status changes
@@ -5105,6 +5105,22 @@ ${emailContent}
     } catch (error) {
       console.error("README PDF generation error:", error);
       res.status(500).json({ error: "Failed to generate README PDF" });
+    }
+  });
+
+  // Chat System PDF - Thread-based chat workflow guide
+  app.get("/api/docs/chat-system", async (req, res) => {
+    try {
+      const doc = generateChatSystemPDF();
+      
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", "attachment; filename=Chat-System-Workflow-Guide.pdf");
+      
+      doc.pipe(res);
+      doc.end();
+    } catch (error) {
+      console.error("Chat System PDF generation error:", error);
+      res.status(500).json({ error: "Failed to generate chat system PDF" });
     }
   });
 

@@ -1210,3 +1210,280 @@ export function generateReadmePDF(): PDFKit.PDFDocument {
 
   return doc;
 }
+
+export function generateChatSystemPDF(): PDFKit.PDFDocument {
+  const doc = new PDFDocument({ margin: 50 });
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  // ============ COVER PAGE ============
+  doc.moveDown(4);
+  doc.fontSize(28).font("Helvetica-Bold").fillColor("#1e40af").text("Thread-Based Chat System", { align: "center" });
+  doc.moveDown(0.5);
+  doc.fontSize(18).font("Helvetica-Bold").fillColor("#dc2626").text("Workflow Guide", { align: "center" });
+  doc.moveDown(1);
+  doc.fontSize(12).font("Helvetica").fillColor("#666666").text("Emergency Chicago Sewer Experts CRM", { align: "center" });
+  doc.moveDown(4);
+  doc.fontSize(10).fillColor("#999999").text(`Generated: ${today}`, { align: "center" });
+
+  // ============ OVERVIEW ============
+  doc.addPage();
+  doc.fontSize(20).font("Helvetica-Bold").fillColor("#1e40af").text("Overview");
+  doc.moveDown(0.5);
+  doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke("#1e40af");
+  doc.moveDown(1);
+  
+  doc.fontSize(11).font("Helvetica").fillColor("#333333").text(
+    "The chat system enables internal team coordination between dispatchers, technicians, and admins, as well as direct customer communication through secure magic link authentication.",
+    { align: "justify" }
+  );
+
+  // ============ USER ROLES ============
+  doc.moveDown(1.5);
+  doc.fontSize(16).font("Helvetica-Bold").fillColor("#1e40af").text("User Roles & Access");
+  doc.moveDown(0.5);
+  
+  const roles = [
+    { role: "Admin", access: "Full access", capabilities: "View all threads, create any thread type" },
+    { role: "Dispatcher", access: "Full access", capabilities: "Create threads, invite technicians, message customers" },
+    { role: "Technician", access: "Limited access", capabilities: "View/respond to threads they're added to" },
+    { role: "Customer", access: "Magic link only", capabilities: "View/respond to customer-visible threads for their job" }
+  ];
+  
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  roles.forEach(r => {
+    doc.font("Helvetica-Bold").text(`${r.role}:`, { continued: true });
+    doc.font("Helvetica").text(` ${r.access} - ${r.capabilities}`);
+    doc.moveDown(0.3);
+  });
+
+  // ============ THREAD TYPES ============
+  doc.moveDown(1);
+  doc.fontSize(16).font("Helvetica-Bold").fillColor("#1e40af").text("Thread Types");
+  doc.moveDown(0.5);
+  
+  doc.fontSize(12).font("Helvetica-Bold").fillColor("#dc2626").text("1. Internal Threads");
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("  - Visibility: Staff only (dispatchers, technicians, admins)");
+  doc.text("  - Purpose: Team coordination, job discussions, internal notes");
+  doc.text("  - Access: Only participants can view messages");
+  
+  doc.moveDown(0.5);
+  doc.fontSize(12).font("Helvetica-Bold").fillColor("#dc2626").text("2. Customer-Visible Threads");
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("  - Visibility: Staff AND the customer");
+  doc.text("  - Purpose: Direct customer communication about their job");
+  doc.text("  - Access: Staff participants + customer via magic link");
+
+  // ============ STAFF WORKFLOW ============
+  doc.addPage();
+  doc.fontSize(20).font("Helvetica-Bold").fillColor("#1e40af").text("Staff Workflow (Dispatcher/Technician)");
+  doc.moveDown(0.5);
+  doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke("#1e40af");
+  doc.moveDown(1);
+
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Accessing Chat");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("1. Log in to the CRM");
+  doc.text("2. Click \"Messages\" in the sidebar navigation");
+  doc.text("3. The chat page displays two tabs: Active Chats and Current Chat");
+
+  doc.moveDown(1);
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Creating a New Thread");
+  doc.moveDown(0.3);
+  doc.fontSize(11).font("Helvetica-Bold").fillColor("#333333").text("Internal Thread (Team Only):");
+  doc.fontSize(10).font("Helvetica");
+  doc.text("1. Click \"New Thread\" button");
+  doc.text("2. Select \"Internal\" visibility");
+  doc.text("3. Enter a subject (e.g., \"Job #123 - Equipment needed\")");
+  doc.text("4. Select team members to include");
+  doc.text("5. Optionally link to a specific job");
+  doc.text("6. Click \"Create Thread\"");
+
+  doc.moveDown(0.5);
+  doc.fontSize(11).font("Helvetica-Bold").text("Customer Thread:");
+  doc.fontSize(10).font("Helvetica");
+  doc.text("1. Click \"New Thread\" button");
+  doc.text("2. Select \"Customer-Visible\" visibility");
+  doc.text("3. Enter a subject");
+  doc.text("4. Select staff participants");
+  doc.text("5. Must link to a job (required for customer access)");
+  doc.text("6. Click \"Create Thread\"");
+
+  doc.moveDown(1);
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Sending Messages");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("1. Select a thread from the Active Chats list");
+  doc.text("2. The Current Chat tab shows the conversation");
+  doc.text("3. Type your message in the input field");
+  doc.text("4. Press Enter or click Send");
+
+  doc.moveDown(1);
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Unread Indicators");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("- Red badge on \"Messages\" sidebar link shows total unread count");
+  doc.text("- Each thread in Active Chats shows its individual unread count");
+  doc.text("- Clicking a thread marks all messages as read");
+
+  // ============ CUSTOMER WORKFLOW ============
+  doc.addPage();
+  doc.fontSize(20).font("Helvetica-Bold").fillColor("#1e40af").text("Customer Workflow");
+  doc.moveDown(0.5);
+  doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke("#1e40af");
+  doc.moveDown(1);
+
+  doc.fontSize(11).font("Helvetica").fillColor("#333333").text(
+    "Customers do NOT log into the CRM. They access chat via a secure magic link.",
+    { align: "justify" }
+  );
+
+  doc.moveDown(1);
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Generating a Magic Link (Staff Action)");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("1. Open the job in the CRM");
+  doc.text("2. Navigate to the Messages section of the job");
+  doc.text("3. Click \"Send Chat Link\" or \"Generate Magic Link\"");
+  doc.text("4. The system creates a secure, time-limited token");
+  doc.text("5. Link is sent to customer via email/SMS");
+
+  doc.moveDown(1);
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Customer Experience");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("1. Customer clicks the magic link in their email/SMS");
+  doc.text("2. Link format: https://yoursite.com/customer/chat?jobId=123&token=abc123...");
+  doc.text("3. System validates the token (checks expiry, job association)");
+  doc.text("4. Customer sees all customer-visible threads for their job");
+  doc.text("5. Customer can read messages and reply");
+  doc.text("6. No password or account needed");
+
+  doc.moveDown(1);
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Magic Link Security");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("- Tokens are SHA-256 hashed before storage");
+  doc.text("- Default expiry: 7 days (configurable)");
+  doc.text("- Links are job-specific (can't access other jobs)");
+  doc.text("- IP and user-agent logged for audit trail");
+
+  // ============ API REFERENCE ============
+  doc.addPage();
+  doc.fontSize(20).font("Helvetica-Bold").fillColor("#1e40af").text("API Endpoints Reference");
+  doc.moveDown(0.5);
+  doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke("#1e40af");
+  doc.moveDown(1);
+
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Staff Endpoints (Require Authentication)");
+  doc.moveDown(0.3);
+  doc.fontSize(9).font("Helvetica").fillColor("#333333");
+  
+  const staffEndpoints = [
+    ["GET", "/api/chat/threads", "List all threads for current user"],
+    ["POST", "/api/chat/threads", "Create a new thread"],
+    ["GET", "/api/chat/threads/:id/messages", "Get messages in a thread"],
+    ["POST", "/api/chat/threads/:id/messages", "Send a message"],
+    ["POST", "/api/chat/threads/:id/read", "Mark thread as read"],
+    ["POST", "/api/chat/threads/:id/close", "Close a thread"],
+    ["GET", "/api/chat/unread-count", "Get total unread count"]
+  ];
+  
+  staffEndpoints.forEach(([method, endpoint, desc]) => {
+    doc.font("Helvetica-Bold").text(`${method} ${endpoint}`, { continued: true });
+    doc.font("Helvetica").text(` - ${desc}`);
+  });
+
+  doc.moveDown(1);
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Customer Endpoints (Require Magic Link Token)");
+  doc.moveDown(0.3);
+  doc.fontSize(9).font("Helvetica").fillColor("#333333");
+  
+  const customerEndpoints = [
+    ["POST", "/api/chat/customer/session", "Validate magic link token"],
+    ["GET", "/api/chat/customer/jobs/:jobId/thread", "Get customer's thread"],
+    ["POST", "/api/chat/customer/jobs/:jobId/thread/messages", "Customer send message"]
+  ];
+  
+  customerEndpoints.forEach(([method, endpoint, desc]) => {
+    doc.font("Helvetica-Bold").text(`${method} ${endpoint}`, { continued: true });
+    doc.font("Helvetica").text(` - ${desc}`);
+  });
+
+  // ============ COMMON SCENARIOS ============
+  doc.addPage();
+  doc.fontSize(20).font("Helvetica-Bold").fillColor("#1e40af").text("Common Scenarios");
+  doc.moveDown(0.5);
+  doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke("#1e40af");
+  doc.moveDown(1);
+
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Scenario 1: Technician Needs Dispatcher Guidance");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("1. Technician opens Messages page");
+  doc.text("2. Creates new Internal thread with subject \"Need help at Job #456\"");
+  doc.text("3. Adds dispatcher to thread");
+  doc.text("4. Describes the issue");
+  doc.text("5. Dispatcher responds with guidance");
+  doc.text("6. Conversation continues until resolved");
+
+  doc.moveDown(1);
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Scenario 2: Customer Has a Question");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("1. Dispatcher creates Customer-Visible thread linked to customer's job");
+  doc.text("2. Sends magic link to customer via email");
+  doc.text("3. Customer clicks link, sees the thread");
+  doc.text("4. Customer types their question");
+  doc.text("5. Dispatcher (and technicians on thread) see the message");
+  doc.text("6. Staff respond; customer sees responses on next page refresh");
+
+  doc.moveDown(1);
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#dc2626").text("Scenario 3: Scheduling Coordination");
+  doc.moveDown(0.3);
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("1. Dispatcher creates Internal thread for job team");
+  doc.text("2. Adds assigned technician");
+  doc.text("3. Discusses best time for follow-up visit");
+  doc.text("4. Technician confirms availability");
+  doc.text("5. Dispatcher updates the job schedule");
+
+  // ============ TROUBLESHOOTING ============
+  doc.moveDown(1.5);
+  doc.fontSize(16).font("Helvetica-Bold").fillColor("#1e40af").text("Troubleshooting");
+  doc.moveDown(0.5);
+
+  doc.fontSize(12).font("Helvetica-Bold").fillColor("#dc2626").text("Customer Can't Access Chat");
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("- Check if magic link has expired (default 7 days)");
+  doc.text("- Verify the job ID in the link matches an active job");
+  doc.text("- Generate a new magic link if needed");
+
+  doc.moveDown(0.5);
+  doc.fontSize(12).font("Helvetica-Bold").fillColor("#dc2626").text("Messages Not Appearing");
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("- Wait for next poll cycle (up to 30 seconds)");
+  doc.text("- Refresh the page");
+  doc.text("- Check browser console for errors");
+
+  doc.moveDown(0.5);
+  doc.fontSize(12).font("Helvetica-Bold").fillColor("#dc2626").text("Thread Not Showing for Technician");
+  doc.fontSize(10).font("Helvetica").fillColor("#333333");
+  doc.text("- Verify technician was added as a participant");
+  doc.text("- Check thread visibility (internal vs customer-visible)");
+  doc.text("- Technicians only see threads they're explicitly added to");
+
+  // ============ FOOTER ============
+  doc.addPage();
+  doc.moveDown(8);
+  doc.fontSize(16).font("Helvetica-Bold").fillColor("#1e40af").text("Emergency Chicago Sewer Experts CRM", { align: "center" });
+  doc.moveDown(0.5);
+  doc.fontSize(12).font("Helvetica").fillColor("#666666").text("Thread-Based Chat System", { align: "center" });
+  doc.moveDown(2);
+  doc.fontSize(10).fillColor("#999999").text("For support or questions, contact your system administrator.", { align: "center" });
+  doc.moveDown(0.5);
+  doc.text(`Documentation generated: ${today}`, { align: "center" });
+
+  return doc;
+}
