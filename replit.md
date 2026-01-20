@@ -82,40 +82,50 @@ The Outreach page includes a comprehensive Master Customer List for promotions a
 - **CSV Export**: Export all or selected customers for external marketing tools
 - **API Endpoint**: GET /api/customers/master-list
 
-### Job-Scoped Chat Messaging
-The system includes job-specific chat messaging for internal team coordination and customer communication:
+### Thread-Based Chat System
+The system includes a comprehensive thread-based chat architecture for internal team coordination and customer communication:
 
-**Two Audience Types**:
-- **Internal**: Messages visible only to dispatchers, technicians, and admins - for team coordination
-- **Customer**: Messages visible to both staff and the customer - for customer communication
+**Thread Visibility Types**:
+- **Internal**: Threads visible only to dispatchers, technicians, and admins - for team coordination
+- **Customer-Visible**: Threads visible to both staff AND the customer - for customer communication
 
-**Staff Access (Dispatcher/Technician Dashboards)**:
-- Job Details dialog includes a "Chat" tab with Internal/Customer sub-tabs
-- Staff can send messages to either audience
-- Notifications sent to relevant team members when messages are received
-- Technicians can only access chat for their assigned jobs
+**Staff Access (Dispatcher/Technician Chat Pages)**:
+- Dedicated Messages pages at `/dispatch/chat` and `/tech/chat`
+- Active Chats tab lists all threads the user participates in with unread counts
+- Current Chat tab shows selected thread's messages with real-time polling
+- New Thread dialog to create threads (internal or customer-visible)
+- Unread badge shown in sidebar navigation
 
-**Customer Access (Public Quote Page)**:
-- After accepting a quote, customers see a "Message Our Team" chat panel
-- Customers can only send and receive messages in the "customer" audience
-- Messages captured with IP/user-agent for audit
+**Customer Access (Magic Link Authentication)**:
+- Customers access chat via public URL: `/customer/chat?jobId=X&token=Y`
+- Magic links sent via email with SHA-256 hashed tokens (7-day default expiry)
+- Customers can view/send messages in customer-visible threads only
+- Messages captured with IP/user-agent metadata for audit
 
-**Database Table**: `job_messages`
-- `jobId`: Links message to the job
-- `audience`: 'internal' or 'customer'
-- `senderType`: 'dispatcher', 'technician', 'admin', or 'customer'
-- `senderUserId`: User ID (null for customers)
-- `body`: Message content (1-4000 characters)
-- `meta`: JSON metadata (IP, user-agent for customer messages)
+**Database Tables**:
+- `chat_threads`: Thread metadata (subject, visibility, status, related_job_id)
+- `chat_thread_participants`: Polymorphic participants (user_id or customer_identifier)
+- `chat_messages`: Message content with sender info and client_msg_id for deduplication
+- `chat_magic_sessions`: Customer authentication tokens with expiration tracking
+- `chat_email_notifications`: Email notification queue for offline users
 
 **API Endpoints**:
-- `GET/POST /api/jobs/:id/messages` - Staff messaging (requires auth)
-- `GET/POST /api/public/quote/:token/messages` - Customer messaging (requires accepted quote)
-- `GET /api/public/quote/:token/job` - Get job ID from quote token
+- `GET /api/chat/threads` - List user's threads with unread counts
+- `POST /api/chat/threads` - Create new thread
+- `GET /api/chat/threads/:id/messages` - Get thread messages
+- `POST /api/chat/threads/:id/messages` - Send message
+- `POST /api/chat/threads/:id/read` - Mark thread as read
+- `POST /api/chat/threads/:id/close` - Close thread
+- `GET /api/chat/unread-count` - Get total unread count
+- `POST /api/chat/jobs/:jobId/customer-thread` - Create customer-visible thread
+- `POST /api/chat/jobs/:jobId/customer-session` - Generate magic link for customer
+- `POST /api/chat/customer/session` - Validate customer magic link
+- `GET /api/chat/customer/jobs/:jobId/thread` - Customer get thread
+- `POST /api/chat/customer/jobs/:jobId/thread/messages` - Customer send message
 
 **Jobs-Quotes Linkage**:
-- Jobs now have `quoteId` field linking back to the accepted quote
-- Enables customer access to job messaging via their quote token
+- Jobs have `quoteId` field linking back to the accepted quote
+- Enables customer access to job messaging via quote/job context
 
 ## System Architecture
 

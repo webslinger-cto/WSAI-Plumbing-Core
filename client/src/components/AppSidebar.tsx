@@ -99,13 +99,13 @@ export default function AppSidebar({ role, username, onLogout }: AppSidebarProps
         : techMenuItems;
 
   // Fetch unread chat count for dispatcher/technician roles
-  const { data: unreadData } = useQuery<{ totalUnread: number }>({
+  const { data: unreadData } = useQuery<{ unreadCount: number }>({
     queryKey: ['/api/chat/unread-count'],
     enabled: role === 'dispatcher' || role === 'technician',
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
-  const unreadCount = unreadData?.totalUnread || 0;
+  const unreadCount = unreadData?.unreadCount || 0;
 
   const getInitials = (name: string) => {
     return name
