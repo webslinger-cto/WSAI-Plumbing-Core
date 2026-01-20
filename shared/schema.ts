@@ -285,6 +285,8 @@ export const jobs = pgTable("jobs", {
   customerConsentDisclosureVersion: text("customer_consent_disclosure_version"),
   customerConsentDisclosureText: text("customer_consent_disclosure_text"),
   customerConsentSource: text("customer_consent_source"),
+  // In-app messaging consent (separate from SMS)
+  customerConsentInAppMessaging: boolean("customer_consent_in_app_messaging").default(false),
   // Quote linkage for customer portal access
   quoteId: varchar("quote_id"),
 });
@@ -1093,3 +1095,93 @@ export const contentItems = pgTable("content_items", {
 export const insertContentItemSchema = createInsertSchema(contentItems).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertContentItem = z.infer<typeof insertContentItemSchema>;
 export type ContentItem = typeof contentItems.$inferSelect;
+
+// ============================================
+// THREAD-BASED CHAT SYSTEM
+// ============================================
+
+// Chat thread visibility types
+export const chatThreadVisibilities = ["internal", "customer_visible"] as const;
+export type ChatThreadVisibility = typeof chatThreadVisibilities[number];
+
+// Chat thread status
+export const chatThreadStatuses = ["active", "closed"] as const;
+export type ChatThreadStatus = typeof chatThreadStatuses[number];
+
+// Participant types (polymorphic)
+export const chatParticipantTypes = ["user", "customer"] as const;
+export type ChatParticipantType = typeof chatParticipantTypes[number];
+
+// Chat threads table
+export const chatThreads = pgTable("chat_threads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  relatedJobId: varchar("related_job_id").references(() => jobs.id), // Required for customer_visible
+  visibility: text("visibility").notNull().default("internal"), // 'internal' | 'customer_visible'
+  status: text("status").notNull().default("active"), // 'active' | 'closed'
+  subject: text("subject"), // e.g. "Job #1234 - Drain Cleaning"
+  createdByType: text("created_by_type").notNull().default("user"), // 'user' | 'customer'
+  createdById: varchar("created_by_id").notNull(), // users.id or customer identifier
+  lastMessageAt: timestamp("last_message_at"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertChatThreadSchema = createInsertSchema(chatThreads).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertChatThread = z.infer<typeof insertChatThreadSchema>;
+export type ChatThread = typeof chatThreads.$inferSelect;
+
+// Chat thread participants (polymorphic - user or customer)
+export const chatThreadParticipants = pgTable("chat_thread_participants", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  threadId: varchar("thread_id").notNull().references(() => chatThreads.id),
+  participantType: text("participant_type").notNull(), // 'user' | 'customer'
+  participantId: varchar("participant_id").notNull(), // users.id or customer identifier (phone/email)
+  roleAtTime: text("role_at_time"), // snapshot: 'dispatcher', 'technician', 'admin', 'customer'
+  displayName: text("display_name"), // cached display name
+  lastReadAt: timestamp("last_read_at"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertChatThreadParticipantSchema = createInsertSchema(chatThreadParticipants).omit({ id: true, createdAt: true });
+export type InsertChatThreadParticipant = z.infer<typeof insertChatThreadParticipantSchema>;
+export type ChatThreadParticipant = typeof chatThreadParticipants.$inferSelect;
+
+// Chat messages (polymorphic sender)
+export const chatMessages = pgTable("chat_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  threadId: varchar("thread_id").notNull().references(() => chatThreads.id),
+  senderType: text("sender_type").notNull(), // 'user' | 'customer'
+  senderId: varchar("sender_id").notNull(), // users.id or customer identifier
+  senderDisplayName: text("sender_display_name"), // cached name at send time
+  body: text("body").notNull(),
+  clientMsgId: text("client_msg_id"), // idempotency key
+  meta: jsonb("meta").notNull().default({}), // IP, user-agent for audit
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({ id: true, createdAt: true });
+export type InsertChatMessage = z.infer<typeof insertChatMessageSchema>;
+export type ChatMessage = typeof chatMessages.$inferSelect;
+
+// Customer chat magic link sessions (for authenticated customer access)
+export const chatMagicSessions = pgTable("chat_magic_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  customerIdentifier: text("customer_identifier").notNull(), // phone or email
+  tokenHash: text("token_hash").notNull(), // SHA-256 hash of token
+  expiresAt: timestamp("expires_at").notNull(),
+  lastUsedAt: timestamp("last_used_at"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertChatMagicSessionSchema = createInsertSchema(chatMagicSessions).omit({ id: true, createdAt: true });
+export type InsertChatMagicSession = z.infer<typeof insertChatMagicSessionSchema>;
+export type ChatMagicSession = typeof chatMagicSessions.$inferSelect;
+
+// Customer email notification rate limiting
+export const chatEmailNotifications = pgTable("chat_email_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  customerIdentifier: text("customer_identifier").notNull(),
+  lastNotifiedAt: timestamp("last_notified_at").notNull().default(sql`now()`),
+});
