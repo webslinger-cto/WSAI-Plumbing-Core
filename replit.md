@@ -7,11 +7,11 @@ Emergency Chicago Sewer Experts CRM is a lead management and customer relationsh
 Preferred communication style: Simple, everyday language.
 
 ## Asset Management
-**IMPORTANT**: All image assets must be stored in the `attached_assets/` folder at the project root. This folder is mapped to the `@assets` alias in Vite. 
+**IMPORTANT**: Public-facing images must be stored in `client/public/` folder.
 
-- To use images in code: `import logo from "@assets/cse-logo.png"`
-- Never reference `attached_assets/` directly in CSS or HTML - use the `@assets` import alias
-- Current assets: `cse-logo.png` (company logo)
+- Reference images with absolute paths: `const logo = "/cse-logo.png"`
+- Current public assets: `cse-logo.png` (company logo), `favicon.png`
+- The `attached_assets/` folder is ONLY for agent debugging screenshots - never use it for app images
 
 ## Core Business Workflow
 

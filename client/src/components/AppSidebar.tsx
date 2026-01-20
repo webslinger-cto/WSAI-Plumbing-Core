@@ -35,7 +35,7 @@ import {
   Tag,
   TrendingUp,
 } from "lucide-react";
-import cseLogo from "@assets/cse-logo.png";
+const cseLogo = "/cse-logo.png";
 
 interface AppSidebarProps {
   role: "admin" | "dispatcher" | "technician" | "salesperson";

@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardDescription } from "@/components/ui/card";
 import { Eye, EyeOff, Lock, CheckCircle2 } from "lucide-react";
-import cseLogo from "@assets/cse-logo.png";
+const cseLogo = "/cse-logo.png";
 
 interface PasswordSetupPageProps {
   userId: string;
