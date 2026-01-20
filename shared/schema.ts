@@ -285,6 +285,8 @@ export const jobs = pgTable("jobs", {
   customerConsentDisclosureVersion: text("customer_consent_disclosure_version"),
   customerConsentDisclosureText: text("customer_consent_disclosure_text"),
   customerConsentSource: text("customer_consent_source"),
+  // Quote linkage for customer portal access
+  quoteId: varchar("quote_id"),
 });
 
 export const insertJobSchema = createInsertSchema(jobs).omit({ id: true, createdAt: true, updatedAt: true });
@@ -358,6 +360,28 @@ export const notifications = pgTable("notifications", {
 export const insertNotificationSchema = createInsertSchema(notifications).omit({ id: true, createdAt: true });
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type Notification = typeof notifications.$inferSelect;
+
+// Job messages for internal and customer chat
+export const jobMessageAudiences = ["internal", "customer"] as const;
+export type JobMessageAudience = typeof jobMessageAudiences[number];
+
+export const jobMessageSenderTypes = ["dispatcher", "technician", "admin", "customer", "system"] as const;
+export type JobMessageSenderType = typeof jobMessageSenderTypes[number];
+
+export const jobMessages = pgTable("job_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  audience: text("audience").notNull(), // 'internal' or 'customer'
+  senderType: text("sender_type").notNull(), // 'dispatcher', 'technician', 'admin', 'customer', 'system'
+  senderUserId: varchar("sender_user_id").references(() => users.id), // null for customer messages
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  meta: jsonb("meta").notNull().default({}), // IP, user agent for customers
+});
+
+export const insertJobMessageSchema = createInsertSchema(jobMessages).omit({ id: true, createdAt: true });
+export type InsertJobMessage = z.infer<typeof insertJobMessageSchema>;
+export type JobMessage = typeof jobMessages.$inferSelect;
 
 // Technician shift logs (track availability hours)
 export const shiftLogs = pgTable("shift_logs", {
