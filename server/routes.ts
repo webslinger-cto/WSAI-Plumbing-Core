@@ -2118,7 +2118,7 @@ export async function registerRoutes(
 
   // GET job messages (internal - requires auth)
   app.get("/api/jobs/:id/messages", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    if (!isAuthenticatedUser(req)) return res.status(401).json({ error: "Unauthorized" });
     
     try {
       const user = req.user as User;
@@ -2144,7 +2144,7 @@ export async function registerRoutes(
 
   // POST job message (internal - requires auth)
   app.post("/api/jobs/:id/messages", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    if (!isAuthenticatedUser(req)) return res.status(401).json({ error: "Unauthorized" });
     
     try {
       const user = req.user as User;
@@ -5948,9 +5948,14 @@ ${emailContent}
   // THREAD-BASED CHAT API
   // ============================================
 
+  // Helper function for defensive auth check
+  const isAuthenticatedUser = (req: any): boolean => {
+    return typeof req.isAuthenticated === 'function' && req.isAuthenticated() && req.user?.id;
+  };
+
   // GET threads list for current user
   app.get("/api/chat/threads", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    if (!isAuthenticatedUser(req)) return res.status(401).json({ error: "Unauthorized" });
     
     try {
       const user = req.user as User;
@@ -6001,7 +6006,9 @@ ${emailContent}
 
   // GET unread count for current user
   app.get("/api/chat/unread-count", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    if (!isAuthenticatedUser(req)) {
+      return res.json({ unreadCount: 0 });
+    }
     
     try {
       const user = req.user as User;
@@ -6009,13 +6016,13 @@ ${emailContent}
       res.json({ unreadCount: count });
     } catch (error) {
       console.error("Error fetching unread count:", error);
-      res.status(500).json({ error: "Failed to fetch unread count" });
+      res.json({ unreadCount: 0 });
     }
   });
 
   // CREATE internal thread (dispatch/tech/admin)
   app.post("/api/chat/threads", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    if (!isAuthenticatedUser(req)) return res.status(401).json({ error: "Unauthorized" });
     
     try {
       const user = req.user as User;
@@ -6087,7 +6094,7 @@ ${emailContent}
 
   // GET thread details + messages
   app.get("/api/chat/threads/:threadId", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    if (!isAuthenticatedUser(req)) return res.status(401).json({ error: "Unauthorized" });
     
     try {
       const user = req.user as User;
@@ -6130,7 +6137,7 @@ ${emailContent}
 
   // GET thread messages with pagination
   app.get("/api/chat/threads/:threadId/messages", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    if (!isAuthenticatedUser(req)) return res.status(401).json({ error: "Unauthorized" });
     
     try {
       const user = req.user as User;
@@ -6157,7 +6164,7 @@ ${emailContent}
 
   // SEND message to thread
   app.post("/api/chat/threads/:threadId/messages", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    if (!isAuthenticatedUser(req)) return res.status(401).json({ error: "Unauthorized" });
     
     try {
       const user = req.user as User;
@@ -6204,7 +6211,7 @@ ${emailContent}
 
   // MARK thread as read
   app.post("/api/chat/threads/:threadId/read", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    if (!isAuthenticatedUser(req)) return res.status(401).json({ error: "Unauthorized" });
     
     try {
       const user = req.user as User;
@@ -6227,7 +6234,7 @@ ${emailContent}
 
   // CLOSE thread (dispatch/admin only)
   app.post("/api/chat/threads/:threadId/close", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    if (!isAuthenticatedUser(req)) return res.status(401).json({ error: "Unauthorized" });
     
     try {
       const user = req.user as User;
@@ -6251,7 +6258,7 @@ ${emailContent}
 
   // GET or CREATE customer-visible thread for job
   app.post("/api/chat/jobs/:jobId/customer-thread", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    if (!isAuthenticatedUser(req)) return res.status(401).json({ error: "Unauthorized" });
     
     try {
       const user = req.user as User;
@@ -6330,7 +6337,7 @@ ${emailContent}
 
   // CREATE magic link session for customer
   app.post("/api/chat/jobs/:jobId/customer-session", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    if (!isAuthenticatedUser(req)) return res.status(401).json({ error: "Unauthorized" });
     
     try {
       const user = req.user as User;
