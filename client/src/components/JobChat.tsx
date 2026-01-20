@@ -13,17 +13,29 @@ import type { JobMessage } from "@shared/schema";
 interface JobChatProps {
   jobId: string;
   jobCustomerName?: string;
+  userId?: string;
 }
 
-export function JobChat({ jobId, jobCustomerName }: JobChatProps) {
+// Helper to create fetch with user ID header
+const createAuthFetch = (userId?: string) => async (url: string, options?: RequestInit) => {
+  const headers: Record<string, string> = { ...(options?.headers as Record<string, string>) };
+  if (userId) {
+    headers['X-User-Id'] = userId;
+  }
+  const response = await fetch(url, { ...options, headers });
+  return response;
+};
+
+export function JobChat({ jobId, jobCustomerName, userId }: JobChatProps) {
   const [audience, setAudience] = useState<"internal" | "customer">("internal");
   const [message, setMessage] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const authFetch = createAuthFetch(userId);
 
   const { data: messages = [], isLoading } = useQuery<JobMessage[]>({
-    queryKey: ["/api/jobs", jobId, "messages"],
+    queryKey: ["/api/jobs", jobId, "messages", userId],
     queryFn: async () => {
-      const res = await fetch(`/api/jobs/${jobId}/messages?audience=all`);
+      const res = await authFetch(`/api/jobs/${jobId}/messages?audience=all`);
       if (!res.ok) throw new Error("Failed to fetch messages");
       return res.json();
     },
@@ -32,7 +44,12 @@ export function JobChat({ jobId, jobCustomerName }: JobChatProps) {
 
   const sendMutation = useMutation({
     mutationFn: async (data: { audience: string; body: string }) => {
-      const res = await apiRequest("POST", `/api/jobs/${jobId}/messages`, data);
+      const res = await authFetch(`/api/jobs/${jobId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to send message");
       return res.json();
     },
     onSuccess: () => {

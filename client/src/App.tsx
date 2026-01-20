@@ -89,7 +89,7 @@ function AdminRouter() {
 function DispatcherRouter({ userId, fullName }: { userId: string; fullName: string }) {
   return (
     <Switch>
-      <Route path="/" component={DispatcherDashboard} />
+      <Route path="/">{() => <DispatcherDashboard userId={userId} />}</Route>
       <Route path="/jobs" component={JobsPage} />
       <Route path="/quotes" component={QuotesPage} />
       <Route path="/map" component={TechnicianMapPage} />

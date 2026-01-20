@@ -958,7 +958,7 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
                 <JobTimeline job={selectedJob} />
               </TabsContent>
               <TabsContent value="chat" className="mt-4">
-                <JobChat jobId={selectedJob.id} jobCustomerName={selectedJob.customerName} />
+                <JobChat jobId={selectedJob.id} jobCustomerName={selectedJob.customerName} userId={userId} />
               </TabsContent>
               <TabsContent value="quote" className="mt-4">
                 <QuoteBuilder

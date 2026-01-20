@@ -1476,7 +1476,11 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
   );
 }
 
-export default function DispatcherDashboard() {
+interface DispatcherDashboardProps {
+  userId?: string;
+}
+
+export default function DispatcherDashboard({ userId }: DispatcherDashboardProps = {}) {
   const { toast } = useToast();
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
@@ -1843,7 +1847,7 @@ export default function DispatcherDashboard() {
                 <JobTimeline job={selectedJob} />
               </TabsContent>
               <TabsContent value="chat" className="mt-4">
-                <JobChat jobId={selectedJob.id} jobCustomerName={selectedJob.customerName} />
+                <JobChat jobId={selectedJob.id} jobCustomerName={selectedJob.customerName} userId={userId} />
               </TabsContent>
             </Tabs>
           )}

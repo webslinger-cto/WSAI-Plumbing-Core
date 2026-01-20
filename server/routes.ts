@@ -125,6 +125,28 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  
+  // ============================================
+  // AUTHENTICATION HELPER
+  // ============================================
+  // This app stores auth state in frontend and passes userId via X-User-Id header
+  type User = { id: string; username: string; role: string; fullName: string | null };
+  
+  const getChatUser = async (req: any): Promise<User | null> => {
+    const userIdHeader = req.headers['x-user-id'] as string;
+    if (!userIdHeader) return null;
+    const user = await storage.getUser(userIdHeader);
+    if (user) {
+      req.user = user;
+    }
+    return user as User | null;
+  };
+  
+  const isAuthenticatedUser = async (req: any): Promise<boolean> => {
+    const user = await getChatUser(req);
+    return user !== null;
+  };
+  
   // Health check
   app.get("/api/health", async (req, res) => {
     try {
@@ -5963,23 +5985,6 @@ ${emailContent}
   // ============================================
   // THREAD-BASED CHAT API
   // ============================================
-
-  // Helper function for chat auth - uses X-User-Id header
-  // This app stores auth state in frontend, so we need the user ID passed in header
-  const getChatUser = async (req: any): Promise<User | null> => {
-    const userIdHeader = req.headers['x-user-id'] as string;
-    if (!userIdHeader) return null;
-    const user = await storage.getUser(userIdHeader);
-    if (user) {
-      req.user = user;
-    }
-    return user;
-  };
-  
-  const isAuthenticatedUser = async (req: any): Promise<boolean> => {
-    const user = await getChatUser(req);
-    return user !== null;
-  };
 
   // GET threads list for current user
   app.get("/api/chat/threads", async (req, res) => {
