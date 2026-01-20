@@ -82,6 +82,41 @@ The Outreach page includes a comprehensive Master Customer List for promotions a
 - **CSV Export**: Export all or selected customers for external marketing tools
 - **API Endpoint**: GET /api/customers/master-list
 
+### Job-Scoped Chat Messaging
+The system includes job-specific chat messaging for internal team coordination and customer communication:
+
+**Two Audience Types**:
+- **Internal**: Messages visible only to dispatchers, technicians, and admins - for team coordination
+- **Customer**: Messages visible to both staff and the customer - for customer communication
+
+**Staff Access (Dispatcher/Technician Dashboards)**:
+- Job Details dialog includes a "Chat" tab with Internal/Customer sub-tabs
+- Staff can send messages to either audience
+- Notifications sent to relevant team members when messages are received
+- Technicians can only access chat for their assigned jobs
+
+**Customer Access (Public Quote Page)**:
+- After accepting a quote, customers see a "Message Our Team" chat panel
+- Customers can only send and receive messages in the "customer" audience
+- Messages captured with IP/user-agent for audit
+
+**Database Table**: `job_messages`
+- `jobId`: Links message to the job
+- `audience`: 'internal' or 'customer'
+- `senderType`: 'dispatcher', 'technician', 'admin', or 'customer'
+- `senderUserId`: User ID (null for customers)
+- `body`: Message content (1-4000 characters)
+- `meta`: JSON metadata (IP, user-agent for customer messages)
+
+**API Endpoints**:
+- `GET/POST /api/jobs/:id/messages` - Staff messaging (requires auth)
+- `GET/POST /api/public/quote/:token/messages` - Customer messaging (requires accepted quote)
+- `GET /api/public/quote/:token/job` - Get job ID from quote token
+
+**Jobs-Quotes Linkage**:
+- Jobs now have `quoteId` field linking back to the accepted quote
+- Enables customer access to job messaging via their quote token
+
 ## System Architecture
 
 ### Frontend

@@ -2262,6 +2262,11 @@ export async function registerRoutes(
       const quote = await storage.getQuoteByToken(req.params.token);
       if (!quote) return res.status(404).json({ error: "Quote not found" });
       
+      // Require quote to be accepted for messaging
+      if (quote.status !== 'accepted') {
+        return res.status(403).json({ error: "Messaging is only available for accepted quotes" });
+      }
+      
       const job = await storage.getJobByQuoteId(quote.id);
       if (!job) return res.status(404).json({ error: "No job found for this quote" });
       
@@ -2279,6 +2284,11 @@ export async function registerRoutes(
     try {
       const quote = await storage.getQuoteByToken(req.params.token);
       if (!quote) return res.status(404).json({ error: "Quote not found" });
+      
+      // Require quote to be accepted for messaging
+      if (quote.status !== 'accepted') {
+        return res.status(403).json({ error: "Messaging is only available for accepted quotes" });
+      }
       
       const job = await storage.getJobByQuoteId(quote.id);
       if (!job) return res.status(404).json({ error: "No job found for this quote" });
