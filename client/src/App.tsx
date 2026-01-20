@@ -535,6 +535,7 @@ function App() {
             <AppSidebar
               role={effectiveRole!}
               username={auth.username}
+              userId={auth.userId}
               onLogout={handleLogout}
             />
             <div className="flex flex-col flex-1 min-w-0 bg-background/90 backdrop-blur-sm">

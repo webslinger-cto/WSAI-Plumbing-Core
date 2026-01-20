@@ -42,6 +42,7 @@ const cseLogo = "/cse-logo.png";
 interface AppSidebarProps {
   role: "admin" | "dispatcher" | "technician" | "salesperson";
   username: string;
+  userId?: string;
   onLogout: () => void;
 }
 
@@ -88,7 +89,7 @@ const salesMenuItems = [
   { title: "Commissions", url: "/earnings", icon: DollarSign },
 ];
 
-export default function AppSidebar({ role, username, onLogout }: AppSidebarProps) {
+export default function AppSidebar({ role, username, userId, onLogout }: AppSidebarProps) {
   const [location] = useLocation();
   const menuItems = role === "admin" 
     ? adminMenuItems 
@@ -100,8 +101,15 @@ export default function AppSidebar({ role, username, onLogout }: AppSidebarProps
 
   // Fetch unread chat count for dispatcher/technician roles
   const { data: unreadData } = useQuery<{ unreadCount: number }>({
-    queryKey: ['/api/chat/unread-count'],
-    enabled: role === 'dispatcher' || role === 'technician',
+    queryKey: ['/api/chat/unread-count', userId],
+    queryFn: async () => {
+      const headers: Record<string, string> = {};
+      if (userId) headers['X-User-Id'] = userId;
+      const res = await fetch('/api/chat/unread-count', { headers });
+      if (!res.ok) return { unreadCount: 0 };
+      return res.json();
+    },
+    enabled: (role === 'dispatcher' || role === 'technician') && !!userId,
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
