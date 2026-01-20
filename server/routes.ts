@@ -5944,5 +5944,597 @@ ${emailContent}
     }
   });
 
+  // ============================================
+  // THREAD-BASED CHAT API
+  // ============================================
+
+  // GET threads list for current user
+  app.get("/api/chat/threads", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    
+    try {
+      const user = req.user as User;
+      const { status, visibility } = req.query as { status?: string; visibility?: string };
+      
+      const threads = await storage.getChatThreadsForUser(user.id, {
+        status: status || 'active',
+        visibility: visibility === 'any' ? undefined : visibility
+      });
+      
+      // Enrich with participants, unread counts, and last message preview
+      const enrichedThreads = await Promise.all(threads.map(async (thread) => {
+        const participants = await storage.getChatThreadParticipants(thread.id);
+        const unreadCount = await storage.getUnreadCountForParticipant(thread.id, 'user', user.id);
+        const messages = await storage.getChatMessages(thread.id, { limit: 1 });
+        const lastMessage = messages[0] || null;
+        
+        // Get job info if related
+        let job = null;
+        if (thread.relatedJobId) {
+          job = await storage.getJob(thread.relatedJobId);
+        }
+        
+        return {
+          ...thread,
+          participants,
+          unreadCount,
+          lastMessagePreview: lastMessage ? {
+            body: lastMessage.body.substring(0, 100),
+            senderDisplayName: lastMessage.senderDisplayName,
+            createdAt: lastMessage.createdAt
+          } : null,
+          job: job ? {
+            id: job.id,
+            customerName: job.customerName,
+            serviceType: job.serviceType,
+            status: job.status
+          } : null
+        };
+      }));
+      
+      res.json(enrichedThreads);
+    } catch (error) {
+      console.error("Error fetching chat threads:", error);
+      res.status(500).json({ error: "Failed to fetch chat threads" });
+    }
+  });
+
+  // GET unread count for current user
+  app.get("/api/chat/unread-count", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    
+    try {
+      const user = req.user as User;
+      const count = await storage.getTotalUnreadCountForUser(user.id);
+      res.json({ unreadCount: count });
+    } catch (error) {
+      console.error("Error fetching unread count:", error);
+      res.status(500).json({ error: "Failed to fetch unread count" });
+    }
+  });
+
+  // CREATE internal thread (dispatch/tech/admin)
+  app.post("/api/chat/threads", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    
+    try {
+      const user = req.user as User;
+      const { participant_user_ids, subject, related_job_id, visibility } = req.body as {
+        participant_user_ids: string[];
+        subject?: string;
+        related_job_id?: string;
+        visibility: 'internal';
+      };
+      
+      // Only internal threads allowed via this endpoint
+      if (visibility !== 'internal') {
+        return res.status(400).json({ error: "Only internal threads can be created via this endpoint" });
+      }
+      
+      // Validate participants are users
+      const validUsers = [];
+      for (const userId of participant_user_ids) {
+        const u = await storage.getUser(userId);
+        if (u) validUsers.push(u);
+      }
+      
+      // Tech can only create threads with dispatch/admin
+      if (user.role === 'technician') {
+        const hasDispatchOrAdmin = validUsers.some(u => u.role === 'dispatcher' || u.role === 'admin');
+        if (!hasDispatchOrAdmin) {
+          return res.status(403).json({ error: "Technicians must include at least one dispatcher or admin" });
+        }
+      }
+      
+      // Create thread
+      const thread = await storage.createChatThread({
+        visibility: 'internal',
+        subject: subject || null,
+        relatedJobId: related_job_id || null,
+        createdByType: 'user',
+        createdById: user.id,
+        lastMessageAt: null
+      });
+      
+      // Add creator as participant
+      await storage.addChatThreadParticipant({
+        threadId: thread.id,
+        participantType: 'user',
+        participantId: user.id,
+        roleAtTime: user.role,
+        displayName: user.fullName || user.username
+      });
+      
+      // Add other participants
+      for (const participantUser of validUsers) {
+        if (participantUser.id !== user.id) {
+          await storage.addChatThreadParticipant({
+            threadId: thread.id,
+            participantType: 'user',
+            participantId: participantUser.id,
+            roleAtTime: participantUser.role,
+            displayName: participantUser.fullName || participantUser.username
+          });
+        }
+      }
+      
+      res.json(thread);
+    } catch (error) {
+      console.error("Error creating chat thread:", error);
+      res.status(500).json({ error: "Failed to create chat thread" });
+    }
+  });
+
+  // GET thread details + messages
+  app.get("/api/chat/threads/:threadId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    
+    try {
+      const user = req.user as User;
+      const thread = await storage.getChatThread(req.params.threadId);
+      if (!thread) return res.status(404).json({ error: "Thread not found" });
+      
+      // Check participant
+      const isParticipant = await storage.isUserParticipant(thread.id, user.id);
+      if (!isParticipant) {
+        return res.status(403).json({ error: "Access denied - not a participant" });
+      }
+      
+      const participants = await storage.getChatThreadParticipants(thread.id);
+      const messages = await storage.getChatMessages(thread.id, { limit: 50 });
+      
+      // Get job info
+      let job = null;
+      if (thread.relatedJobId) {
+        job = await storage.getJob(thread.relatedJobId);
+      }
+      
+      res.json({
+        ...thread,
+        participants,
+        messages,
+        job: job ? {
+          id: job.id,
+          customerName: job.customerName,
+          customerPhone: job.customerPhone,
+          address: job.address,
+          serviceType: job.serviceType,
+          status: job.status
+        } : null
+      });
+    } catch (error) {
+      console.error("Error fetching chat thread:", error);
+      res.status(500).json({ error: "Failed to fetch chat thread" });
+    }
+  });
+
+  // GET thread messages with pagination
+  app.get("/api/chat/threads/:threadId/messages", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    
+    try {
+      const user = req.user as User;
+      const thread = await storage.getChatThread(req.params.threadId);
+      if (!thread) return res.status(404).json({ error: "Thread not found" });
+      
+      const isParticipant = await storage.isUserParticipant(thread.id, user.id);
+      if (!isParticipant) {
+        return res.status(403).json({ error: "Access denied - not a participant" });
+      }
+      
+      const { limit, before } = req.query as { limit?: string; before?: string };
+      const messages = await storage.getChatMessages(thread.id, {
+        limit: limit ? parseInt(limit) : 50,
+        before: before ? new Date(before) : undefined
+      });
+      
+      res.json(messages);
+    } catch (error) {
+      console.error("Error fetching chat messages:", error);
+      res.status(500).json({ error: "Failed to fetch chat messages" });
+    }
+  });
+
+  // SEND message to thread
+  app.post("/api/chat/threads/:threadId/messages", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    
+    try {
+      const user = req.user as User;
+      const thread = await storage.getChatThread(req.params.threadId);
+      if (!thread) return res.status(404).json({ error: "Thread not found" });
+      
+      // Check thread is active
+      if (thread.status === 'closed') {
+        return res.status(400).json({ error: "Cannot send messages to a closed thread" });
+      }
+      
+      const isParticipant = await storage.isUserParticipant(thread.id, user.id);
+      if (!isParticipant) {
+        return res.status(403).json({ error: "Access denied - not a participant" });
+      }
+      
+      const { body, client_msg_id } = req.body as { body: string; client_msg_id?: string };
+      
+      // Validate body
+      const trimmedBody = (body || '').trim();
+      if (!trimmedBody || trimmedBody.length < 1 || trimmedBody.length > 4000) {
+        return res.status(400).json({ error: "Message body must be 1-4000 characters" });
+      }
+      
+      const message = await storage.createChatMessage({
+        threadId: thread.id,
+        senderType: 'user',
+        senderId: user.id,
+        senderDisplayName: user.fullName || user.username,
+        body: trimmedBody,
+        clientMsgId: client_msg_id || null,
+        meta: {}
+      });
+      
+      // TODO: Emit WebSocket event to participants
+      // TODO: Send email notification to customer if customer_visible thread
+      
+      res.json(message);
+    } catch (error) {
+      console.error("Error sending chat message:", error);
+      res.status(500).json({ error: "Failed to send chat message" });
+    }
+  });
+
+  // MARK thread as read
+  app.post("/api/chat/threads/:threadId/read", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    
+    try {
+      const user = req.user as User;
+      const thread = await storage.getChatThread(req.params.threadId);
+      if (!thread) return res.status(404).json({ error: "Thread not found" });
+      
+      const isParticipant = await storage.isUserParticipant(thread.id, user.id);
+      if (!isParticipant) {
+        return res.status(403).json({ error: "Access denied - not a participant" });
+      }
+      
+      await storage.updateChatThreadParticipantLastRead(thread.id, 'user', user.id);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error marking thread read:", error);
+      res.status(500).json({ error: "Failed to mark thread as read" });
+    }
+  });
+
+  // CLOSE thread (dispatch/admin only)
+  app.post("/api/chat/threads/:threadId/close", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    
+    try {
+      const user = req.user as User;
+      
+      // Only dispatch/admin can close threads
+      if (user.role !== 'dispatcher' && user.role !== 'admin') {
+        return res.status(403).json({ error: "Only dispatchers and admins can close threads" });
+      }
+      
+      const thread = await storage.getChatThread(req.params.threadId);
+      if (!thread) return res.status(404).json({ error: "Thread not found" });
+      
+      const updated = await storage.updateChatThread(thread.id, { status: 'closed' });
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error closing chat thread:", error);
+      res.status(500).json({ error: "Failed to close chat thread" });
+    }
+  });
+
+  // GET or CREATE customer-visible thread for job
+  app.post("/api/chat/jobs/:jobId/customer-thread", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    
+    try {
+      const user = req.user as User;
+      
+      // Only dispatch/admin can create customer threads
+      if (user.role !== 'dispatcher' && user.role !== 'admin') {
+        return res.status(403).json({ error: "Only dispatchers and admins can create customer threads" });
+      }
+      
+      const job = await storage.getJob(req.params.jobId);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      
+      // Check if customer has opted in to in-app messaging
+      if (!job.customerConsentInAppMessaging) {
+        return res.status(400).json({ error: "Customer has not opted in to in-app messaging" });
+      }
+      
+      // Check if thread already exists
+      let thread = await storage.getChatThreadByJob(job.id, 'customer_visible');
+      
+      if (!thread) {
+        const { subject } = req.body as { subject?: string };
+        
+        // Create thread
+        thread = await storage.createChatThread({
+          visibility: 'customer_visible',
+          subject: subject || `Job #${job.id.substring(0, 8)} - ${job.serviceType}`,
+          relatedJobId: job.id,
+          createdByType: 'user',
+          createdById: user.id,
+          lastMessageAt: null
+        });
+        
+        // Add customer as participant (using phone as identifier)
+        await storage.addChatThreadParticipant({
+          threadId: thread.id,
+          participantType: 'customer',
+          participantId: job.customerPhone,
+          roleAtTime: 'customer',
+          displayName: job.customerName
+        });
+        
+        // Add assigned technician if any
+        if (job.assignedTechnicianId) {
+          const tech = await storage.getTechnician(job.assignedTechnicianId);
+          if (tech?.userId) {
+            const techUser = await storage.getUser(tech.userId);
+            if (techUser) {
+              await storage.addChatThreadParticipant({
+                threadId: thread.id,
+                participantType: 'user',
+                participantId: techUser.id,
+                roleAtTime: 'technician',
+                displayName: techUser.fullName || techUser.username
+              });
+            }
+          }
+        }
+        
+        // Add the creating dispatcher
+        await storage.addChatThreadParticipant({
+          threadId: thread.id,
+          participantType: 'user',
+          participantId: user.id,
+          roleAtTime: user.role,
+          displayName: user.fullName || user.username
+        });
+      }
+      
+      res.json(thread);
+    } catch (error) {
+      console.error("Error creating customer thread:", error);
+      res.status(500).json({ error: "Failed to create customer thread" });
+    }
+  });
+
+  // CREATE magic link session for customer
+  app.post("/api/chat/jobs/:jobId/customer-session", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    
+    try {
+      const user = req.user as User;
+      
+      // Only dispatch/admin can create magic links
+      if (user.role !== 'dispatcher' && user.role !== 'admin') {
+        return res.status(403).json({ error: "Only dispatchers and admins can create customer sessions" });
+      }
+      
+      const job = await storage.getJob(req.params.jobId);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      
+      if (!job.customerConsentInAppMessaging) {
+        return res.status(400).json({ error: "Customer has not opted in to in-app messaging" });
+      }
+      
+      const { expires_in_minutes } = req.body as { expires_in_minutes?: number };
+      
+      // Generate token
+      const crypto = await import('crypto');
+      const token = crypto.randomBytes(32).toString('hex');
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + (expires_in_minutes || 10080)); // Default 7 days
+      
+      const session = await storage.createChatMagicSession({
+        jobId: job.id,
+        customerIdentifier: job.customerPhone,
+        tokenHash,
+        expiresAt
+      });
+      
+      // Generate magic link URL
+      const baseUrl = process.env.BASE_URL || 'https://chicagosewerexpertsapp.com';
+      const magicLink = `${baseUrl}/customer/chat?jobId=${job.id}&token=${token}`;
+      
+      // TODO: Send email to customer with magic link (no message content)
+      
+      res.json({
+        sessionId: session.id,
+        magicLink,
+        expiresAt
+      });
+    } catch (error) {
+      console.error("Error creating customer session:", error);
+      res.status(500).json({ error: "Failed to create customer session" });
+    }
+  });
+
+  // CUSTOMER SESSION EXCHANGE (public - validates magic link)
+  app.post("/api/chat/customer/session", async (req, res) => {
+    try {
+      const { jobId, token } = req.body as { jobId: string; token: string };
+      
+      if (!jobId || !token) {
+        return res.status(400).json({ error: "Missing jobId or token" });
+      }
+      
+      const crypto = await import('crypto');
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      
+      const session = await storage.getChatMagicSession(jobId, tokenHash);
+      if (!session) {
+        return res.status(401).json({ error: "Invalid or expired session" });
+      }
+      
+      // Update last used
+      await storage.updateChatMagicSessionLastUsed(session.id);
+      
+      // Get job for customer info
+      const job = await storage.getJob(jobId);
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+      
+      // Set customer session cookie
+      (req.session as any).customerSession = {
+        jobId,
+        customerIdentifier: session.customerIdentifier,
+        sessionId: session.id
+      };
+      
+      res.json({
+        customerName: job.customerName,
+        jobId: job.id,
+        serviceType: job.serviceType
+      });
+    } catch (error) {
+      console.error("Error validating customer session:", error);
+      res.status(500).json({ error: "Failed to validate session" });
+    }
+  });
+
+  // CUSTOMER: Get thread for their job
+  app.get("/api/chat/customer/jobs/:jobId/thread", async (req, res) => {
+    try {
+      const customerSession = (req.session as any).customerSession;
+      if (!customerSession || customerSession.jobId !== req.params.jobId) {
+        return res.status(401).json({ error: "Customer session required" });
+      }
+      
+      const thread = await storage.getChatThreadByJob(req.params.jobId, 'customer_visible');
+      if (!thread) {
+        return res.status(404).json({ error: "No chat thread exists for this job" });
+      }
+      
+      // Verify customer is participant
+      const isParticipant = await storage.isCustomerParticipant(thread.id, customerSession.customerIdentifier);
+      if (!isParticipant) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const participants = await storage.getChatThreadParticipants(thread.id);
+      const messages = await storage.getChatMessages(thread.id, { limit: 50 });
+      
+      res.json({
+        ...thread,
+        participants: participants.filter(p => p.participantType === 'user').map(p => ({
+          displayName: p.displayName,
+          roleAtTime: p.roleAtTime
+        })),
+        messages
+      });
+    } catch (error) {
+      console.error("Error fetching customer thread:", error);
+      res.status(500).json({ error: "Failed to fetch thread" });
+    }
+  });
+
+  // CUSTOMER: Send message
+  app.post("/api/chat/customer/jobs/:jobId/thread/messages", async (req, res) => {
+    try {
+      const customerSession = (req.session as any).customerSession;
+      if (!customerSession || customerSession.jobId !== req.params.jobId) {
+        return res.status(401).json({ error: "Customer session required" });
+      }
+      
+      const thread = await storage.getChatThreadByJob(req.params.jobId, 'customer_visible');
+      if (!thread) {
+        return res.status(404).json({ error: "No chat thread exists for this job" });
+      }
+      
+      if (thread.status === 'closed') {
+        return res.status(400).json({ error: "This conversation has been closed" });
+      }
+      
+      const isParticipant = await storage.isCustomerParticipant(thread.id, customerSession.customerIdentifier);
+      if (!isParticipant) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const { body, client_msg_id } = req.body as { body: string; client_msg_id?: string };
+      
+      const trimmedBody = (body || '').trim();
+      if (!trimmedBody || trimmedBody.length < 1 || trimmedBody.length > 4000) {
+        return res.status(400).json({ error: "Message body must be 1-4000 characters" });
+      }
+      
+      const job = await storage.getJob(req.params.jobId);
+      
+      const message = await storage.createChatMessage({
+        threadId: thread.id,
+        senderType: 'customer',
+        senderId: customerSession.customerIdentifier,
+        senderDisplayName: job?.customerName || 'Customer',
+        body: trimmedBody,
+        clientMsgId: client_msg_id || null,
+        meta: {
+          ip: req.ip || req.headers['x-forwarded-for'] || 'unknown',
+          userAgent: req.headers['user-agent'] || 'unknown'
+        }
+      });
+      
+      // TODO: Emit WebSocket event to staff participants
+      
+      res.json(message);
+    } catch (error) {
+      console.error("Error sending customer message:", error);
+      res.status(500).json({ error: "Failed to send message" });
+    }
+  });
+
+  // CUSTOMER: Mark as read
+  app.post("/api/chat/customer/jobs/:jobId/thread/read", async (req, res) => {
+    try {
+      const customerSession = (req.session as any).customerSession;
+      if (!customerSession || customerSession.jobId !== req.params.jobId) {
+        return res.status(401).json({ error: "Customer session required" });
+      }
+      
+      const thread = await storage.getChatThreadByJob(req.params.jobId, 'customer_visible');
+      if (!thread) {
+        return res.status(404).json({ error: "No chat thread exists for this job" });
+      }
+      
+      await storage.updateChatThreadParticipantLastRead(thread.id, 'customer', customerSession.customerIdentifier);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error marking customer thread read:", error);
+      res.status(500).json({ error: "Failed to mark as read" });
+    }
+  });
+
   return httpServer;
 }
