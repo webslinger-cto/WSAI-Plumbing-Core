@@ -44,6 +44,7 @@ import SEOContentPage from "@/pages/seo-content";
 import EarningsPage from "@/pages/EarningsPage";
 import CallsPage from "@/pages/CallsPage";
 import DispatchChatPage from "@/pages/DispatchChatPage";
+import TechnicianChatPage from "@/pages/TechnicianChatPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 import BusinessIntakePage from "@/pages/business-intake";
@@ -108,6 +109,9 @@ function TechnicianRouter({ technicianId, userId, fullName }: { technicianId: st
         {() => <TechnicianDashboard technicianId={technicianId} userId={userId} fullName={fullName} />}
       </Route>
       <Route path="/quote" component={QuotePage} />
+      <Route path="/chat">
+        {() => <TechnicianChatPage technicianId={technicianId} userId={userId} fullName={fullName} />}
+      </Route>
       <Route path="/earnings">
         {() => <EarningsPage technicianId={technicianId} fullName={fullName} />}
       </Route>
