@@ -2049,6 +2049,7 @@ export async function registerRoutes(
         description: `Job created from accepted quote #${quote.id.substring(0, 8)}`,
         status: 'pending',
         priority: 'normal',
+        quoteId: quote.id, // Link job back to quote for customer portal access
       };
       
       // Only set consent fields if customer explicitly opted in to at least one channel
@@ -2108,6 +2109,253 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error declining quote:", error);
       res.status(500).json({ error: "Failed to decline quote" });
+    }
+  });
+
+  // ============================================
+  // JOB MESSAGES (INTERNAL + CUSTOMER CHAT)
+  // ============================================
+
+  // GET job messages (internal - requires auth)
+  app.get("/api/jobs/:id/messages", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    
+    try {
+      const user = req.user as User;
+      const job = await storage.getJob(req.params.id);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      
+      // Authorization: technicians can only access their assigned jobs
+      if (user.role === 'technician') {
+        const technician = await storage.getTechnicianByUserId(user.id);
+        if (!technician || job.assignedTechnicianId !== technician.id) {
+          return res.status(403).json({ error: "Access denied - not assigned to this job" });
+        }
+      }
+      
+      const audience = req.query.audience as 'internal' | 'customer' | 'all' | undefined;
+      const messages = await storage.getJobMessages(job.id, audience || 'all');
+      res.json(messages);
+    } catch (error) {
+      console.error("Error fetching job messages:", error);
+      res.status(500).json({ error: "Failed to fetch messages" });
+    }
+  });
+
+  // POST job message (internal - requires auth)
+  app.post("/api/jobs/:id/messages", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    
+    try {
+      const user = req.user as User;
+      const job = await storage.getJob(req.params.id);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      
+      // Authorization: technicians can only message their assigned jobs
+      if (user.role === 'technician') {
+        const technician = await storage.getTechnicianByUserId(user.id);
+        if (!technician || job.assignedTechnicianId !== technician.id) {
+          return res.status(403).json({ error: "Access denied - not assigned to this job" });
+        }
+      }
+      
+      const { audience, body } = req.body as { audience: 'internal' | 'customer'; body: string };
+      
+      // Validate body
+      const trimmedBody = (body || '').trim();
+      if (!trimmedBody || trimmedBody.length < 1 || trimmedBody.length > 4000) {
+        return res.status(400).json({ error: "Message body must be 1-4000 characters" });
+      }
+      
+      // Validate audience
+      if (!['internal', 'customer'].includes(audience)) {
+        return res.status(400).json({ error: "Invalid audience - must be 'internal' or 'customer'" });
+      }
+      
+      // Determine sender type from user role
+      const senderType = user.role as 'dispatcher' | 'technician' | 'admin';
+      
+      // Create message
+      const message = await storage.createJobMessage({
+        jobId: job.id,
+        audience,
+        senderType,
+        senderUserId: user.id,
+        body: trimmedBody,
+        meta: {},
+      });
+      
+      // Create timeline event
+      await storage.createJobTimelineEvent({
+        jobId: job.id,
+        eventType: audience === 'customer' ? 'customer_message' : 'message',
+        description: `Message sent (${audience})`,
+        createdBy: user.id,
+        metadata: JSON.stringify({ messageId: message.id }),
+      });
+      
+      // Notify other staff members (exclude sender)
+      const recipientUserIds: string[] = [];
+      
+      // Always notify dispatcher if exists and not sender
+      if (job.dispatcherId && job.dispatcherId !== user.id) {
+        recipientUserIds.push(job.dispatcherId);
+      }
+      
+      // Notify assigned technician if exists and not sender
+      if (job.assignedTechnicianId) {
+        const technician = await storage.getTechnician(job.assignedTechnicianId);
+        if (technician?.userId && technician.userId !== user.id) {
+          recipientUserIds.push(technician.userId);
+        }
+      }
+      
+      // If no dispatcher assigned, notify all dispatchers/admins
+      if (!job.dispatcherId) {
+        const users = await storage.getUsers();
+        for (const u of users) {
+          if ((u.role === 'dispatcher' || u.role === 'admin') && u.id !== user.id) {
+            recipientUserIds.push(u.id);
+          }
+        }
+      }
+      
+      // Create notifications
+      for (const recipientId of [...new Set(recipientUserIds)]) {
+        await storage.createNotification({
+          userId: recipientId,
+          type: 'message',
+          title: `New ${audience} message`,
+          message: `${user.fullName || user.username} sent a message on job ${job.customerName}`,
+          jobId: job.id,
+          actionUrl: `/jobs?jobId=${job.id}`,
+        });
+      }
+      
+      res.status(201).json(message);
+    } catch (error) {
+      console.error("Error creating job message:", error);
+      res.status(500).json({ error: "Failed to create message" });
+    }
+  });
+
+  // PUBLIC: Get job ID from quote token
+  app.get("/api/public/quote/:token/job", async (req, res) => {
+    try {
+      const quote = await storage.getQuoteByToken(req.params.token);
+      if (!quote) return res.status(404).json({ error: "Quote not found" });
+      
+      // Find job linked to this quote
+      const job = await storage.getJobByQuoteId(quote.id);
+      if (!job) return res.status(404).json({ error: "No job found for this quote" });
+      
+      res.json({ jobId: job.id });
+    } catch (error) {
+      console.error("Error fetching job by quote token:", error);
+      res.status(500).json({ error: "Failed to fetch job" });
+    }
+  });
+
+  // PUBLIC: Get customer messages via quote token
+  app.get("/api/public/quote/:token/messages", async (req, res) => {
+    try {
+      const quote = await storage.getQuoteByToken(req.params.token);
+      if (!quote) return res.status(404).json({ error: "Quote not found" });
+      
+      const job = await storage.getJobByQuoteId(quote.id);
+      if (!job) return res.status(404).json({ error: "No job found for this quote" });
+      
+      // Only return customer-audience messages
+      const messages = await storage.getJobMessages(job.id, 'customer');
+      res.json(messages);
+    } catch (error) {
+      console.error("Error fetching customer messages:", error);
+      res.status(500).json({ error: "Failed to fetch messages" });
+    }
+  });
+
+  // PUBLIC: Create customer message via quote token
+  app.post("/api/public/quote/:token/messages", async (req, res) => {
+    try {
+      const quote = await storage.getQuoteByToken(req.params.token);
+      if (!quote) return res.status(404).json({ error: "Quote not found" });
+      
+      const job = await storage.getJobByQuoteId(quote.id);
+      if (!job) return res.status(404).json({ error: "No job found for this quote" });
+      
+      const { body } = req.body as { body: string };
+      
+      // Validate body
+      const trimmedBody = (body || '').trim();
+      if (!trimmedBody || trimmedBody.length < 1 || trimmedBody.length > 4000) {
+        return res.status(400).json({ error: "Message body must be 1-4000 characters" });
+      }
+      
+      // Capture IP and user agent for audit
+      const forwardedFor = req.headers["x-forwarded-for"];
+      const ip = typeof forwardedFor === 'string' 
+        ? forwardedFor.split(',')[0].trim() 
+        : (req.socket?.remoteAddress || null);
+      const userAgent = req.headers["user-agent"] || null;
+      
+      // Create customer message
+      const message = await storage.createJobMessage({
+        jobId: job.id,
+        audience: 'customer',
+        senderType: 'customer',
+        senderUserId: null,
+        body: trimmedBody,
+        meta: { ip, userAgent },
+      });
+      
+      // Create timeline event
+      await storage.createJobTimelineEvent({
+        jobId: job.id,
+        eventType: 'customer_message',
+        description: 'Customer sent a message',
+        metadata: JSON.stringify({ messageId: message.id }),
+      });
+      
+      // Notify dispatcher and assigned technician
+      const recipientUserIds: string[] = [];
+      
+      if (job.dispatcherId) {
+        recipientUserIds.push(job.dispatcherId);
+      }
+      
+      if (job.assignedTechnicianId) {
+        const technician = await storage.getTechnician(job.assignedTechnicianId);
+        if (technician?.userId) {
+          recipientUserIds.push(technician.userId);
+        }
+      }
+      
+      // If no dispatcher, notify all dispatchers/admins
+      if (!job.dispatcherId) {
+        const users = await storage.getUsers();
+        for (const u of users) {
+          if (u.role === 'dispatcher' || u.role === 'admin') {
+            recipientUserIds.push(u.id);
+          }
+        }
+      }
+      
+      // Create notifications
+      for (const recipientId of [...new Set(recipientUserIds)]) {
+        await storage.createNotification({
+          userId: recipientId,
+          type: 'message',
+          title: 'New customer message',
+          message: `Customer ${job.customerName} sent a message`,
+          jobId: job.id,
+          actionUrl: `/jobs?jobId=${job.id}`,
+        });
+      }
+      
+      res.status(201).json(message);
+    } catch (error) {
+      console.error("Error creating customer message:", error);
+      res.status(500).json({ error: "Failed to create message" });
     }
   });
 

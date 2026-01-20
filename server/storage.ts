@@ -33,12 +33,13 @@ import {
   type QuoteLineItem, type InsertQuoteLineItem,
   type ContentPack, type InsertContentPack,
   type ContentItem, type InsertContentItem,
+  type JobMessage, type InsertJobMessage,
   users, technicians, salespersons, salesCommissions, salespersonLocations,
   leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
   pricebookItems, pricebookCategories, marketingCampaigns, marketingSpend, businessIntakes,
   timeEntries, payrollPeriods, payrollRecords, employeePayRates, jobLeadFees, jobRevenueEvents, companySettings, quoteLineItems,
-  contentPacks, contentItems,
+  contentPacks, contentItems, jobMessages,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -169,6 +170,11 @@ export interface IStorage {
   // Job Timeline Events
   getJobTimelineEvents(jobId: string): Promise<JobTimelineEvent[]>;
   createJobTimelineEvent(event: InsertJobTimelineEvent): Promise<JobTimelineEvent>;
+
+  // Job Messages (chat)
+  getJobMessages(jobId: string, audience?: 'internal' | 'customer' | 'all'): Promise<JobMessage[]>;
+  createJobMessage(message: InsertJobMessage): Promise<JobMessage>;
+  getJobByQuoteId(quoteId: string): Promise<Job | undefined>;
 
   // Quotes
   getQuote(id: string): Promise<Quote | undefined>;
@@ -944,6 +950,37 @@ export class MemStorage implements IStorage {
     };
     this.jobTimelineEvents.set(id, event);
     return event;
+  }
+
+  // Job Messages (chat) - MemStorage stub
+  private jobMessagesMap: Map<string, JobMessage> = new Map();
+
+  async getJobMessages(jobId: string, audience?: 'internal' | 'customer' | 'all'): Promise<JobMessage[]> {
+    const messages = Array.from(this.jobMessagesMap.values())
+      .filter(m => m.jobId === jobId)
+      .filter(m => audience === 'all' || !audience || m.audience === audience)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    return messages;
+  }
+
+  async createJobMessage(insertMessage: InsertJobMessage): Promise<JobMessage> {
+    const id = randomUUID();
+    const message: JobMessage = {
+      id,
+      jobId: insertMessage.jobId,
+      audience: insertMessage.audience,
+      senderType: insertMessage.senderType,
+      senderUserId: insertMessage.senderUserId || null,
+      body: insertMessage.body,
+      createdAt: new Date(),
+      meta: insertMessage.meta || {},
+    };
+    this.jobMessagesMap.set(id, message);
+    return message;
+  }
+
+  async getJobByQuoteId(quoteId: string): Promise<Job | undefined> {
+    return Array.from(this.jobs.values()).find(j => j.quoteId === quoteId);
   }
 
   // Quotes
@@ -2037,6 +2074,24 @@ export class DatabaseStorage implements IStorage {
   async createJobTimelineEvent(insertEvent: InsertJobTimelineEvent): Promise<JobTimelineEvent> {
     const [event] = await db.insert(jobTimelineEvents).values(insertEvent).returning();
     return event;
+  }
+
+  // Job Messages (chat)
+  async getJobMessages(jobId: string, audience?: 'internal' | 'customer' | 'all'): Promise<JobMessage[]> {
+    if (audience === 'all' || !audience) {
+      return await db.select().from(jobMessages).where(eq(jobMessages.jobId, jobId)).orderBy(asc(jobMessages.createdAt));
+    }
+    return await db.select().from(jobMessages).where(and(eq(jobMessages.jobId, jobId), eq(jobMessages.audience, audience))).orderBy(asc(jobMessages.createdAt));
+  }
+
+  async createJobMessage(insertMessage: InsertJobMessage): Promise<JobMessage> {
+    const [message] = await db.insert(jobMessages).values(insertMessage).returning();
+    return message;
+  }
+
+  async getJobByQuoteId(quoteId: string): Promise<Job | undefined> {
+    const [job] = await db.select().from(jobs).where(eq(jobs.quoteId, quoteId));
+    return job;
   }
 
   // Quotes
