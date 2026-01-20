@@ -31,6 +31,32 @@ When a job is scheduled, the system sends automated notifications:
 - **Day of**: Technician arrival reminder
 - **If changes occur**: Automated outreach for rescheduling
 
+### TCPA-Compliant Customer Communication Consent
+The system implements TCPA-compliant customer consent tracking for all automated communications:
+
+**Consent Collection (Public Quote Page)**:
+- Customers opt-in to SMS and/or email updates when accepting quotes
+- Ownership confirmation required: "I confirm this phone/email belongs to me"
+- Full disclosure text displayed with opt-in checkboxes
+- Cannot accept quote with opt-in checked but ownership not confirmed
+
+**Database Consent Fields (jobs table)**:
+- `customerConsentSmsOptIn` / `customerConsentEmailOptIn`: Boolean opt-in flags
+- `customerConsentSmsOwnershipConfirmed` / `customerConsentEmailOwnershipConfirmed`: Ownership verification
+- `customerConsentAt`: Timestamp when consent was given
+- `customerConsentIp`: Client IP address for audit trail
+- `customerConsentUserAgent`: Browser user-agent for audit
+- `customerConsentDisclosureVersion`: Version identifier (e.g., "v1")
+- `customerConsentDisclosureText`: Full text of disclosure shown
+- `customerConsentSource`: Where consent was collected (e.g., "public_quote_accept")
+
+**Communication Gating**:
+- SMS/email only sent if customer explicitly opted in
+- Legacy jobs (customerConsentAt=null) still receive messages for backward compatibility
+- Jobs where customer didn't interact with consent UI have null consent fields (not false)
+- All consent checks happen in automation service before sending
+- Consent payload only sent to server when at least one opt-in is selected
+
 ### Lead API Integration Control
 The system includes a toggle to enable/disable lead API and webhook integration:
 - **Settings Page**: Found in Settings > Integrations tab - full configuration with supported sources list

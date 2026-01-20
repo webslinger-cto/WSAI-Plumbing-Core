@@ -412,8 +412,10 @@ export async function sendAppointmentReminder(jobId: string): Promise<{ success:
     let emailSent = false;
     let smsSent = false;
 
-    // Send email if customer has email
-    if (job.customerEmail) {
+    // Send email if customer has email AND has opted in (or consent not yet captured)
+    // Gate on consent: only send if customerConsentEmailOptIn is true OR if consent fields are not set (legacy jobs)
+    const emailConsentGranted = job.customerConsentEmailOptIn === true || job.customerConsentAt === null;
+    if (job.customerEmail && emailConsentGranted) {
       const emailContent = generateAppointmentReminderEmail(
         job.customerName,
         dateStr,
@@ -444,10 +446,14 @@ export async function sendAppointmentReminder(jobId: string): Promise<{ success:
       });
 
       emailSent = emailResult.success;
+    } else if (job.customerEmail && !emailConsentGranted) {
+      console.log(`[Consent] Skipping email to ${job.customerEmail} - customer did not opt in for email updates`);
     }
 
-    // Send SMS if customer has phone and SMS is configured
-    if (job.customerPhone && smsService.isConfigured()) {
+    // Send SMS if customer has phone, SMS is configured, AND customer consented
+    // Gate on consent: only send if customerConsentSmsOptIn is true OR if consent fields are not set (legacy jobs)
+    const smsConsentGranted = job.customerConsentSmsOptIn === true || job.customerConsentAt === null;
+    if (job.customerPhone && smsService.isConfigured() && smsConsentGranted) {
       const scheduledDateTime = job.scheduledDate ? new Date(job.scheduledDate) : new Date();
       if (job.scheduledTimeStart) {
         const [hours, minutes] = job.scheduledTimeStart.split(":").map(Number);
@@ -476,6 +482,8 @@ export async function sendAppointmentReminder(jobId: string): Promise<{ success:
       });
 
       smsSent = smsResult.success;
+    } else if (job.customerPhone && smsService.isConfigured() && !smsConsentGranted) {
+      console.log(`[Consent] Skipping appointment reminder SMS to ${job.customerPhone} - customer did not opt in for SMS updates`);
     }
 
     // Success if at least one method was attempted (even if neither was configured)
@@ -507,6 +515,13 @@ export async function sendTechnicianEnRouteSMS(jobId: string, estimatedArrival: 
 
     if (!smsService.isConfigured()) {
       return { success: false, error: "SMS service not configured" };
+    }
+    
+    // Gate on consent: only send if customerConsentSmsOptIn is true OR if consent fields are not set (legacy jobs)
+    const smsConsentGranted = job.customerConsentSmsOptIn === true || job.customerConsentAt === null;
+    if (!smsConsentGranted) {
+      console.log(`[Consent] Skipping en-route SMS to ${job.customerPhone} - customer did not opt in for SMS updates`);
+      return { success: false, error: "Customer has not opted in for SMS updates" };
     }
 
     // Get technician name
@@ -559,6 +574,13 @@ export async function sendJobCompleteSMS(jobId: string): Promise<{ success: bool
 
     if (!smsService.isConfigured()) {
       return { success: false, error: "SMS service not configured" };
+    }
+    
+    // Gate on consent: only send if customerConsentSmsOptIn is true OR if consent fields are not set (legacy jobs)
+    const smsConsentGranted = job.customerConsentSmsOptIn === true || job.customerConsentAt === null;
+    if (!smsConsentGranted) {
+      console.log(`[Consent] Skipping job-complete SMS to ${job.customerPhone} - customer did not opt in for SMS updates`);
+      return { success: false, error: "Customer has not opted in for SMS updates" };
     }
 
     // Get technician name

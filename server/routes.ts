@@ -56,6 +56,71 @@ import { dispatchToClosestTechnician } from "./services/dispatch";
 import { generateApplicationPDF, generateComparisonPDF, generateHouseCallProComparisonPDF, generateTestResultsPDF, generateThreeWayComparisonPDF, generateReadmePDF } from "./services/pdf-generator";
 import { pushJobToBuilder1 } from "./services/builder1-integration";
 
+// Helper: Notify all dispatchers about technician status changes
+async function notifyDispatchersOfStatusChange(
+  jobId: string,
+  job: { address?: string | null; dispatcherId?: string | null },
+  techName: string,
+  eventType: "en_route" | "arrived" | "completed"
+) {
+  try {
+    const users = await storage.getUsers();
+    let dispatcherIds: string[] = [];
+    
+    // If job has a specific dispatcher, notify them
+    if (job.dispatcherId) {
+      const dispatcher = users.find(u => u.id === job.dispatcherId);
+      if (dispatcher) {
+        dispatcherIds = [job.dispatcherId];
+      }
+    }
+    
+    // Fallback: notify all dispatchers and admins
+    if (dispatcherIds.length === 0) {
+      dispatcherIds = users
+        .filter(u => u.role === "dispatcher" || u.role === "admin")
+        .map(u => u.id);
+    }
+    
+    const address = job.address || "the job location";
+    const configs = {
+      en_route: {
+        title: "Technician En Route",
+        message: `${techName} is en route to ${address}`,
+        type: "job_confirmed"
+      },
+      arrived: {
+        title: "Technician Arrived",
+        message: `${techName} arrived on site at ${address}`,
+        type: "job_arrived"
+      },
+      completed: {
+        title: "Job Completed",
+        message: `${techName} completed the job at ${address}`,
+        type: "job_completed"
+      }
+    };
+    
+    const config = configs[eventType];
+    
+    // Create a notification for each dispatcher
+    for (const dispatcherId of dispatcherIds) {
+      await storage.createNotification({
+        userId: dispatcherId,
+        type: config.type,
+        title: config.title,
+        message: config.message,
+        jobId: jobId,
+        actionUrl: `/jobs?jobId=${jobId}`,
+        isRead: false,
+      });
+    }
+  } catch (error) {
+    console.error(`Failed to notify dispatchers for job ${jobId}:`, error);
+    // Don't throw - notification failure shouldn't break the main flow
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -1532,6 +1597,16 @@ export async function registerRoutes(
       });
     }
     
+    // Notify dispatchers of tech status change
+    let techName = "Technician";
+    if (technicianId) {
+      const tech = await storage.getTechnician(technicianId);
+      if (tech) techName = tech.name || tech.fullName || "Technician";
+    }
+    notifyDispatchersOfStatusChange(req.params.id, job, techName, "en_route").catch(err =>
+      console.error(`Dispatcher notification failed for job ${req.params.id} en_route:`, err)
+    );
+    
     res.json(updated);
   });
 
@@ -1589,6 +1664,16 @@ export async function registerRoutes(
       createdBy: technicianId,
       metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : undefined,
     });
+    
+    // Notify dispatchers of tech status change
+    let techName = "Technician";
+    if (technicianId) {
+      const tech = await storage.getTechnician(technicianId);
+      if (tech) techName = tech.name || tech.fullName || "Technician";
+    }
+    notifyDispatchersOfStatusChange(req.params.id, job, techName, "arrived").catch(err =>
+      console.error(`Dispatcher notification failed for job ${req.params.id} arrived:`, err)
+    );
     
     res.json(updated);
   });
@@ -1650,10 +1735,12 @@ export async function registerRoutes(
         createdBy: technicianId,
       });
 
-      // Update technician status
+      // Update technician status and get tech name for notification
+      let techName = "Technician";
       if (technicianId) {
         const tech = await storage.getTechnician(technicianId);
         if (tech) {
+          techName = tech.name || tech.fullName || "Technician";
           await storage.updateTechnician(technicianId, { 
             status: "available",
             currentJobId: null,
@@ -1664,6 +1751,14 @@ export async function registerRoutes(
 
       // Return updated job
       const job = await storage.getJob(id);
+      
+      // Notify dispatchers of job completion
+      if (job) {
+        notifyDispatchersOfStatusChange(id, job, techName, "completed").catch(err =>
+          console.error(`Dispatcher notification failed for job ${id} completed:`, err)
+        );
+      }
+      
       res.json(job);
     } catch (error) {
       console.error("Complete job error:", error);
@@ -1838,7 +1933,13 @@ export async function registerRoutes(
       
       // Generate a unique token if not already present
       const token = quote.publicToken || crypto.randomUUID().replace(/-/g, '').substring(0, 16);
-      const updatedQuote = await storage.updateQuote(req.params.id, { publicToken: token });
+      // Also update status to 'sent' if still in draft, so customer can take action
+      const updates: Record<string, unknown> = { publicToken: token };
+      if (quote.status === 'draft') {
+        updates.status = 'sent';
+        updates.sentAt = new Date();
+      }
+      const updatedQuote = await storage.updateQuote(req.params.id, updates);
       
       res.json({ 
         token, 
@@ -1875,6 +1976,38 @@ export async function registerRoutes(
       const quote = await storage.getQuoteByToken(req.params.token);
       if (!quote) return res.status(404).json({ error: "Quote not found" });
       
+      // Parse consent from request body
+      const { consent } = req.body as {
+        consent?: {
+          smsOptIn?: boolean;
+          emailOptIn?: boolean;
+          smsOwnershipConfirmed?: boolean;
+          emailOwnershipConfirmed?: boolean;
+          disclosureVersion?: string;
+          disclosureText?: string;
+        };
+      };
+      
+      // Validate consent: if opted in, ownership must be confirmed
+      if (consent?.smsOptIn && !consent?.smsOwnershipConfirmed) {
+        return res.status(400).json({ 
+          error: "SMS opt-in requires phone number ownership confirmation" 
+        });
+      }
+      if (consent?.emailOptIn && !consent?.emailOwnershipConfirmed) {
+        return res.status(400).json({ 
+          error: "Email opt-in requires email address ownership confirmation" 
+        });
+      }
+      
+      // Capture audit metadata
+      const consentAt = new Date();
+      const forwardedFor = req.headers["x-forwarded-for"];
+      const consentIp = typeof forwardedFor === 'string' 
+        ? forwardedFor.split(',')[0].trim() 
+        : (req.socket?.remoteAddress || null);
+      const consentUserAgent = req.headers["user-agent"] || null;
+      
       // Update quote status to accepted
       const updatedQuote = await storage.updateQuote(quote.id, { 
         status: 'accepted', 
@@ -1903,18 +2036,40 @@ export async function registerRoutes(
         });
       }
       
-      const jobData = {
+      // Build job data - only include consent fields if consent was provided
+      // Absent consent means customer never interacted with consent UI (legacy behavior preserved)
+      const hasConsent = consent !== undefined && (consent.smsOptIn || consent.emailOptIn);
+      
+      const jobData: Record<string, unknown> = {
         customerName: quote.customerName,
         customerPhone: quote.customerPhone || 'No phone provided',
         customerEmail: quote.customerEmail || undefined,
         address: quote.address,
         serviceType: lineItemsArray?.[0]?.description || 'Sewer Service',
         description: `Job created from accepted quote #${quote.id.substring(0, 8)}`,
-        status: 'pending', // Ready for technician assignment
+        status: 'pending',
         priority: 'normal',
       };
       
-      const newJob = await storage.createJob(jobData);
+      // Only set consent fields if customer explicitly opted in to at least one channel
+      // This preserves null for legacy jobs (allowing backward-compatible messaging)
+      if (hasConsent) {
+        Object.assign(jobData, {
+          customerConsentSmsOptIn: consent.smsOptIn || false,
+          customerConsentEmailOptIn: consent.emailOptIn || false,
+          customerConsentSmsOwnershipConfirmed: consent.smsOwnershipConfirmed || false,
+          customerConsentEmailOwnershipConfirmed: consent.emailOwnershipConfirmed || false,
+          customerConsentAt: consentAt,
+          customerConsentIp: consentIp,
+          customerConsentUserAgent: consentUserAgent,
+          customerConsentDisclosureVersion: consent.disclosureVersion || null,
+          customerConsentDisclosureText: consent.disclosureText || null,
+          customerConsentSource: 'public_quote_accept',
+        });
+      }
+      // If no consent provided, all consent fields remain null (legacy behavior)
+      
+      const newJob = await storage.createJob(jobData as any);
       console.log(`Job ${newJob.id} created from accepted quote ${quote.id}`);
       
       // Link the quote to the newly created job if not already linked

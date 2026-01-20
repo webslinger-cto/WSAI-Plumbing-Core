@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -47,10 +49,19 @@ interface LaborEntry {
   total: number;
 }
 
+const DISCLOSURE_TEXT_V1 = "By opting in, you agree to receive job updates about this service request by the selected channel(s). Msg & data rates may apply. Reply STOP to opt out of SMS. You can opt out anytime for this job.";
+
 export default function PublicQuotePage() {
   const params = useParams<{ token: string }>();
   const token = params.token;
   const [actionTaken, setActionTaken] = useState<'accepted' | 'declined' | null>(null);
+  
+  // Consent state
+  const [smsOptIn, setSmsOptIn] = useState(false);
+  const [emailOptIn, setEmailOptIn] = useState(false);
+  const [smsOwnershipConfirmed, setSmsOwnershipConfirmed] = useState(false);
+  const [emailOwnershipConfirmed, setEmailOwnershipConfirmed] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
 
   const { data: quote, isLoading, error } = useQuery<Quote>({
     queryKey: ['/api/public/quote', token],
@@ -64,11 +75,44 @@ export default function PublicQuotePage() {
 
   const acceptMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest('POST', `/api/public/quote/${token}/accept`);
+      // Only send consent payload if at least one opt-in is selected
+      // This preserves legacy behavior - no consent data means customer never interacted with consent UI
+      const hasOptIn = smsOptIn || emailOptIn;
+      const payload = hasOptIn ? {
+        consent: {
+          smsOptIn,
+          emailOptIn,
+          smsOwnershipConfirmed,
+          emailOwnershipConfirmed,
+          disclosureVersion: "v1",
+          disclosureText: DISCLOSURE_TEXT_V1,
+        }
+      } : {};
+      
+      const res = await apiRequest('POST', `/api/public/quote/${token}/accept`, payload);
       return res.json();
     },
     onSuccess: () => setActionTaken('accepted'),
+    onError: (error: Error) => {
+      setConsentError(error.message || "Failed to accept quote. Please try again.");
+    },
   });
+  
+  const validateAndAccept = () => {
+    setConsentError(null);
+    
+    // Validate consent requirements - only if opt-in is checked, ownership must be confirmed
+    if (smsOptIn && !smsOwnershipConfirmed) {
+      setConsentError("Please confirm that the phone number belongs to you to receive SMS updates.");
+      return;
+    }
+    if (emailOptIn && !emailOwnershipConfirmed) {
+      setConsentError("Please confirm that the email address belongs to you to receive email updates.");
+      return;
+    }
+    
+    acceptMutation.mutate();
+  };
 
   const declineMutation = useMutation({
     mutationFn: async () => {
@@ -311,36 +355,117 @@ export default function PublicQuotePage() {
           </CardContent>
 
           {canTakeAction && (
-            <CardFooter className="flex-col sm:flex-row gap-3 pt-6 border-t">
-              <Button
-                size="lg"
-                className="w-full sm:w-auto bg-green-600 hover:bg-green-700"
-                onClick={() => acceptMutation.mutate()}
-                disabled={acceptMutation.isPending || declineMutation.isPending}
-                data-testid="button-accept-quote"
-              >
-                {acceptMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="w-4 h-4 mr-2" />
+            <CardFooter className="flex-col gap-4 pt-6 border-t">
+              <div className="w-full space-y-4">
+                <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Keep Me Updated</h3>
+                
+                <div className="space-y-3 bg-muted/30 rounded-lg p-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox 
+                        id="sms-opt-in" 
+                        checked={smsOptIn} 
+                        onCheckedChange={(checked) => {
+                          setSmsOptIn(checked === true);
+                          if (!checked) setSmsOwnershipConfirmed(false);
+                        }}
+                        data-testid="checkbox-sms-opt-in"
+                      />
+                      <Label htmlFor="sms-opt-in" className="text-sm font-medium cursor-pointer">
+                        Send me SMS job updates
+                      </Label>
+                    </div>
+                    {smsOptIn && (
+                      <div className="flex items-center space-x-2 ml-6">
+                        <Checkbox 
+                          id="sms-ownership" 
+                          checked={smsOwnershipConfirmed} 
+                          onCheckedChange={(checked) => setSmsOwnershipConfirmed(checked === true)}
+                          data-testid="checkbox-sms-ownership"
+                        />
+                        <Label htmlFor="sms-ownership" className="text-sm text-muted-foreground cursor-pointer">
+                          I confirm this phone number belongs to me
+                        </Label>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox 
+                        id="email-opt-in" 
+                        checked={emailOptIn} 
+                        onCheckedChange={(checked) => {
+                          setEmailOptIn(checked === true);
+                          if (!checked) setEmailOwnershipConfirmed(false);
+                        }}
+                        data-testid="checkbox-email-opt-in"
+                      />
+                      <Label htmlFor="email-opt-in" className="text-sm font-medium cursor-pointer">
+                        Send me email job updates
+                      </Label>
+                    </div>
+                    {emailOptIn && (
+                      <div className="flex items-center space-x-2 ml-6">
+                        <Checkbox 
+                          id="email-ownership" 
+                          checked={emailOwnershipConfirmed} 
+                          onCheckedChange={(checked) => setEmailOwnershipConfirmed(checked === true)}
+                          data-testid="checkbox-email-ownership"
+                        />
+                        <Label htmlFor="email-ownership" className="text-sm text-muted-foreground cursor-pointer">
+                          I confirm this email address belongs to me
+                        </Label>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {(smsOptIn || emailOptIn) && (
+                    <p className="text-xs text-muted-foreground mt-3 border-t pt-3">
+                      {DISCLOSURE_TEXT_V1}
+                    </p>
+                  )}
+                </div>
+                
+                {consentError && (
+                  <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-lg flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <span>{consentError}</span>
+                  </div>
                 )}
-                Accept Quote
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="w-full sm:w-auto border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground"
-                onClick={() => declineMutation.mutate()}
-                disabled={acceptMutation.isPending || declineMutation.isPending}
-                data-testid="button-decline-quote"
-              >
-                {declineMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <XCircle className="w-4 h-4 mr-2" />
-                )}
-                Decline Quote
-              </Button>
+              </div>
+              
+              <div className="flex flex-col sm:flex-row gap-3 w-full">
+                <Button
+                  size="lg"
+                  className="w-full sm:w-auto bg-green-600 hover:bg-green-700"
+                  onClick={validateAndAccept}
+                  disabled={acceptMutation.isPending || declineMutation.isPending}
+                  data-testid="button-accept-quote"
+                >
+                  {acceptMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                  )}
+                  Accept Quote
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="w-full sm:w-auto border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                  onClick={() => declineMutation.mutate()}
+                  disabled={acceptMutation.isPending || declineMutation.isPending}
+                  data-testid="button-decline-quote"
+                >
+                  {declineMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <XCircle className="w-4 h-4 mr-2" />
+                  )}
+                  Decline Quote
+                </Button>
+              </div>
             </CardFooter>
           )}
 

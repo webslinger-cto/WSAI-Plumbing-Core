@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -93,6 +93,24 @@ export default function JobsPage() {
   const { data: technicians = [] } = useQuery<Technician[]>({
     queryKey: ["/api/technicians"],
   });
+
+  // Deep link: auto-open job dialog when ?jobId=<id> is in URL
+  useEffect(() => {
+    if (jobsLoading || jobs.length === 0) return;
+    
+    const params = new URLSearchParams(window.location.search);
+    const jobIdFromUrl = params.get("jobId");
+    
+    if (jobIdFromUrl && !selectedJob) {
+      const job = jobs.find(j => j.id === jobIdFromUrl);
+      if (job) {
+        setSelectedJob(job);
+        setEditDialogOpen(true);
+        // Remove query param from URL to prevent re-triggering
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    }
+  }, [jobs, jobsLoading, selectedJob]);
 
   const assignMutation = useMutation({
     mutationFn: async ({ jobId, technicianId }: { jobId: string; technicianId: string }) => {

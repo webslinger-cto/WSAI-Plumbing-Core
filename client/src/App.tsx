@@ -1,13 +1,18 @@
 import { useState, useEffect, useLayoutEffect } from "react";
 import { Switch, Route, useLocation } from "wouter";
-import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "./lib/queryClient";
+import { QueryClientProvider, useQuery, useMutation } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Crown, Eye, User } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Crown, Eye, User, Bell } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import type { Notification } from "@shared/schema";
 import AppSidebar from "@/components/AppSidebar";
 import LoginPage from "@/components/LoginPage";
 import PasswordSetupPage from "@/components/PasswordSetupPage";
@@ -276,6 +281,102 @@ function GodModeRoleSwitcher({
   );
 }
 
+interface NotificationsBellProps {
+  userId: string;
+}
+
+function NotificationsBell({ userId }: NotificationsBellProps) {
+  const [, setLocation] = useLocation();
+  const [open, setOpen] = useState(false);
+  
+  const { data: notifications = [] } = useQuery<Notification[]>({
+    queryKey: ["/api/notifications", userId],
+    queryFn: async () => {
+      const res = await fetch(`/api/notifications?userId=${userId}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!userId,
+    refetchInterval: 30000, // Poll every 30 seconds
+  });
+  
+  const markReadMutation = useMutation({
+    mutationFn: async (notificationId: string) => {
+      return apiRequest("PATCH", `/api/notifications/${notificationId}/read`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications", userId] });
+    },
+  });
+  
+  const unreadCount = notifications.filter(n => !n.isRead).length;
+  
+  const handleNotificationClick = (notification: Notification) => {
+    if (!notification.isRead) {
+      markReadMutation.mutate(notification.id);
+    }
+    if (notification.actionUrl) {
+      setLocation(notification.actionUrl);
+    } else if (notification.jobId) {
+      setLocation(`/jobs?jobId=${notification.jobId}`);
+    }
+    setOpen(false);
+  };
+  
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="icon" className="relative" data-testid="button-notifications-bell">
+          <Bell className="w-5 h-5" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-xs rounded-full w-5 h-5 flex items-center justify-center" data-testid="badge-unread-count">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-0" align="end">
+        <div className="p-3 border-b">
+          <h4 className="font-semibold">Notifications</h4>
+        </div>
+        <ScrollArea className="h-80">
+          {notifications.length === 0 ? (
+            <div className="p-4 text-center text-muted-foreground text-sm">
+              No notifications
+            </div>
+          ) : (
+            <div className="divide-y">
+              {notifications.slice(0, 20).map((notification) => (
+                <button
+                  key={notification.id}
+                  onClick={() => handleNotificationClick(notification)}
+                  className={`w-full text-left p-3 hover-elevate transition-colors ${
+                    !notification.isRead ? "bg-primary/5" : ""
+                  }`}
+                  data-testid={`notification-item-${notification.id}`}
+                >
+                  <div className="flex items-start gap-2">
+                    {!notification.isRead && (
+                      <span className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0" />
+                    )}
+                    <div className={!notification.isRead ? "" : "ml-4"}>
+                      <p className="font-medium text-sm">{notification.title}</p>
+                      <p className="text-xs text-muted-foreground line-clamp-2">{notification.message}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </ScrollArea>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function App() {
   const [location, setLocation] = useLocation();
   const [auth, setAuth] = useState<AuthState>({
@@ -444,6 +545,10 @@ function App() {
                       setLocation("/");
                     }}
                   />
+                )}
+                
+                {(effectiveRole === "admin" || effectiveRole === "dispatcher") && (
+                  <NotificationsBell userId={auth.userId} />
                 )}
               </header>
               <main className="flex-1 overflow-auto p-6">

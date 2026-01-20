@@ -274,6 +274,17 @@ export const jobs = pgTable("jobs", {
   cancelledAt: timestamp("cancelled_at"),
   cancellationReason: text("cancellation_reason"),
   cancelledBy: varchar("cancelled_by"), // tech ID or admin ID who cancelled
+  // Customer communication consent (from public quote acceptance)
+  customerConsentSmsOptIn: boolean("customer_consent_sms_opt_in").default(false),
+  customerConsentEmailOptIn: boolean("customer_consent_email_opt_in").default(false),
+  customerConsentSmsOwnershipConfirmed: boolean("customer_consent_sms_ownership_confirmed").default(false),
+  customerConsentEmailOwnershipConfirmed: boolean("customer_consent_email_ownership_confirmed").default(false),
+  customerConsentAt: timestamp("customer_consent_at"),
+  customerConsentIp: text("customer_consent_ip"),
+  customerConsentUserAgent: text("customer_consent_user_agent"),
+  customerConsentDisclosureVersion: text("customer_consent_disclosure_version"),
+  customerConsentDisclosureText: text("customer_consent_disclosure_text"),
+  customerConsentSource: text("customer_consent_source"),
 });
 
 export const insertJobSchema = createInsertSchema(jobs).omit({ id: true, createdAt: true, updatedAt: true });
