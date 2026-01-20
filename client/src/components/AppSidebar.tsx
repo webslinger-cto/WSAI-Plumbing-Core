@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
   Sidebar,
   SidebarContent,
@@ -97,6 +98,15 @@ export default function AppSidebar({ role, username, onLogout }: AppSidebarProps
         ? salesMenuItems
         : techMenuItems;
 
+  // Fetch unread chat count for dispatcher/technician roles
+  const { data: unreadData } = useQuery<{ totalUnread: number }>({
+    queryKey: ['/api/chat/unread-count'],
+    enabled: role === 'dispatcher' || role === 'technician',
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  const unreadCount = unreadData?.totalUnread || 0;
+
   const getInitials = (name: string) => {
     return name
       .split(" ")
@@ -138,7 +148,16 @@ export default function AppSidebar({ role, username, onLogout }: AppSidebarProps
                   >
                     <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
                       <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
+                      <span className="flex-1">{item.title}</span>
+                      {item.title === "Messages" && unreadCount > 0 && (
+                        <Badge 
+                          variant="destructive" 
+                          className="h-5 min-w-5 px-1.5 text-xs font-bold"
+                          data-testid="badge-unread-messages"
+                        >
+                          {unreadCount > 99 ? '99+' : unreadCount}
+                        </Badge>
+                      )}
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
