@@ -564,7 +564,7 @@ export default function QuotesPage() {
 
       {/* Create Quote Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={(open) => { if (!open) { resetCreateForm(); } setCreateDialogOpen(open); }}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Quote</DialogTitle>
           </DialogHeader>
@@ -591,7 +591,7 @@ export default function QuotesPage() {
             {/* Customer Information */}
             <div className="space-y-4">
               <Label className="text-base font-medium">Customer Information</Label>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div className="space-y-2">
                   <Label>Name</Label>
                   <Input
@@ -639,7 +639,7 @@ export default function QuotesPage() {
               </div>
               <div className="space-y-3">
                 {lineItems.map((item, index) => (
-                  <div key={item.id} className="flex items-center gap-3 p-3 border rounded-md">
+                  <div key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3 border rounded-md">
                     <div className="flex-1">
                       <Select
                         value={item.description}
@@ -657,44 +657,48 @@ export default function QuotesPage() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <Input
-                      type="number"
-                      value={item.quantity === 0 ? "" : item.quantity}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        handleLineItemChange(item.id, "quantity", val === "" ? 0 : parseInt(val) || 0);
-                      }}
-                      onBlur={(e) => {
-                        if (e.target.value === "" || parseInt(e.target.value) < 1) {
-                          handleLineItemChange(item.id, "quantity", 1);
-                        }
-                      }}
-                      className="w-20 text-center"
-                      min={1}
-                      data-testid={`input-quantity-${index}`}
-                    />
-                    <Input
-                      type="number"
-                      value={item.unitPrice === 0 ? "" : item.unitPrice}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        handleLineItemChange(item.id, "unitPrice", val === "" ? 0 : parseFloat(val) || 0);
-                      }}
-                      className="w-24 text-right"
-                      step="0.01"
-                      data-testid={`input-unit-price-${index}`}
-                    />
-                    <span className="w-24 text-right font-medium">${(item.quantity * item.unitPrice).toFixed(2)}</span>
-                    {lineItems.length > 1 && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeLineItem(item.id)}
-                        data-testid={`button-remove-item-${index}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <Input
+                        type="number"
+                        value={item.quantity === 0 ? "" : item.quantity}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          handleLineItemChange(item.id, "quantity", val === "" ? 0 : parseInt(val) || 0);
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value === "" || parseInt(e.target.value) < 1) {
+                            handleLineItemChange(item.id, "quantity", 1);
+                          }
+                        }}
+                        className="w-16 sm:w-20 text-center"
+                        min={1}
+                        placeholder="Qty"
+                        data-testid={`input-quantity-${index}`}
+                      />
+                      <Input
+                        type="number"
+                        value={item.unitPrice === 0 ? "" : item.unitPrice}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          handleLineItemChange(item.id, "unitPrice", val === "" ? 0 : parseFloat(val) || 0);
+                        }}
+                        className="w-20 sm:w-24 text-right"
+                        step="0.01"
+                        placeholder="Price"
+                        data-testid={`input-unit-price-${index}`}
+                      />
+                      <span className="w-20 sm:w-24 text-right font-medium text-sm sm:text-base">${(item.quantity * item.unitPrice).toFixed(2)}</span>
+                      {lineItems.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeLineItem(item.id)}
+                          data-testid={`button-remove-item-${index}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -830,16 +834,16 @@ function QuoteDetails({
         <p className="text-2xl font-bold">${parseFloat(quote.total?.toString() || "0").toLocaleString()}</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground">Phone</p>
           <p className="font-medium">{quote.customerPhone || "N/A"}</p>
         </div>
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground">Email</p>
-          <p className="font-medium">{quote.customerEmail || "N/A"}</p>
+          <p className="font-medium truncate">{quote.customerEmail || "N/A"}</p>
         </div>
-        <div className="space-y-1 col-span-2">
+        <div className="space-y-1 sm:col-span-2">
           <p className="text-sm text-muted-foreground">Address</p>
           <p className="font-medium">{quote.address || "N/A"}</p>
         </div>
@@ -849,7 +853,7 @@ function QuoteDetails({
         </div>
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground">Created At</p>
-          <p className="font-medium">
+          <p className="font-medium text-sm sm:text-base">
             {quote.createdAt && format(new Date(quote.createdAt), "MMM d, yyyy h:mm a")}
           </p>
         </div>
@@ -960,7 +964,7 @@ function EditQuoteForm({
 
   return (
     <div className="space-y-4 py-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         <div className="space-y-2">
           <Label htmlFor="customerName">Customer Name</Label>
           <Input
@@ -1002,7 +1006,7 @@ function EditQuoteForm({
             </SelectContent>
           </Select>
         </div>
-        <div className="col-span-2 space-y-2">
+        <div className="sm:col-span-2 space-y-2">
           <Label htmlFor="address">Address</Label>
           <Input
             id="address"

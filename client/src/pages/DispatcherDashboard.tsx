@@ -1811,19 +1811,19 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
       />
 
       <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl w-[95vw] sm:w-full max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Job Details - {selectedJob?.customerName}</DialogTitle>
+            <DialogTitle className="text-base sm:text-lg">Job Details - {selectedJob?.customerName}</DialogTitle>
           </DialogHeader>
           {selectedJob && (
             <Tabs defaultValue="details" className="mt-4">
-              <TabsList>
-                <TabsTrigger value="details" data-testid="tab-job-details">Details</TabsTrigger>
-                <TabsTrigger value="timeline" data-testid="tab-job-timeline">Timeline</TabsTrigger>
-                <TabsTrigger value="chat" data-testid="tab-job-chat">Chat</TabsTrigger>
+              <TabsList className="flex flex-wrap h-auto gap-1">
+                <TabsTrigger value="details" className="text-xs sm:text-sm" data-testid="tab-job-details">Details</TabsTrigger>
+                <TabsTrigger value="timeline" className="text-xs sm:text-sm" data-testid="tab-job-timeline">Timeline</TabsTrigger>
+                <TabsTrigger value="chat" className="text-xs sm:text-sm" data-testid="tab-job-chat">Chat</TabsTrigger>
               </TabsList>
               <TabsContent value="details" className="space-y-4 mt-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Customer</p>
                     <p className="font-medium">{selectedJob.customerName}</p>
@@ -1832,7 +1832,7 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
                     <p className="text-sm text-muted-foreground">Phone</p>
                     <p className="font-medium">{selectedJob.customerPhone}</p>
                   </div>
-                  <div className="space-y-1 col-span-2">
+                  <div className="space-y-1 sm:col-span-2">
                     <p className="text-sm text-muted-foreground">Address</p>
                     <p className="font-medium">{selectedJob.address}, {selectedJob.city}</p>
                   </div>
@@ -1849,14 +1849,14 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
                   {selectedJob.scheduledDate && (
                     <div className="space-y-1">
                       <p className="text-sm text-muted-foreground">Scheduled</p>
-                      <p className="font-medium">
+                      <p className="font-medium text-sm sm:text-base">
                         {format(new Date(selectedJob.scheduledDate), "MMM d, yyyy")}
                         {selectedJob.scheduledTimeStart && ` at ${selectedJob.scheduledTimeStart}`}
                       </p>
                     </div>
                   )}
                   {selectedJob.description && (
-                    <div className="space-y-1 col-span-2">
+                    <div className="space-y-1 sm:col-span-2">
                       <p className="text-sm text-muted-foreground">Notes</p>
                       <p className="text-sm">{selectedJob.description}</p>
                     </div>
@@ -1875,7 +1875,7 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
       </Dialog>
 
       <Dialog open={showCustomerSnapshot} onOpenChange={setShowCustomerSnapshot}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl w-[95vw] sm:w-full max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <User className="w-5 h-5" />

@@ -121,9 +121,19 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
   const [arrivingJobId, setArrivingJobId] = useState<string | null>(null);
   const [showLeadFeeDialog, setShowLeadFeeDialog] = useState(false);
   const [jobToConfirm, setJobToConfirm] = useState<Job | null>(null);
+  const [showPermissionsDialog, setShowPermissionsDialog] = useState(false);
+  const [permissionsAccepted, setPermissionsAccepted] = useState(() => {
+    return localStorage.getItem(`permissionsAccepted_${technicianId}`) === "true";
+  });
   const [isLocationTrackingEnabled, setIsLocationTrackingEnabled] = useState(() => {
     const saved = localStorage.getItem(`locationTracking_${technicianId}`);
-    return saved === "true";
+    // Default to true (auto-enabled) if not explicitly set to false
+    return saved !== "false";
+  });
+  const [isNotificationsEnabled, setIsNotificationsEnabled] = useState(() => {
+    const saved = localStorage.getItem(`notificationsEnabled_${technicianId}`);
+    // Default to true (auto-enabled) if not explicitly set to false
+    return saved !== "false";
   });
   const locationIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -175,6 +185,87 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
     },
   });
 
+  // Show permissions dialog on first load if not already accepted
+  useEffect(() => {
+    if (!permissionsAccepted) {
+      setShowPermissionsDialog(true);
+    }
+  }, [permissionsAccepted]);
+
+  // Request and enable all permissions
+  const acceptPermissions = async () => {
+    let locationGranted = false;
+    let notificationsGranted = false;
+
+    // Request location permission
+    if (navigator.geolocation) {
+      try {
+        await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0,
+          });
+        });
+        locationGranted = true;
+      } catch (error) {
+        console.log("Location permission denied or unavailable");
+        locationGranted = false;
+      }
+    }
+
+    // Request notification permission
+    if ("Notification" in window) {
+      try {
+        const permission = await Notification.requestPermission();
+        notificationsGranted = permission === "granted";
+      } catch (error) {
+        console.log("Notification permission denied or unavailable");
+        notificationsGranted = false;
+      }
+    }
+
+    // Set tracking based on actual permission status
+    setIsLocationTrackingEnabled(locationGranted);
+    setIsNotificationsEnabled(notificationsGranted);
+    setPermissionsAccepted(true);
+    localStorage.setItem(`permissionsAccepted_${technicianId}`, "true");
+    localStorage.setItem(`locationTracking_${technicianId}`, String(locationGranted));
+    localStorage.setItem(`notificationsEnabled_${technicianId}`, String(notificationsGranted));
+    setShowPermissionsDialog(false);
+
+    // Show appropriate feedback
+    if (locationGranted && notificationsGranted) {
+      toast({
+        title: "Permissions Enabled",
+        description: "GPS tracking and notifications are now active.",
+      });
+    } else if (!locationGranted && !notificationsGranted) {
+      toast({
+        title: "Permissions Denied",
+        description: "Location and notification access was denied. You can enable them in your browser settings.",
+        variant: "destructive",
+      });
+    } else if (!locationGranted) {
+      toast({
+        title: "Location Access Denied",
+        description: "GPS tracking requires location permission. Enable it in browser settings.",
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Notifications Denied",
+        description: "Push notifications require notification permission. Enable in browser settings.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Save notifications state to localStorage
+  useEffect(() => {
+    localStorage.setItem(`notificationsEnabled_${technicianId}`, String(isNotificationsEnabled));
+  }, [isNotificationsEnabled, technicianId]);
+
   useEffect(() => {
     localStorage.setItem(`locationTracking_${technicianId}`, String(isLocationTrackingEnabled));
     
@@ -215,15 +306,88 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
     }
   }, [isLocationTrackingEnabled, technicianId, jobs]);
 
-  const toggleLocationTracking = () => {
-    const newValue = !isLocationTrackingEnabled;
-    setIsLocationTrackingEnabled(newValue);
-    toast({
-      title: newValue ? "Location Sharing Enabled" : "Location Sharing Disabled",
-      description: newValue 
-        ? "Your location is now being shared with dispatch."
-        : "Location sharing has been turned off.",
-    });
+  const toggleLocationTracking = async () => {
+    if (isLocationTrackingEnabled) {
+      // Turning off - always allowed
+      setIsLocationTrackingEnabled(false);
+      toast({
+        title: "Location Sharing Disabled",
+        description: "Location sharing has been turned off.",
+      });
+    } else {
+      // Turning on - verify permission first
+      if (!navigator.geolocation) {
+        toast({
+          title: "Location Not Available",
+          description: "Your browser doesn't support location services.",
+          variant: "destructive",
+        });
+        return;
+      }
+      try {
+        await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0,
+          });
+        });
+        setIsLocationTrackingEnabled(true);
+        toast({
+          title: "Location Sharing Enabled",
+          description: "Your location is now being shared with dispatch.",
+        });
+      } catch (error) {
+        toast({
+          title: "Location Access Denied",
+          description: "Please enable location access in your browser settings.",
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
+  const toggleNotifications = async () => {
+    if (isNotificationsEnabled) {
+      // Turning off - always allowed
+      setIsNotificationsEnabled(false);
+      toast({
+        title: "Notifications Disabled",
+        description: "Push notifications have been turned off.",
+      });
+    } else {
+      // Turning on - verify permission first
+      if (!("Notification" in window)) {
+        toast({
+          title: "Notifications Not Available",
+          description: "Your browser doesn't support push notifications.",
+          variant: "destructive",
+        });
+        return;
+      }
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission === "granted") {
+          setIsNotificationsEnabled(true);
+          toast({
+            title: "Notifications Enabled",
+            description: "You will receive push notifications for new jobs and updates.",
+          });
+        } else {
+          toast({
+            title: "Notifications Denied",
+            description: "Please enable notifications in your browser settings.",
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        toast({
+          title: "Notifications Error",
+          description: "Could not request notification permission.",
+          variant: "destructive",
+        });
+      }
+    }
   };
 
   const claimMutation = useMutation({
@@ -547,7 +711,23 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{isLocationTrackingEnabled ? "Location sharing ON" : "Location sharing OFF"}</p>
+              <p>{isLocationTrackingEnabled ? "GPS Tracking ON" : "GPS Tracking OFF"}</p>
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={isNotificationsEnabled ? "default" : "outline"}
+                size="icon"
+                onClick={toggleNotifications}
+                data-testid="button-notifications-toggle"
+                className={isNotificationsEnabled ? "bg-blue-600 hover:bg-blue-700" : ""}
+              >
+                {isNotificationsEnabled ? <Bell className="w-4 h-4" /> : <Bell className="w-4 h-4 opacity-50" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{isNotificationsEnabled ? "Notifications ON" : "Notifications OFF"}</p>
             </TooltipContent>
           </Tooltip>
           <Popover>
@@ -851,28 +1031,28 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
       </Dialog>
 
       <Dialog open={!!selectedJob} onOpenChange={() => setSelectedJob(null)}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Job Details - {selectedJob?.customerName}</DialogTitle>
+            <DialogTitle className="text-base sm:text-lg">Job Details - {selectedJob?.customerName}</DialogTitle>
           </DialogHeader>
           {selectedJob && (
             <Tabs defaultValue="details" className="mt-4">
-              <TabsList className="flex-wrap">
-                <TabsTrigger value="details" data-testid="tab-details">Details</TabsTrigger>
-                <TabsTrigger value="photos" data-testid="tab-photos">
-                  <Camera className="w-4 h-4 mr-1" />
+              <TabsList className="flex flex-wrap h-auto gap-1 w-full justify-start">
+                <TabsTrigger value="details" className="text-xs sm:text-sm" data-testid="tab-details">Details</TabsTrigger>
+                <TabsTrigger value="photos" className="text-xs sm:text-sm" data-testid="tab-photos">
+                  <Camera className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
                   Photos
                 </TabsTrigger>
-                <TabsTrigger value="checklist" data-testid="tab-checklist">
-                  <ListChecks className="w-4 h-4 mr-1" />
+                <TabsTrigger value="checklist" className="text-xs sm:text-sm" data-testid="tab-checklist">
+                  <ListChecks className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
                   Checklist
                 </TabsTrigger>
-                <TabsTrigger value="timeline" data-testid="tab-timeline">Timeline</TabsTrigger>
-                <TabsTrigger value="chat" data-testid="tab-chat">Chat</TabsTrigger>
-                <TabsTrigger value="quote" data-testid="tab-quote">Quote</TabsTrigger>
+                <TabsTrigger value="timeline" className="text-xs sm:text-sm" data-testid="tab-timeline">Timeline</TabsTrigger>
+                <TabsTrigger value="chat" className="text-xs sm:text-sm" data-testid="tab-chat">Chat</TabsTrigger>
+                <TabsTrigger value="quote" className="text-xs sm:text-sm" data-testid="tab-quote">Quote</TabsTrigger>
               </TabsList>
               <TabsContent value="details" className="space-y-4 mt-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Customer</p>
                     <p className="font-medium">{selectedJob.customerName}</p>
@@ -881,7 +1061,7 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
                     <p className="text-sm text-muted-foreground">Phone</p>
                     <p className="font-medium">{selectedJob.customerPhone}</p>
                   </div>
-                  <div className="space-y-1 col-span-2">
+                  <div className="space-y-1 sm:col-span-2">
                     <p className="text-sm text-muted-foreground">Address</p>
                     <p className="font-medium">{selectedJob.address}, {selectedJob.city}</p>
                   </div>
@@ -927,7 +1107,7 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
                     </div>
                   )}
                   {selectedJob.description && (
-                    <div className="space-y-1 col-span-2">
+                    <div className="space-y-1 sm:col-span-2">
                       <p className="text-sm text-muted-foreground">Description</p>
                       <p className="font-medium">{selectedJob.description}</p>
                     </div>
@@ -973,6 +1153,71 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
               </TabsContent>
             </Tabs>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Permissions Consent Dialog */}
+      <Dialog open={showPermissionsDialog} onOpenChange={() => {}}>
+        <DialogContent className="max-w-md" onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MapPin className="w-5 h-5 text-primary" />
+              Enable Required Permissions
+            </DialogTitle>
+            <DialogDescription>
+              To work effectively in the field, please enable the following permissions.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
+                  <Radio className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <p className="font-medium">GPS Location Tracking</p>
+                  <p className="text-sm text-muted-foreground">
+                    Allows dispatch to see your real-time location and verify arrival at job sites.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
+                  <Bell className="w-5 h-5 text-blue-400" />
+                </div>
+                <div>
+                  <p className="font-medium">Push Notifications</p>
+                  <p className="text-sm text-muted-foreground">
+                    Receive instant alerts for new job assignments, schedule changes, and customer updates.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0">
+                  <Camera className="w-5 h-5 text-amber-400" />
+                </div>
+                <div>
+                  <p className="font-medium">Camera Access</p>
+                  <p className="text-sm text-muted-foreground">
+                    Take photos and videos of job sites for documentation and customer records.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              By clicking "I Agree & Enable", you consent to share your location while using the app and receive work-related notifications.
+              These permissions are required while on duty.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={acceptPermissions}
+              className="w-full"
+              data-testid="button-accept-permissions"
+            >
+              I Agree & Enable All Permissions
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
