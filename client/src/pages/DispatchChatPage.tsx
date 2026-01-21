@@ -27,6 +27,10 @@ import {
   CheckCircle2,
   Archive,
   RefreshCw,
+  Smartphone,
+  Mail,
+  LinkIcon,
+  Copy,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import {
@@ -351,12 +355,239 @@ function NewThreadDialog({
   );
 }
 
+interface Job {
+  id: string;
+  customerName: string;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  customerConsentInAppMessaging: boolean;
+  serviceType: string | null;
+}
+
+function CustomerInviteDialog({
+  open,
+  onOpenChange,
+  userId,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  userId: string;
+}) {
+  const { toast } = useToast();
+  const [selectedJobId, setSelectedJobId] = useState<string>('');
+  const [deliveryMethod, setDeliveryMethod] = useState<'sms' | 'email' | 'none'>('sms');
+  const [generatedLink, setGeneratedLink] = useState<string | null>(null);
+  const authFetch = createAuthFetch(userId);
+
+  // Fetch jobs that have customer consent for messaging
+  const { data: jobs = [] } = useQuery<Job[]>({
+    queryKey: ['/api/jobs', 'with-consent'],
+    queryFn: async () => {
+      const res = await fetch('/api/jobs');
+      if (!res.ok) throw new Error('Failed to fetch jobs');
+      const allJobs = await res.json();
+      // Filter to jobs that have messaging consent
+      return allJobs.filter((j: Job) => j.customerConsentInAppMessaging);
+    },
+    enabled: open,
+  });
+
+  const selectedJob = jobs.find(j => j.id === selectedJobId);
+  const canSendSms = selectedJob && selectedJob.customerPhone;
+  const canSendEmail = selectedJob && selectedJob.customerEmail;
+
+  const inviteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await authFetch(`/api/chat/jobs/${selectedJobId}/customer-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delivery_method: deliveryMethod }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Failed to send invite' }));
+        throw new Error(data.error || 'Failed to send invite');
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setGeneratedLink(data.magicLink);
+      if (data.delivery?.success) {
+        toast({
+          title: 'Invite Sent!',
+          description: deliveryMethod === 'sms'
+            ? `Text message sent to ${selectedJob?.customerPhone}`
+            : `Email sent to ${selectedJob?.customerEmail}`,
+        });
+      } else if (data.delivery?.error) {
+        toast({
+          title: 'Delivery Failed',
+          description: `Link created but delivery failed: ${data.delivery.error}. You can copy the link manually.`,
+          variant: 'destructive',
+        });
+      } else if (deliveryMethod === 'none') {
+        toast({ title: 'Chat Link Generated', description: 'Copy the link to share with the customer.' });
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to create invite', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const copyLink = () => {
+    if (generatedLink) {
+      navigator.clipboard.writeText(generatedLink);
+      toast({ title: 'Link Copied!' });
+    }
+  };
+
+  const handleClose = () => {
+    setSelectedJobId('');
+    setGeneratedLink(null);
+    setDeliveryMethod('sms');
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Smartphone className="w-5 h-5" />
+            Invite Customer to Chat
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          {!generatedLink ? (
+            <>
+              <div>
+                <Label className="mb-2 block">Select Job</Label>
+                <Select value={selectedJobId} onValueChange={setSelectedJobId}>
+                  <SelectTrigger data-testid="select-job">
+                    <SelectValue placeholder="Choose a job..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {jobs.length === 0 ? (
+                      <div className="p-2 text-sm text-muted-foreground">
+                        No jobs with messaging consent
+                      </div>
+                    ) : (
+                      jobs.map(job => (
+                        <SelectItem key={job.id} value={job.id}>
+                          {job.customerName} - {job.serviceType || 'Service'}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {selectedJob && (
+                <div className="bg-muted/50 rounded-lg p-3 space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <User className="w-4 h-4" />
+                    <span>{selectedJob.customerName}</span>
+                  </div>
+                  {selectedJob.customerPhone && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Phone className="w-4 h-4" />
+                      <span>{selectedJob.customerPhone}</span>
+                    </div>
+                  )}
+                  {selectedJob.customerEmail && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Mail className="w-4 h-4" />
+                      <span>{selectedJob.customerEmail}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {selectedJob && (
+                <div>
+                  <Label className="mb-2 block">Send Invite Via</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant={deliveryMethod === 'sms' ? 'default' : 'outline'}
+                      onClick={() => setDeliveryMethod('sms')}
+                      disabled={!canSendSms}
+                      className="flex-1"
+                      data-testid="button-delivery-sms"
+                    >
+                      <Smartphone className="w-4 h-4 mr-2" />
+                      Text (SMS)
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={deliveryMethod === 'email' ? 'default' : 'outline'}
+                      onClick={() => setDeliveryMethod('email')}
+                      disabled={!canSendEmail}
+                      className="flex-1"
+                      data-testid="button-delivery-email"
+                    >
+                      <Mail className="w-4 h-4 mr-2" />
+                      Email
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={deliveryMethod === 'none' ? 'default' : 'outline'}
+                      onClick={() => setDeliveryMethod('none')}
+                      className="flex-1"
+                      data-testid="button-delivery-link"
+                    >
+                      <LinkIcon className="w-4 h-4 mr-2" />
+                      Link Only
+                    </Button>
+                  </div>
+                  {!canSendSms && selectedJob && (
+                    <p className="text-xs text-muted-foreground mt-1">No phone number on file</p>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-emerald-600">
+                <CheckCircle2 className="w-5 h-5" />
+                <span className="font-medium">Invite Created!</span>
+              </div>
+              <div className="bg-muted rounded-lg p-3">
+                <p className="text-xs text-muted-foreground mb-1">Chat Link:</p>
+                <p className="text-sm break-all font-mono">{generatedLink}</p>
+              </div>
+              <Button onClick={copyLink} variant="outline" className="w-full">
+                <Copy className="w-4 h-4 mr-2" />
+                Copy Link
+              </Button>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose}>
+            {generatedLink ? 'Done' : 'Cancel'}
+          </Button>
+          {!generatedLink && (
+            <Button
+              onClick={() => inviteMutation.mutate()}
+              disabled={!selectedJobId || inviteMutation.isPending}
+              data-testid="button-send-invite"
+            >
+              {inviteMutation.isPending ? 'Sending...' : 'Send Invite'}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function DispatchChatPage({ userId, fullName }: { userId: string; fullName: string }) {
   const { toast } = useToast();
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState('');
   const [statusFilter, setStatusFilter] = useState<'active' | 'closed'>('active');
   const [showNewThreadDialog, setShowNewThreadDialog] = useState(false);
+  const [showCustomerInviteDialog, setShowCustomerInviteDialog] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const authFetch = createAuthFetch(userId);
@@ -475,6 +706,9 @@ export default function DispatchChatPage({ userId, fullName }: { userId: string;
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => refetchThreads()} data-testid="button-refresh-threads">
             <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setShowCustomerInviteDialog(true)} data-testid="button-invite-customer">
+            <Smartphone className="h-4 w-4 mr-1" /> Invite Customer
           </Button>
           <Button size="sm" onClick={() => setShowNewThreadDialog(true)} data-testid="button-new-thread">
             <Plus className="h-4 w-4 mr-1" /> New Thread
@@ -633,6 +867,12 @@ export default function DispatchChatPage({ userId, fullName }: { userId: string;
         open={showNewThreadDialog}
         onOpenChange={setShowNewThreadDialog}
         onSuccess={(threadId) => setSelectedThreadId(threadId)}
+        userId={userId}
+      />
+
+      <CustomerInviteDialog
+        open={showCustomerInviteDialog}
+        onOpenChange={setShowCustomerInviteDialog}
         userId={userId}
       />
     </div>

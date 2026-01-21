@@ -6614,7 +6614,10 @@ ${emailContent}
         return res.status(400).json({ error: "Customer has not opted in to in-app messaging" });
       }
       
-      const { expires_in_minutes } = req.body as { expires_in_minutes?: number };
+      const { expires_in_minutes, delivery_method } = req.body as { 
+        expires_in_minutes?: number;
+        delivery_method?: 'sms' | 'email' | 'none';
+      };
       
       // Generate token
       const crypto = await import('crypto');
@@ -6635,12 +6638,42 @@ ${emailContent}
       const baseUrl = process.env.BASE_URL || 'https://chicagosewerexpertsapp.com';
       const magicLink = `${baseUrl}/customer/chat?jobId=${job.id}&token=${token}`;
       
-      // TODO: Send email to customer with magic link (no message content)
+      let deliveryResult = null;
+      
+      // Send via SMS if requested
+      if (delivery_method === 'sms' && job.customerPhone) {
+        const { sendChatInvite } = await import('./services/sms');
+        const smsResult = await sendChatInvite(
+          job.customerPhone,
+          job.customerName,
+          magicLink
+        );
+        deliveryResult = { method: 'sms', success: smsResult.success, error: smsResult.error };
+      } 
+      // Send via email if requested
+      else if (delivery_method === 'email' && job.customerEmail) {
+        const { sendEmail } = await import('./services/email');
+        const emailResult = await sendEmail({
+          to: job.customerEmail,
+          subject: 'Chat with Chicago Sewer Experts',
+          html: `
+            <p>Hi ${job.customerName},</p>
+            <p>We need to communicate with you about your service.</p>
+            <p><a href="${magicLink}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Open Chat</a></p>
+            <p>Or copy this link: ${magicLink}</p>
+            <p>This link expires in 7 days.</p>
+            <p>Thank you,<br>Chicago Sewer Experts</p>
+          `,
+          text: `Hi ${job.customerName}, we need to communicate with you about your service. Open this link to chat with us: ${magicLink}. This link expires in 7 days.`
+        });
+        deliveryResult = { method: 'email', success: emailResult.success, error: emailResult.error };
+      }
       
       res.json({
         sessionId: session.id,
         magicLink,
-        expiresAt
+        expiresAt,
+        delivery: deliveryResult
       });
     } catch (error) {
       console.error("Error creating customer session:", error);

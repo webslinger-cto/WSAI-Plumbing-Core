@@ -227,6 +227,16 @@ export async function sendQuoteReady(
   return sendSMS(customerPhone, message);
 }
 
+export async function sendChatInvite(
+  customerPhone: string,
+  customerName: string,
+  chatUrl: string
+): Promise<SMSResult> {
+  const message = `Hi ${customerName}, Chicago Sewer Experts needs to communicate with you about your service. Tap here to chat with us: ${chatUrl}`;
+
+  return sendSMS(customerPhone, message);
+}
+
 export function isConfigured(): boolean {
   const hasTwilio = !!(twilioAccountSid && twilioAuthToken && twilioPhoneNumber);
   const hasSignalWire = !!(signalwireProjectId && signalwireApiToken && signalwireSpaceUrl && signalwirePhoneNumber);
