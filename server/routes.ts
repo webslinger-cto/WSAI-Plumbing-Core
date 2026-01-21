@@ -1843,6 +1843,12 @@ export async function registerRoutes(
       
       const result = insertQuoteSchema.safeParse(body);
       if (!result.success) return res.status(400).json({ error: result.error });
+      
+      // Generate public token if status is 'sent'
+      if (result.data.status === 'sent') {
+        result.data.publicToken = crypto.randomUUID().replace(/-/g, '').substring(0, 16);
+      }
+      
       const quote = await storage.createQuote(result.data);
       
       // Create timeline event only if linked to a job
@@ -1864,6 +1870,115 @@ export async function registerRoutes(
       }).catch(err => 
         console.error(`Quote notification failed for quote ${quote.id}:`, err)
       );
+      
+      // Send email to customer if status is 'sent' and email is provided
+      if (result.data.status === 'sent' && result.data.customerEmail && quote.publicToken) {
+        const baseUrl = process.env.APP_BASE_URL || 'https://chicagosewerexpertsapp.com';
+        const quoteUrl = `${baseUrl}/quote/${quote.publicToken}`;
+        
+        // Parse line items for email
+        let lineItemsArray: Array<{ description: string; total: number }> = [];
+        try {
+          if (quote.lineItems) {
+            const parsed = typeof quote.lineItems === 'string' ? JSON.parse(quote.lineItems) : quote.lineItems;
+            lineItemsArray = Array.isArray(parsed) ? parsed.map((item: any) => ({
+              description: item.description || item.customDescription || 'Service',
+              amount: parseFloat(item.total || item.price || 0)
+            })) : [];
+          }
+        } catch (e) {
+          console.warn('Failed to parse quote lineItems for email:', e);
+        }
+        
+        const quoteTotal = parseFloat(quote.total?.toString() || '0');
+        const validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', {
+          year: 'numeric', month: 'long', day: 'numeric'
+        });
+        
+        // Build custom email with link to accept/decline
+        const emailHtml = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background-color: #111827; padding: 20px; text-align: center;">
+              <h1 style="color: #3b82f6; margin: 0;">Emergency Chicago Sewer Experts</h1>
+              <p style="color: #9ca3af; margin: 5px 0 0 0;">Your Service Quote</p>
+            </div>
+            
+            <div style="padding: 30px; background-color: #ffffff;">
+              <h2 style="color: #111827; margin-top: 0;">Hello ${quote.customerName},</h2>
+              
+              <p style="color: #374151; line-height: 1.6;">
+                Thank you for choosing Emergency Chicago Sewer Experts! Here is your quote for the requested services.
+              </p>
+              
+              <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <h3 style="color: #111827; margin-top: 0;">Quote Details:</h3>
+                <p style="color: #374151; margin: 5px 0;"><strong>Address:</strong> ${quote.address}</p>
+                <p style="color: #374151; margin: 5px 0;"><strong>Total:</strong> $${quoteTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p style="color: #374151; margin: 5px 0;"><strong>Valid Until:</strong> ${validUntil}</p>
+              </div>
+              
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${quoteUrl}" style="display: inline-block; background-color: #3b82f6; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                  View & Accept Quote
+                </a>
+              </div>
+              
+              <p style="color: #374151; line-height: 1.6;">
+                Click the button above to view the full quote details, line items, and accept or decline the quote online.
+              </p>
+              
+              <p style="color: #374151; line-height: 1.6;">
+                If you have any questions, call us at <strong>(630) 716-9792</strong>.
+              </p>
+              
+              <p style="color: #374151; line-height: 1.6;">
+                Best regards,<br>
+                <strong>Emergency Chicago Sewer Experts Team</strong>
+              </p>
+            </div>
+            
+            <div style="background-color: #f3f4f6; padding: 15px; text-align: center;">
+              <p style="color: #6b7280; font-size: 12px; margin: 0;">
+                Emergency Chicago Sewer Experts | Chicago, IL | (630) 716-9792
+              </p>
+            </div>
+          </div>
+        `;
+        
+        const emailText = `
+Hello ${quote.customerName},
+
+Thank you for choosing Emergency Chicago Sewer Experts! Here is your quote.
+
+Quote Details:
+- Address: ${quote.address}
+- Total: $${quoteTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+- Valid Until: ${validUntil}
+
+View and accept your quote here: ${quoteUrl}
+
+If you have any questions, call us at (630) 716-9792.
+
+Best regards,
+Emergency Chicago Sewer Experts Team
+        `;
+        
+        // Send the email
+        sendEmail({
+          to: result.data.customerEmail,
+          subject: `Your Quote from Emergency Chicago Sewer Experts - $${quoteTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          html: emailHtml,
+          text: emailText,
+        }).then(emailResult => {
+          if (emailResult.success) {
+            console.log(`Quote email sent successfully to ${result.data.customerEmail} for quote ${quote.id}`);
+          } else {
+            console.error(`Failed to send quote email to ${result.data.customerEmail}:`, emailResult.error);
+          }
+        }).catch(err => {
+          console.error(`Quote email error for ${quote.id}:`, err);
+        });
+      }
       
       res.status(201).json(quote);
     } catch (error) {
