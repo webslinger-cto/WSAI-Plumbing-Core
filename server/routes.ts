@@ -2089,6 +2089,117 @@ Emergency Chicago Sewer Experts Team
     }
   });
 
+  // Resend quote email to customer
+  app.post("/api/quotes/:id/resend-email", async (req, res) => {
+    try {
+      const quote = await storage.getQuote(req.params.id);
+      if (!quote) return res.status(404).json({ error: "Quote not found" });
+      
+      if (!quote.customerEmail) {
+        return res.status(400).json({ error: "Quote has no customer email" });
+      }
+      
+      // Generate token if needed
+      let token = quote.publicToken;
+      if (!token) {
+        token = crypto.randomUUID().replace(/-/g, '').substring(0, 16);
+        await storage.updateQuote(quote.id, { publicToken: token, status: 'sent', sentAt: new Date() });
+      }
+      
+      const baseUrl = process.env.APP_BASE_URL || 'https://chicagosewerexpertsapp.com';
+      const quoteUrl = `${baseUrl}/quote/${token}`;
+      const quoteTotal = parseFloat(quote.total?.toString() || '0');
+      const validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', {
+        year: 'numeric', month: 'long', day: 'numeric'
+      });
+      
+      const emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background-color: #111827; padding: 20px; text-align: center;">
+            <h1 style="color: #3b82f6; margin: 0;">Emergency Chicago Sewer Experts</h1>
+            <p style="color: #9ca3af; margin: 5px 0 0 0;">Your Service Quote</p>
+          </div>
+          
+          <div style="padding: 30px; background-color: #ffffff;">
+            <h2 style="color: #111827; margin-top: 0;">Hello ${quote.customerName},</h2>
+            
+            <p style="color: #374151; line-height: 1.6;">
+              Thank you for choosing Emergency Chicago Sewer Experts! Here is your quote for the requested services.
+            </p>
+            
+            <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #111827; margin-top: 0;">Quote Details:</h3>
+              <p style="color: #374151; margin: 5px 0;"><strong>Address:</strong> ${quote.address}</p>
+              <p style="color: #374151; margin: 5px 0;"><strong>Total:</strong> $${quoteTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              <p style="color: #374151; margin: 5px 0;"><strong>Valid Until:</strong> ${validUntil}</p>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${quoteUrl}" style="display: inline-block; background-color: #3b82f6; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                View & Accept Quote
+              </a>
+            </div>
+            
+            <p style="color: #374151; line-height: 1.6;">
+              Click the button above to view the full quote details and accept or decline online.
+            </p>
+            
+            <p style="color: #374151; line-height: 1.6;">
+              Questions? Call us at <strong>(630) 716-9792</strong>.
+            </p>
+            
+            <p style="color: #374151; line-height: 1.6;">
+              Best regards,<br>
+              <strong>Emergency Chicago Sewer Experts Team</strong>
+            </p>
+          </div>
+          
+          <div style="background-color: #f3f4f6; padding: 15px; text-align: center;">
+            <p style="color: #6b7280; font-size: 12px; margin: 0;">
+              Emergency Chicago Sewer Experts | Chicago, IL | (630) 716-9792
+            </p>
+          </div>
+        </div>
+      `;
+      
+      const emailText = `
+Hello ${quote.customerName},
+
+Your quote from Emergency Chicago Sewer Experts is ready!
+
+Quote Details:
+- Address: ${quote.address}
+- Total: $${quoteTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+- Valid Until: ${validUntil}
+
+View and accept your quote here: ${quoteUrl}
+
+Questions? Call us at (630) 716-9792.
+
+Best regards,
+Emergency Chicago Sewer Experts Team
+      `;
+      
+      const emailResult = await sendEmail({
+        to: quote.customerEmail,
+        subject: `Your Quote from Emergency Chicago Sewer Experts - $${quoteTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        html: emailHtml,
+        text: emailText,
+      });
+      
+      if (emailResult.success) {
+        console.log(`Quote email resent to ${quote.customerEmail} for quote ${quote.id}`);
+        res.json({ success: true, message: `Email sent to ${quote.customerEmail}` });
+      } else {
+        console.error(`Failed to resend quote email:`, emailResult.error);
+        res.status(500).json({ error: emailResult.error || 'Failed to send email' });
+      }
+    } catch (error) {
+      console.error("Error resending quote email:", error);
+      res.status(500).json({ error: "Failed to resend quote email" });
+    }
+  });
+
   // Public quote viewing endpoint (no auth required)
   app.get("/api/public/quote/:token", async (req, res) => {
     try {
