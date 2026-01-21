@@ -282,6 +282,7 @@ export default function QuotesPage() {
         title: "Email Sent", 
         description: data.message || "Quote email has been sent to the customer." 
       });
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
     },
     onError: () => {
       toast({ title: "Failed", description: "Could not send quote email. Make sure the quote has a customer email.", variant: "destructive" });

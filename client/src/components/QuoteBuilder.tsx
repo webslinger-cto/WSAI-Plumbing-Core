@@ -41,6 +41,7 @@ interface QuoteBuilderProps {
   technicianId?: string;
   customerName?: string;
   customerPhone?: string;
+  customerEmail?: string;
   customerAddress?: string;
   technicianName?: string;
   showJobSelector?: boolean;
@@ -90,6 +91,7 @@ export default function QuoteBuilder({
   technicianId,
   customerName = "",
   customerPhone = "",
+  customerEmail: initialCustomerEmail = "",
   customerAddress = "",
   technicianName = "Your Technician",
   showJobSelector = false,
@@ -100,7 +102,7 @@ export default function QuoteBuilder({
   const { toast } = useToast();
   const [name, setName] = useState(customerName);
   const [phone, setPhone] = useState(customerPhone);
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(initialCustomerEmail);
   const [address, setAddress] = useState(customerAddress);
   const [notes, setNotes] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
@@ -133,7 +135,10 @@ export default function QuoteBuilder({
     if (job) {
       setName(job.customerName);
       setPhone(job.customerPhone || "");
-      setEmail(job.customerEmail || "");
+      // Only update email if job has one, otherwise preserve existing
+      if (job.customerEmail) {
+        setEmail(job.customerEmail);
+      }
       setAddress(`${job.address}${job.city ? `, ${job.city}` : ""}`);
     }
   };
