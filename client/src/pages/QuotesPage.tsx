@@ -272,6 +272,22 @@ export default function QuotesPage() {
     },
   });
 
+  const resendEmailMutation = useMutation({
+    mutationFn: async (quoteId: string) => {
+      const res = await apiRequest("POST", `/api/quotes/${quoteId}/resend-email`);
+      return res.json();
+    },
+    onSuccess: (data: { message: string }) => {
+      toast({ 
+        title: "Email Sent", 
+        description: data.message || "Quote email has been sent to the customer." 
+      });
+    },
+    onError: () => {
+      toast({ title: "Failed", description: "Could not send quote email. Make sure the quote has a customer email.", variant: "destructive" });
+    },
+  });
+
   const filteredQuotes = quotes.filter((quote) => {
     const matchesSearch =
       quote.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -445,6 +461,18 @@ export default function QuotesPage() {
                               <Link2 className="w-3 h-3 mr-1" />
                               Copy Link
                             </Button>
+                            {quote.customerEmail && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => resendEmailMutation.mutate(quote.id)}
+                                disabled={resendEmailMutation.isPending}
+                                data-testid={`button-resend-email-${quote.id}`}
+                              >
+                                <Send className="w-3 h-3 mr-1" />
+                                Resend
+                              </Button>
+                            )}
                             <Button
                               variant="outline"
                               size="sm"
