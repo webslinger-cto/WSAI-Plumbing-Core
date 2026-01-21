@@ -92,6 +92,7 @@ export default function QuotesPage() {
     { id: crypto.randomUUID(), description: "", customDescription: "", quantity: 1, unitPrice: 0, total: 0 }
   ]);
   const [laborFee, setLaborFee] = useState(0);
+  const [materialsCost, setMaterialsCost] = useState(0);
   const [taxRate, setTaxRate] = useState(0);
   const [notes, setNotes] = useState("");
 
@@ -123,6 +124,7 @@ export default function QuotesPage() {
     setAddress("");
     setLineItems([{ id: crypto.randomUUID(), description: "", customDescription: "", quantity: 1, unitPrice: 0, total: 0 }]);
     setLaborFee(0);
+    setMaterialsCost(0);
     setTaxRate(0);
     setNotes("");
   };
@@ -166,7 +168,7 @@ export default function QuotesPage() {
 
   // Calculate totals
   const lineItemsTotal = lineItems.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-  const subtotal = lineItemsTotal + laborFee;
+  const subtotal = lineItemsTotal + laborFee + materialsCost;
   const taxAmount = subtotal * (taxRate / 100);
   const total = subtotal + taxAmount;
 
@@ -181,6 +183,7 @@ export default function QuotesPage() {
         address,
         lineItems: JSON.stringify(validLineItems),
         laborTotal: laborFee.toString(),
+        materialsCost: materialsCost.toString(),
         subtotal: subtotal.toString(),
         taxRate: taxRate.toString(),
         taxAmount: taxAmount.toString(),
@@ -656,16 +659,27 @@ export default function QuotesPage() {
                     </div>
                     <Input
                       type="number"
-                      value={item.quantity}
-                      onChange={(e) => handleLineItemChange(item.id, "quantity", parseInt(e.target.value) || 1)}
+                      value={item.quantity === 0 ? "" : item.quantity}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        handleLineItemChange(item.id, "quantity", val === "" ? 0 : parseInt(val) || 0);
+                      }}
+                      onBlur={(e) => {
+                        if (e.target.value === "" || parseInt(e.target.value) < 1) {
+                          handleLineItemChange(item.id, "quantity", 1);
+                        }
+                      }}
                       className="w-20 text-center"
                       min={1}
                       data-testid={`input-quantity-${index}`}
                     />
                     <Input
                       type="number"
-                      value={item.unitPrice}
-                      onChange={(e) => handleLineItemChange(item.id, "unitPrice", parseFloat(e.target.value) || 0)}
+                      value={item.unitPrice === 0 ? "" : item.unitPrice}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        handleLineItemChange(item.id, "unitPrice", val === "" ? 0 : parseFloat(val) || 0);
+                      }}
                       className="w-24 text-right"
                       step="0.01"
                       data-testid={`input-unit-price-${index}`}
@@ -696,11 +710,28 @@ export default function QuotesPage() {
                 <span>Labor Fee</span>
                 <Input
                   type="number"
-                  value={laborFee}
-                  onChange={(e) => setLaborFee(parseFloat(e.target.value) || 0)}
+                  value={laborFee === 0 ? "" : laborFee}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setLaborFee(val === "" ? 0 : parseFloat(val) || 0);
+                  }}
                   className="w-24 text-right"
                   step="0.01"
                   data-testid="input-labor-fee"
+                />
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Materials Cost</span>
+                <Input
+                  type="number"
+                  value={materialsCost === 0 ? "" : materialsCost}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setMaterialsCost(val === "" ? 0 : parseFloat(val) || 0);
+                  }}
+                  className="w-24 text-right"
+                  step="0.01"
+                  data-testid="input-materials-cost"
                 />
               </div>
               <Separator />
@@ -712,8 +743,11 @@ export default function QuotesPage() {
                 <span>Tax Rate (%)</span>
                 <Input
                   type="number"
-                  value={taxRate}
-                  onChange={(e) => setTaxRate(parseFloat(e.target.value) || 0)}
+                  value={taxRate === 0 ? "" : taxRate}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setTaxRate(val === "" ? 0 : parseFloat(val) || 0);
+                  }}
                   className="w-20 text-right"
                   step="0.1"
                   data-testid="input-tax-rate"

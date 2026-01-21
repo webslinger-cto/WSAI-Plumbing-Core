@@ -1308,8 +1308,16 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                       <div className="col-span-2">
                         <Input
                           type="number"
-                          value={item.quantity}
-                          onChange={(e) => updateLineItemQuantity(item.id, parseInt(e.target.value) || 1)}
+                          value={item.quantity === 0 ? "" : item.quantity}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            updateLineItemQuantity(item.id, val === "" ? 0 : parseInt(val) || 0);
+                          }}
+                          onBlur={(e) => {
+                            if (e.target.value === "" || parseInt(e.target.value) < 1) {
+                              updateLineItemQuantity(item.id, 1);
+                            }
+                          }}
                           min={1}
                           data-testid={`input-qty-${index}`}
                         />
@@ -1317,8 +1325,11 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                       <div className="col-span-2">
                         <Input
                           type="number"
-                          value={item.unitPrice}
-                          onChange={(e) => updateLineItemPrice(item.id, parseFloat(e.target.value) || 0)}
+                          value={item.unitPrice === 0 ? "" : item.unitPrice}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            updateLineItemPrice(item.id, val === "" ? 0 : parseFloat(val) || 0);
+                          }}
                           step="0.01"
                           data-testid={`input-price-${index}`}
                         />
@@ -1388,8 +1399,11 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                   <span className="text-muted-foreground">$</span>
                   <Input
                     type="number"
-                    value={laborFee}
-                    onChange={(e) => setLaborFee(parseFloat(e.target.value) || 0)}
+                    value={laborFee === 0 ? "" : laborFee}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setLaborFee(val === "" ? 0 : parseFloat(val) || 0);
+                    }}
                     className="w-20 text-right"
                     step="0.01"
                     data-testid="input-labor-fee"
@@ -1404,8 +1418,11 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                   <span className="text-muted-foreground">$</span>
                   <Input
                     type="number"
-                    value={materialsCost}
-                    onChange={(e) => setMaterialsCost(parseFloat(e.target.value) || 0)}
+                    value={materialsCost === 0 ? "" : materialsCost}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setMaterialsCost(val === "" ? 0 : parseFloat(val) || 0);
+                    }}
                     className="w-20 text-right"
                     step="0.01"
                     data-testid="input-materials-cost"
@@ -1427,8 +1444,11 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                 <div className="flex items-center gap-1">
                   <Input
                     type="number"
-                    value={taxRate}
-                    onChange={(e) => setTaxRate(parseFloat(e.target.value) || 0)}
+                    value={taxRate === 0 ? "" : taxRate}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTaxRate(val === "" ? 0 : parseFloat(val) || 0);
+                    }}
                     className="w-16 text-right"
                     step="0.1"
                     data-testid="input-tax-rate"
