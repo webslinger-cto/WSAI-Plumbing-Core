@@ -46,4 +46,9 @@ integrations = ["javascript_log_in_with_replit:1.0.0", "javascript_database:1.0.
 
 [userenv.shared]
 NOTIFICATION_SMS_NUMBERS = "6306661640,5737958857,3123699850"
+
+[userenv.development]
+APP_BASE_URL = "https://emergency-chicago-sewer-experts-crm--jcotham.replit.app"
+
+[userenv.production]
 APP_BASE_URL = "https://chicagosewerexpertsapp.com"
