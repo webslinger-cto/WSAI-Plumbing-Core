@@ -2130,8 +2130,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getJobByQuoteId(quoteId: string): Promise<Job | undefined> {
+    // First try: job has quoteId pointing to quote
     const [job] = await db.select().from(jobs).where(eq(jobs.quoteId, quoteId));
-    return job;
+    if (job) return job;
+    
+    // Second try: quote has jobId pointing to job
+    const [quote] = await db.select().from(quotes).where(eq(quotes.id, quoteId));
+    if (quote?.jobId) {
+      const [linkedJob] = await db.select().from(jobs).where(eq(jobs.id, quote.jobId));
+      return linkedJob;
+    }
+    
+    return undefined;
   }
 
   // Quotes
