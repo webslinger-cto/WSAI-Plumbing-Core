@@ -174,7 +174,7 @@ export default function QuotesPage() {
     mutationFn: async (status: "draft" | "sent") => {
       const validLineItems = lineItems.filter(item => item.description || item.customDescription);
       const quoteData = {
-        jobId: selectedJobId,
+        jobId: selectedJobId && selectedJobId !== "none" ? selectedJobId : undefined,
         customerName,
         customerPhone,
         customerEmail,
@@ -566,14 +566,15 @@ export default function QuotesPage() {
             <DialogTitle>Create New Quote</DialogTitle>
           </DialogHeader>
           <div className="space-y-6">
-            {/* Job Selection */}
+            {/* Job Selection (Optional) */}
             <div className="space-y-2">
-              <Label>Link to Job</Label>
+              <Label>Link to Job <span className="text-muted-foreground font-normal">(Optional)</span></Label>
               <Select value={selectedJobId} onValueChange={handleJobSelect}>
                 <SelectTrigger data-testid="select-job">
-                  <SelectValue placeholder="Select a job..." />
+                  <SelectValue placeholder="No job linked - enter customer info below" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">No job linked</SelectItem>
                   {availableJobs.map((job) => (
                     <SelectItem key={job.id} value={job.id}>
                       {job.customerName} - {job.address} ({job.status})
@@ -581,9 +582,7 @@ export default function QuotesPage() {
                   ))}
                 </SelectContent>
               </Select>
-              {!selectedJobId && (
-                <p className="text-sm text-amber-500">A job must be selected to create a quote</p>
-              )}
+              <p className="text-sm text-muted-foreground">Select a job to auto-fill customer info, or enter manually below</p>
             </div>
 
             {/* Customer Information */}
@@ -744,7 +743,7 @@ export default function QuotesPage() {
             <Button
               variant="ghost"
               onClick={() => createQuoteMutation.mutate("draft")}
-              disabled={!selectedJobId || !customerName || createQuoteMutation.isPending}
+              disabled={!customerName || createQuoteMutation.isPending}
               data-testid="button-save-draft"
             >
               <Save className="w-4 h-4 mr-2" />
@@ -752,7 +751,7 @@ export default function QuotesPage() {
             </Button>
             <Button
               onClick={() => createQuoteMutation.mutate("sent")}
-              disabled={!selectedJobId || !customerName || createQuoteMutation.isPending}
+              disabled={!customerName || createQuoteMutation.isPending}
               data-testid="button-send-quote"
             >
               <Send className="w-4 h-4 mr-2" />
