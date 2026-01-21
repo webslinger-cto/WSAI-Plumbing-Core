@@ -100,6 +100,7 @@ export default function QuoteBuilder({
   const { toast } = useToast();
   const [name, setName] = useState(customerName);
   const [phone, setPhone] = useState(customerPhone);
+  const [email, setEmail] = useState("");
   const [address, setAddress] = useState(customerAddress);
   const [notes, setNotes] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
@@ -132,6 +133,7 @@ export default function QuoteBuilder({
     if (job) {
       setName(job.customerName);
       setPhone(job.customerPhone || "");
+      setEmail(job.customerEmail || "");
       setAddress(`${job.address}${job.city ? `, ${job.city}` : ""}`);
     }
   };
@@ -151,7 +153,7 @@ export default function QuoteBuilder({
         technicianId: technicianId || undefined,
         customerName: quoteData.customerName,
         customerPhone: quoteData.customerPhone,
-        customerEmail: undefined,
+        customerEmail: email || undefined,
         address: quoteData.customerAddress,
         lineItems: JSON.stringify(quoteData.lineItems),
         laborEntries: JSON.stringify(quoteData.laborEntries),
@@ -481,6 +483,17 @@ export default function QuoteBuilder({
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="(xxx) xxx-xxxx"
                 data-testid="input-customer-phone"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="customer-email">Email Address</Label>
+              <Input
+                id="customer-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="customer@email.com"
+                data-testid="input-customer-email"
               />
             </div>
           </div>
