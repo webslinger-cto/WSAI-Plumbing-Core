@@ -6640,6 +6640,14 @@ ${emailContent}
       
       let deliveryResult = null;
       
+      // Validate delivery method has required contact info
+      if (delivery_method === 'sms' && !job.customerPhone) {
+        return res.status(400).json({ error: "Cannot send SMS - no phone number on file" });
+      }
+      if (delivery_method === 'email' && !job.customerEmail) {
+        return res.status(400).json({ error: "Cannot send email - no email address on file" });
+      }
+      
       // Send via SMS if requested
       if (delivery_method === 'sms' && job.customerPhone) {
         const { sendChatInvite } = await import('./services/sms');

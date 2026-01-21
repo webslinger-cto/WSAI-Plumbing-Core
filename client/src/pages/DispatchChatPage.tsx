@@ -379,11 +379,11 @@ function CustomerInviteDialog({
   const [generatedLink, setGeneratedLink] = useState<string | null>(null);
   const authFetch = createAuthFetch(userId);
 
-  // Fetch jobs that have customer consent for messaging
+  // Fetch jobs that have customer consent for messaging (authenticated)
   const { data: jobs = [] } = useQuery<Job[]>({
-    queryKey: ['/api/jobs', 'with-consent'],
+    queryKey: ['/api/jobs', 'with-consent', userId],
     queryFn: async () => {
-      const res = await fetch('/api/jobs');
+      const res = await authFetch('/api/jobs');
       if (!res.ok) throw new Error('Failed to fetch jobs');
       const allJobs = await res.json();
       // Filter to jobs that have messaging consent
