@@ -1115,10 +1115,12 @@ export type ChatParticipantType = typeof chatParticipantTypes[number];
 // Chat threads table
 export const chatThreads = pgTable("chat_threads", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  relatedJobId: varchar("related_job_id").references(() => jobs.id), // Required for customer_visible
+  relatedLeadId: varchar("related_lead_id").references(() => leads.id), // Link to lead (chat starts here)
+  relatedQuoteId: varchar("related_quote_id").references(() => quotes.id), // Link to quote (after estimate)
+  relatedJobId: varchar("related_job_id").references(() => jobs.id), // Link to job (after acceptance)
   visibility: text("visibility").notNull().default("internal"), // 'internal' | 'customer_visible'
   status: text("status").notNull().default("active"), // 'active' | 'closed'
-  subject: text("subject"), // e.g. "Job #1234 - Drain Cleaning"
+  subject: text("subject"), // e.g. "Lead #1234 - Drain Cleaning"
   createdByType: text("created_by_type").notNull().default("user"), // 'user' | 'customer'
   createdById: varchar("created_by_id").notNull(), // users.id or customer identifier
   lastMessageAt: timestamp("last_message_at"),
@@ -1166,7 +1168,9 @@ export type ChatMessage = typeof chatMessages.$inferSelect;
 // Customer chat magic link sessions (for authenticated customer access)
 export const chatMagicSessions = pgTable("chat_magic_sessions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  leadId: varchar("lead_id").references(() => leads.id), // For lead-stage chat access
+  quoteId: varchar("quote_id").references(() => quotes.id), // For quote-stage chat access
+  jobId: varchar("job_id").references(() => jobs.id), // For job-stage chat access
   customerIdentifier: text("customer_identifier").notNull(), // phone or email
   tokenHash: text("token_hash").notNull(), // SHA-256 hash of token
   expiresAt: timestamp("expires_at").notNull(),
@@ -1181,7 +1185,9 @@ export type ChatMagicSession = typeof chatMagicSessions.$inferSelect;
 // Customer email notification rate limiting
 export const chatEmailNotifications = pgTable("chat_email_notifications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  leadId: varchar("lead_id").references(() => leads.id),
+  quoteId: varchar("quote_id").references(() => quotes.id),
+  jobId: varchar("job_id").references(() => jobs.id),
   customerIdentifier: text("customer_identifier").notNull(),
   lastNotifiedAt: timestamp("last_notified_at").notNull().default(sql`now()`),
 });
