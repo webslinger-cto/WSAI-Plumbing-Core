@@ -7231,5 +7231,220 @@ ${emailContent}
     }
   });
 
+  // ============================================
+  // PUBLIC CHAT ENDPOINTS (Website Lead Capture)
+  // ============================================
+
+  // Start a public chat - creates lead and chat thread
+  app.post("/api/public/chat/start", async (req, res) => {
+    try {
+      const { customerName, customerPhone, customerEmail, address, serviceType, initialMessage } = req.body;
+      
+      if (!customerName || !customerPhone || !initialMessage) {
+        return res.status(400).json({ error: "Name, phone, and message are required" });
+      }
+      
+      // Create a new lead from the public chat
+      const lead = await storage.createLead({
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        customerEmail: customerEmail?.trim() || null,
+        address: address?.trim() || null,
+        serviceType: serviceType || null,
+        source: 'website_chat',
+        status: 'new',
+        priority: 'normal',
+        notes: `Chat initiated from website: "${initialMessage.trim()}"`,
+        estimatedValue: null,
+        scheduledDate: null,
+        scheduledTimeSlot: null,
+      });
+      
+      console.log(`[PUBLIC CHAT] Created lead ${lead.id} from website chat for ${customerName}`);
+      
+      // Create a customer-visible chat thread linked to the lead
+      const thread = await storage.createChatThread({
+        visibility: 'customer_visible',
+        subject: `Website Chat: ${customerName}`,
+        status: 'active',
+        relatedLeadId: lead.id,
+      });
+      
+      // Create a unique customer identifier
+      const customerIdentifier = `public_chat_${lead.id}`;
+      
+      // Add customer as participant
+      await storage.addChatThreadParticipant({
+        threadId: thread.id,
+        participantType: 'customer',
+        participantId: customerIdentifier,
+        roleAtTime: 'customer',
+        displayName: customerName.trim(),
+      });
+      
+      // Get all dispatchers and add them as participants
+      const users = await storage.getAllUsers();
+      const dispatchers = users.filter(u => u.role === 'dispatcher' || u.role === 'admin' || u.role === 'god');
+      
+      for (const dispatcher of dispatchers) {
+        await storage.addChatThreadParticipant({
+          threadId: thread.id,
+          participantType: 'user',
+          participantId: dispatcher.id,
+          roleAtTime: dispatcher.role,
+          displayName: dispatcher.fullName || dispatcher.username,
+        });
+      }
+      
+      // Send the initial message from the customer
+      await storage.createChatMessage({
+        threadId: thread.id,
+        senderType: 'customer',
+        senderId: customerIdentifier,
+        senderDisplayName: customerName.trim(),
+        body: initialMessage.trim(),
+        clientMsgId: `init_${Date.now()}`,
+        meta: {
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+          source: 'website_chat'
+        }
+      });
+      
+      // Generate a session token for the customer
+      const crypto = await import('crypto');
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      
+      // Store the magic session for the customer
+      await storage.createChatMagicSession({
+        leadId: lead.id,
+        jobId: null,
+        customerIdentifier,
+        tokenHash,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      });
+      
+      console.log(`[PUBLIC CHAT] Created chat thread ${thread.id} with session for lead ${lead.id}`);
+      
+      res.status(201).json({
+        sessionToken: rawToken,
+        leadId: lead.id,
+        threadId: thread.id,
+      });
+    } catch (error) {
+      console.error("Error starting public chat:", error);
+      res.status(500).json({ error: "Failed to start chat" });
+    }
+  });
+
+  // Get messages for public chat
+  app.get("/api/public/chat/messages", async (req, res) => {
+    try {
+      const { token } = req.query as { token?: string };
+      
+      if (!token) {
+        return res.status(400).json({ error: "Token required" });
+      }
+      
+      const crypto = await import('crypto');
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      
+      // Find session by token hash
+      const sessions = await storage.getChatMagicSessionsByCustomer(tokenHash);
+      const session = sessions.find(s => s.tokenHash === tokenHash);
+      
+      if (!session) {
+        // Try to find by lead
+        const allSessions = await db.select().from(chatMagicSessions).where(eq(chatMagicSessions.tokenHash, tokenHash));
+        if (allSessions.length === 0 || new Date(allSessions[0].expiresAt) < new Date()) {
+          return res.status(401).json({ error: "Invalid or expired session" });
+        }
+        
+        const validSession = allSessions[0];
+        
+        // Get thread by lead
+        const thread = await storage.getChatThreadByLead(validSession.leadId!, 'customer_visible');
+        if (!thread) {
+          return res.status(404).json({ error: "Chat thread not found" });
+        }
+        
+        const messages = await storage.getChatMessages(thread.id, { limit: 100 });
+        return res.json(messages);
+      }
+      
+      // Get thread by lead from session
+      const thread = await storage.getChatThreadByLead(session.leadId!, 'customer_visible');
+      if (!thread) {
+        return res.status(404).json({ error: "Chat thread not found" });
+      }
+      
+      const messages = await storage.getChatMessages(thread.id, { limit: 100 });
+      res.json(messages);
+    } catch (error) {
+      console.error("Error fetching public chat messages:", error);
+      res.status(500).json({ error: "Failed to fetch messages" });
+    }
+  });
+
+  // Send message to public chat
+  app.post("/api/public/chat/send", async (req, res) => {
+    try {
+      const { token, body: messageBody, client_msg_id } = req.body;
+      
+      if (!token || !messageBody) {
+        return res.status(400).json({ error: "Token and message body required" });
+      }
+      
+      const crypto = await import('crypto');
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      
+      // Find session by token hash
+      const allSessions = await db.select().from(chatMagicSessions).where(eq(chatMagicSessions.tokenHash, tokenHash));
+      if (allSessions.length === 0) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+      
+      const session = allSessions[0];
+      if (new Date(session.expiresAt) < new Date()) {
+        return res.status(401).json({ error: "Session expired" });
+      }
+      
+      // Update last used
+      await storage.updateChatMagicSessionLastUsed(session.id);
+      
+      // Get thread by lead
+      const thread = await storage.getChatThreadByLead(session.leadId!, 'customer_visible');
+      if (!thread) {
+        return res.status(404).json({ error: "Chat thread not found" });
+      }
+      
+      if (thread.status === 'closed') {
+        return res.status(403).json({ error: "This conversation has been closed" });
+      }
+      
+      // Get lead for customer name
+      const lead = await storage.getLead(session.leadId!);
+      
+      const message = await storage.createChatMessage({
+        threadId: thread.id,
+        senderType: 'customer',
+        senderId: session.customerIdentifier,
+        senderDisplayName: lead?.customerName || 'Customer',
+        body: messageBody.trim(),
+        clientMsgId: client_msg_id,
+        meta: {
+          ip: req.ip,
+          userAgent: req.headers['user-agent']
+        }
+      });
+      
+      res.status(201).json(message);
+    } catch (error) {
+      console.error("Error sending public chat message:", error);
+      res.status(500).json({ error: "Failed to send message" });
+    }
+  });
+
   return httpServer;
 }
