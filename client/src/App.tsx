@@ -46,6 +46,7 @@ import CallsPage from "@/pages/CallsPage";
 import DispatchChatPage from "@/pages/DispatchChatPage";
 import TechnicianChatPage from "@/pages/TechnicianChatPage";
 import CustomerChatPage from "@/pages/CustomerChatPage";
+import LeadChatPage from "@/pages/LeadChatPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 import BusinessIntakePage from "@/pages/business-intake";
@@ -464,6 +465,20 @@ function App() {
         <TooltipProvider>
           <Switch>
             <Route path="/quote/:token" component={PublicQuotePage} />
+          </Switch>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  // Public lead chat page (magic link auth)
+  if (location.startsWith('/lead-chat/')) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Switch>
+            <Route path="/lead-chat/:leadId" component={LeadChatPage} />
           </Switch>
           <Toaster />
         </TooltipProvider>

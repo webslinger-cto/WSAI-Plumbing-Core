@@ -56,6 +56,8 @@ interface ChatThread {
   subject: string | null;
   status: 'active' | 'closed';
   relatedJobId: string | null;
+  relatedLeadId: string | null;
+  relatedQuoteId: string | null;
   createdAt: string;
   lastMessageAt: string | null;
   participants: Participant[];
@@ -69,6 +71,12 @@ interface ChatThread {
     id: string;
     customerName: string;
     serviceType: string;
+    status: string;
+  };
+  lead?: {
+    id: string;
+    customerName: string;
+    serviceType: string | null;
     status: string;
   };
 }
@@ -168,7 +176,9 @@ function ThreadListItem({
               <MessageSquare className="h-4 w-4 text-muted-foreground" />
             )}
             <span className="font-medium truncate text-sm">
-              {thread.subject || (thread.job ? `Job: ${thread.job.customerName}` : 'Thread')}
+              {thread.subject || 
+                (thread.lead ? `Lead: ${thread.lead.customerName}` : 
+                (thread.job ? `Job: ${thread.job.customerName}` : 'Thread'))}
             </span>
           </div>
           <div className="text-xs text-muted-foreground truncate">
@@ -201,6 +211,11 @@ function ThreadListItem({
       <div className="flex gap-1 mt-2">
         {thread.visibility === 'customer_visible' && (
           <Badge variant="outline" className="text-xs">Customer</Badge>
+        )}
+        {thread.lead && (
+          <Badge className="text-xs bg-blue-500/20 text-blue-400 border-blue-500/30">
+            Lead: {thread.lead.status}
+          </Badge>
         )}
         {thread.job && (
           <Badge variant="outline" className="text-xs">{thread.job.serviceType}</Badge>
@@ -620,6 +635,14 @@ export default function DispatchChatPage({ userId, fullName }: { userId: string;
     messages: ChatMessage[];
     participants: Participant[];
     job: any;
+    lead: {
+      id: string;
+      customerName: string;
+      customerPhone: string;
+      address: string | null;
+      serviceType: string | null;
+      status: string;
+    } | null;
   }>({
     queryKey: ['/api/chat/threads', selectedThreadId, userId],
     queryFn: async () => {
@@ -774,10 +797,18 @@ export default function DispatchChatPage({ userId, fullName }: { userId: string;
                   </Button>
                   <div>
                     <div className="font-medium">
-                      {selectedThread?.subject || (threadDetail?.job ? `Job: ${threadDetail.job.customerName}` : 'Thread')}
+                      {selectedThread?.subject || 
+                        (threadDetail?.lead ? `Lead: ${threadDetail.lead.customerName}` : 
+                        (threadDetail?.job ? `Job: ${threadDetail.job.customerName}` : 'Thread'))}
                     </div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-muted-foreground flex items-center gap-2">
                       {threadDetail?.participants.length} participants
+                      {threadDetail?.lead && (
+                        <Badge variant="outline" className="text-xs">Lead</Badge>
+                      )}
+                      {threadDetail?.job && (
+                        <Badge variant="secondary" className="text-xs">Job</Badge>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -31,6 +31,8 @@ interface ChatThread {
   subject: string | null;
   status: 'active' | 'closed';
   relatedJobId: string | null;
+  relatedLeadId: string | null;
+  relatedQuoteId: string | null;
   createdAt: string;
   lastMessageAt: string | null;
   participants: Participant[];
@@ -44,6 +46,12 @@ interface ChatThread {
     id: string;
     customerName: string;
     serviceType: string;
+    status: string;
+  };
+  lead?: {
+    id: string;
+    customerName: string;
+    serviceType: string | null;
     status: string;
   };
 }
@@ -143,7 +151,9 @@ function ThreadListItem({
               <MessageSquare className="h-4 w-4 text-muted-foreground" />
             )}
             <span className="font-medium truncate text-sm">
-              {thread.subject || (thread.job ? `Job: ${thread.job.customerName}` : 'Thread')}
+              {thread.subject || 
+                (thread.lead ? `Lead: ${thread.lead.customerName}` : 
+                (thread.job ? `Job: ${thread.job.customerName}` : 'Thread'))}
             </span>
           </div>
           <div className="text-xs text-muted-foreground truncate">
@@ -240,6 +250,14 @@ export default function TechnicianChatPage({ technicianId, userId, fullName }: T
     messages: ChatMessage[];
     participants: Participant[];
     job: any;
+    lead: {
+      id: string;
+      customerName: string;
+      customerPhone: string;
+      address: string | null;
+      serviceType: string | null;
+      status: string;
+    } | null;
   }>({
     queryKey: ['/api/chat/threads', selectedThreadId, userId],
     queryFn: async () => {
@@ -371,7 +389,9 @@ export default function TechnicianChatPage({ technicianId, userId, fullName }: T
                   </Button>
                   <div>
                     <div className="font-medium">
-                      {selectedThread?.subject || (threadDetail?.job ? `Job: ${threadDetail.job.customerName}` : 'Thread')}
+                      {selectedThread?.subject || 
+                        (threadDetail?.lead ? `Lead: ${threadDetail.lead.customerName}` : 
+                        (threadDetail?.job ? `Job: ${threadDetail.job.customerName}` : 'Thread'))}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {threadDetail?.participants.length} participants
