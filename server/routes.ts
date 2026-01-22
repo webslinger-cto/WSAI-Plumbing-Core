@@ -1,6 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { db } from "./db";
+import { chatMagicSessions } from "@shared/schema";
+import { eq } from "drizzle-orm";
 import {
   insertLeadSchema,
   insertCallSchema,
@@ -7262,16 +7265,18 @@ ${emailContent}
       
       console.log(`[PUBLIC CHAT] Created lead ${lead.id} from website chat for ${customerName}`);
       
+      // Create a unique customer identifier
+      const customerIdentifier = `public_chat_${lead.id}`;
+      
       // Create a customer-visible chat thread linked to the lead
       const thread = await storage.createChatThread({
         visibility: 'customer_visible',
         subject: `Website Chat: ${customerName}`,
         status: 'active',
         relatedLeadId: lead.id,
+        createdByType: 'customer',
+        createdById: customerIdentifier,
       });
-      
-      // Create a unique customer identifier
-      const customerIdentifier = `public_chat_${lead.id}`;
       
       // Add customer as participant
       await storage.addChatThreadParticipant({
@@ -7283,7 +7288,7 @@ ${emailContent}
       });
       
       // Get all dispatchers and add them as participants
-      const users = await storage.getAllUsers();
+      const users = await storage.getUsers();
       const dispatchers = users.filter(u => u.role === 'dispatcher' || u.role === 'admin' || u.role === 'god');
       
       for (const dispatcher of dispatchers) {
@@ -7351,26 +7356,14 @@ ${emailContent}
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
       
       // Find session by token hash
-      const sessions = await storage.getChatMagicSessionsByCustomer(tokenHash);
-      const session = sessions.find(s => s.tokenHash === tokenHash);
+      const allSessions = await db.select().from(chatMagicSessions).where(eq(chatMagicSessions.tokenHash, tokenHash));
+      if (allSessions.length === 0) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
       
-      if (!session) {
-        // Try to find by lead
-        const allSessions = await db.select().from(chatMagicSessions).where(eq(chatMagicSessions.tokenHash, tokenHash));
-        if (allSessions.length === 0 || new Date(allSessions[0].expiresAt) < new Date()) {
-          return res.status(401).json({ error: "Invalid or expired session" });
-        }
-        
-        const validSession = allSessions[0];
-        
-        // Get thread by lead
-        const thread = await storage.getChatThreadByLead(validSession.leadId!, 'customer_visible');
-        if (!thread) {
-          return res.status(404).json({ error: "Chat thread not found" });
-        }
-        
-        const messages = await storage.getChatMessages(thread.id, { limit: 100 });
-        return res.json(messages);
+      const session = allSessions[0];
+      if (new Date(session.expiresAt) < new Date()) {
+        return res.status(401).json({ error: "Session expired" });
       }
       
       // Get thread by lead from session
