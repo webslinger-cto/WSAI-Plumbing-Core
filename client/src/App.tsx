@@ -47,6 +47,7 @@ import DispatchChatPage from "@/pages/DispatchChatPage";
 import TechnicianChatPage from "@/pages/TechnicianChatPage";
 import CustomerChatPage from "@/pages/CustomerChatPage";
 import LeadChatPage from "@/pages/LeadChatPage";
+import PublicChatPage from "@/pages/PublicChatPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 import BusinessIntakePage from "@/pages/business-intake";
@@ -479,6 +480,20 @@ function App() {
         <TooltipProvider>
           <Switch>
             <Route path="/lead-chat/:leadId" component={LeadChatPage} />
+          </Switch>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  // Public chat page (no auth - for website visitors)
+  if (location === '/chat' || location.startsWith('/chat?')) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Switch>
+            <Route path="/chat" component={PublicChatPage} />
           </Switch>
           <Toaster />
         </TooltipProvider>
