@@ -13,6 +13,8 @@ The CRM operates on a "Quote-to-Job" workflow where jobs are automatically creat
 
 A thread-based chat system facilitates both internal team coordination and customer communication. Chat threads are automatically initiated with lead creation and persist through lead, quote, and job transitions. There are distinct visibility types for internal discussions and customer-facing interactions. Staff access chat through dedicated pages, while customers use magic links for authenticated access to customer-visible threads.
 
+A public website chat feature at `/chat` enables lead capture directly from the website. Customers fill in their name, phone, and initial message to start a conversation without authentication. This automatically creates a lead with source='website_chat', a customer-visible chat thread, and a token-based session for continued conversation. Dispatchers see incoming public chats in their chat page and can respond in real-time.
+
 ### Frontend
 The frontend is built with React and TypeScript, utilizing Vite for tooling and Wouter for client-side routing. State management is handled by TanStack Query for server state and React hooks for local component state. The UI components are constructed using Radix UI primitives, following the shadcn/ui pattern with a "new-york" style variant. Styling is managed with Tailwind CSS, implementing a dark-first design system with a blue primary and red emergency accent theme.
 
