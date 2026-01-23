@@ -6,18 +6,60 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History, Wifi, WifiOff } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History, Wifi, WifiOff, Plus, Building2, Globe, Users } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { SlaTimer } from "@/components/SlaTimer";
 import { CustomerTimeline } from "@/components/CustomerTimeline";
 import { useToast } from "@/hooks/use-toast";
 import type { Lead as ApiLead } from "@shared/schema";
+
+const LEAD_SOURCES = [
+  { value: "Direct", label: "Direct / Phone Call", icon: Phone },
+  { value: "Website", label: "Website Form", icon: Globe },
+  { value: "website_chat", label: "Website Chat", icon: Globe },
+  { value: "Referral", label: "Customer Referral", icon: Users },
+  { value: "Thumbtack", label: "Thumbtack", icon: Building2 },
+  { value: "Angi", label: "Angi", icon: Building2 },
+  { value: "HomeAdvisor", label: "HomeAdvisor", icon: Building2 },
+  { value: "eLocal", label: "eLocal", icon: Building2 },
+  { value: "Networx", label: "Networx", icon: Building2 },
+  { value: "Inquirly", label: "Inquirly", icon: Building2 },
+];
+
+const SERVICE_TYPES = [
+  "Drain Cleaning",
+  "Sewer Main Line",
+  "Sewer Repair",
+  "Camera Inspection",
+  "Hydro Jetting",
+  "Water Heater",
+  "Plumbing Repair",
+  "Emergency Service",
+  "Other",
+];
+
+const PRIORITY_OPTIONS = [
+  { value: "low", label: "Low" },
+  { value: "normal", label: "Normal" },
+  { value: "high", label: "High" },
+  { value: "urgent", label: "Urgent" },
+];
 
 interface CompanySettingsData {
   id?: string;
@@ -49,8 +91,38 @@ function mapApiLeadToTableLead(lead: ApiLead): Lead & { slaBreach?: boolean } {
   };
 }
 
+interface NewLeadForm {
+  customerName: string;
+  customerPhone: string;
+  customerEmail: string;
+  address: string;
+  city: string;
+  zipCode: string;
+  source: string;
+  serviceType: string;
+  description: string;
+  priority: string;
+  cost: string;
+}
+
+const initialNewLeadForm: NewLeadForm = {
+  customerName: "",
+  customerPhone: "",
+  customerEmail: "",
+  address: "",
+  city: "",
+  zipCode: "",
+  source: "Direct",
+  serviceType: "",
+  description: "",
+  priority: "normal",
+  cost: "",
+};
+
 export default function LeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [isNewLeadDialogOpen, setIsNewLeadDialogOpen] = useState(false);
+  const [newLeadForm, setNewLeadForm] = useState<NewLeadForm>(initialNewLeadForm);
   const { toast } = useToast();
 
   const { data: apiLeads = [], isLoading } = useQuery<ApiLead[]>({
@@ -132,6 +204,53 @@ export default function LeadsPage() {
     },
   });
 
+  const createLeadMutation = useMutation({
+    mutationFn: async (data: NewLeadForm) => {
+      const response = await apiRequest("POST", "/api/leads", {
+        customerName: data.customerName,
+        customerPhone: data.customerPhone,
+        customerEmail: data.customerEmail || null,
+        address: data.address || null,
+        city: data.city || null,
+        zipCode: data.zipCode || null,
+        source: data.source,
+        serviceType: data.serviceType || null,
+        description: data.description || null,
+        priority: data.priority,
+        cost: data.cost ? data.cost : null,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({
+        title: "Lead Created",
+        description: "New lead has been added successfully.",
+      });
+      setIsNewLeadDialogOpen(false);
+      setNewLeadForm(initialNewLeadForm);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to create lead",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleCreateLead = () => {
+    if (!newLeadForm.customerName || !newLeadForm.customerPhone) {
+      toast({
+        title: "Missing Required Fields",
+        description: "Please enter customer name and phone number.",
+        variant: "destructive",
+      });
+      return;
+    }
+    createLeadMutation.mutate(newLeadForm);
+  };
+
   const handleMarkContacted = () => {
     if (selectedLead) {
       markContactedMutation.mutate(selectedLead.id);
@@ -155,7 +274,14 @@ export default function LeadsPage() {
             Manage and track all incoming leads from your sources
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button 
+            onClick={() => setIsNewLeadDialogOpen(true)}
+            data-testid="button-new-lead"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            New Lead
+          </Button>
           <Button 
             variant="outline" 
             onClick={() => recalculateScoresMutation.mutate()}
@@ -173,7 +299,7 @@ export default function LeadsPage() {
             <Download className="w-4 h-4 mr-2" />
             Export
           </Button>
-          <Button data-testid="button-import-leads">
+          <Button variant="outline" data-testid="button-import-leads">
             <Upload className="w-4 h-4 mr-2" />
             Import
           </Button>
@@ -358,6 +484,194 @@ export default function LeadsPage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isNewLeadDialogOpen} onOpenChange={setIsNewLeadDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create New Lead</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6">
+            <div className="space-y-4">
+              <div>
+                <Label className="text-sm font-medium mb-2 block">Lead Source</Label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {LEAD_SOURCES.map((source) => {
+                    const Icon = source.icon;
+                    return (
+                      <Button
+                        key={source.value}
+                        type="button"
+                        variant={newLeadForm.source === source.value ? "default" : "outline"}
+                        className="justify-start h-auto py-2"
+                        onClick={() => setNewLeadForm({ ...newLeadForm, source: source.value })}
+                        data-testid={`button-source-${source.value.toLowerCase().replace(/\s+/g, '-')}`}
+                      >
+                        <Icon className="w-4 h-4 mr-2 shrink-0" />
+                        <span className="truncate">{source.label}</span>
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="customerName">Customer Name *</Label>
+                <Input
+                  id="customerName"
+                  value={newLeadForm.customerName}
+                  onChange={(e) => setNewLeadForm({ ...newLeadForm, customerName: e.target.value })}
+                  placeholder="John Smith"
+                  data-testid="input-customer-name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="customerPhone">Phone Number *</Label>
+                <Input
+                  id="customerPhone"
+                  value={newLeadForm.customerPhone}
+                  onChange={(e) => setNewLeadForm({ ...newLeadForm, customerPhone: e.target.value })}
+                  placeholder="(312) 555-1234"
+                  data-testid="input-customer-phone"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="customerEmail">Email</Label>
+                <Input
+                  id="customerEmail"
+                  type="email"
+                  value={newLeadForm.customerEmail}
+                  onChange={(e) => setNewLeadForm({ ...newLeadForm, customerEmail: e.target.value })}
+                  placeholder="john@example.com"
+                  data-testid="input-customer-email"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="leadCost">Lead Cost ($)</Label>
+                <Input
+                  id="leadCost"
+                  type="number"
+                  step="0.01"
+                  value={newLeadForm.cost}
+                  onChange={(e) => setNewLeadForm({ ...newLeadForm, cost: e.target.value })}
+                  placeholder="0.00"
+                  data-testid="input-lead-cost"
+                />
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="sm:col-span-2 space-y-2">
+                <Label htmlFor="address">Address</Label>
+                <Input
+                  id="address"
+                  value={newLeadForm.address}
+                  onChange={(e) => setNewLeadForm({ ...newLeadForm, address: e.target.value })}
+                  placeholder="123 Main Street"
+                  data-testid="input-address"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="city">City</Label>
+                <Input
+                  id="city"
+                  value={newLeadForm.city}
+                  onChange={(e) => setNewLeadForm({ ...newLeadForm, city: e.target.value })}
+                  placeholder="Chicago"
+                  data-testid="input-city"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="zipCode">Zip Code</Label>
+                <Input
+                  id="zipCode"
+                  value={newLeadForm.zipCode}
+                  onChange={(e) => setNewLeadForm({ ...newLeadForm, zipCode: e.target.value })}
+                  placeholder="60601"
+                  data-testid="input-zip-code"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="serviceType">Service Type</Label>
+                <Select
+                  value={newLeadForm.serviceType}
+                  onValueChange={(value) => setNewLeadForm({ ...newLeadForm, serviceType: value })}
+                >
+                  <SelectTrigger id="serviceType" data-testid="select-service-type">
+                    <SelectValue placeholder="Select service" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SERVICE_TYPES.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="priority">Priority</Label>
+                <Select
+                  value={newLeadForm.priority}
+                  onValueChange={(value) => setNewLeadForm({ ...newLeadForm, priority: value })}
+                >
+                  <SelectTrigger id="priority" data-testid="select-priority">
+                    <SelectValue placeholder="Select priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PRIORITY_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                value={newLeadForm.description}
+                onChange={(e) => setNewLeadForm({ ...newLeadForm, description: e.target.value })}
+                placeholder="Describe the issue or service needed..."
+                rows={3}
+                data-testid="textarea-description"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsNewLeadDialogOpen(false);
+                setNewLeadForm(initialNewLeadForm);
+              }}
+              data-testid="button-cancel-new-lead"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateLead}
+              disabled={createLeadMutation.isPending}
+              data-testid="button-submit-new-lead"
+            >
+              {createLeadMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Plus className="w-4 h-4 mr-2" />
+              )}
+              Create Lead
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
