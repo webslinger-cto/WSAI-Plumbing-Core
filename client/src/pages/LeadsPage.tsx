@@ -21,13 +21,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History, Wifi, WifiOff, Plus, Building2, Globe, Users } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { SlaTimer } from "@/components/SlaTimer";
 import { CustomerTimeline } from "@/components/CustomerTimeline";
 import { useToast } from "@/hooks/use-toast";
-import type { Lead as ApiLead } from "@shared/schema";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { insertLeadSchema, type Lead as ApiLead } from "@shared/schema";
 
 const LEAD_SOURCES = [
   { value: "Direct", label: "Direct / Phone Call", icon: Phone },
@@ -91,39 +102,51 @@ function mapApiLeadToTableLead(lead: ApiLead): Lead & { slaBreach?: boolean } {
   };
 }
 
-interface NewLeadForm {
-  customerName: string;
-  customerPhone: string;
-  customerEmail: string;
-  address: string;
-  city: string;
-  zipCode: string;
-  source: string;
-  serviceType: string;
-  description: string;
-  priority: string;
-  cost: string;
-}
+// Form schema with proper type transformations for UI input
+const newLeadFormSchema = z.object({
+  customerName: z.string().min(1, "Customer name is required"),
+  customerPhone: z.string().min(1, "Phone number is required"),
+  customerEmail: z.preprocess(
+    (val) => (val === "" ? undefined : val),
+    z.string().email("Invalid email address").optional()
+  ),
+  address: z.string().optional(),
+  city: z.string().optional(),
+  zipCode: z.string().optional(),
+  source: z.string().default("Direct"),
+  serviceType: z.string().optional(),
+  description: z.string().optional(),
+  priority: z.string().default("normal"),
+  cost: z.preprocess(
+    (val) => (val === "" ? undefined : val),
+    z.string().optional()
+  ),
+});
 
-const initialNewLeadForm: NewLeadForm = {
-  customerName: "",
-  customerPhone: "",
-  customerEmail: "",
-  address: "",
-  city: "",
-  zipCode: "",
-  source: "Direct",
-  serviceType: "",
-  description: "",
-  priority: "normal",
-  cost: "",
-};
+type NewLeadFormData = z.infer<typeof newLeadFormSchema>;
 
 export default function LeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isNewLeadDialogOpen, setIsNewLeadDialogOpen] = useState(false);
-  const [newLeadForm, setNewLeadForm] = useState<NewLeadForm>(initialNewLeadForm);
   const { toast } = useToast();
+
+  // Form for new lead creation
+  const form = useForm<NewLeadFormData>({
+    resolver: zodResolver(newLeadFormSchema),
+    defaultValues: {
+      customerName: "",
+      customerPhone: "",
+      customerEmail: "",
+      address: "",
+      city: "",
+      zipCode: "",
+      source: "Direct",
+      serviceType: "",
+      description: "",
+      priority: "normal",
+      cost: "",
+    },
+  });
 
   const { data: apiLeads = [], isLoading } = useQuery<ApiLead[]>({
     queryKey: ["/api/leads"],
@@ -205,7 +228,7 @@ export default function LeadsPage() {
   });
 
   const createLeadMutation = useMutation({
-    mutationFn: async (data: NewLeadForm) => {
+    mutationFn: async (data: NewLeadFormData) => {
       const response = await apiRequest("POST", "/api/leads", {
         customerName: data.customerName,
         customerPhone: data.customerPhone,
@@ -228,7 +251,7 @@ export default function LeadsPage() {
         description: "New lead has been added successfully.",
       });
       setIsNewLeadDialogOpen(false);
-      setNewLeadForm(initialNewLeadForm);
+      form.reset();
     },
     onError: (error: Error) => {
       toast({
@@ -239,16 +262,8 @@ export default function LeadsPage() {
     },
   });
 
-  const handleCreateLead = () => {
-    if (!newLeadForm.customerName || !newLeadForm.customerPhone) {
-      toast({
-        title: "Missing Required Fields",
-        description: "Please enter customer name and phone number.",
-        variant: "destructive",
-      });
-      return;
-    }
-    createLeadMutation.mutate(newLeadForm);
+  const onSubmitNewLead = (data: NewLeadFormData) => {
+    createLeadMutation.mutate(data);
   };
 
   const handleMarkContacted = () => {
@@ -487,191 +502,279 @@ export default function LeadsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isNewLeadDialogOpen} onOpenChange={setIsNewLeadDialogOpen}>
+      <Dialog open={isNewLeadDialogOpen} onOpenChange={(open) => {
+          setIsNewLeadDialogOpen(open);
+          if (!open) form.reset();
+        }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Lead</DialogTitle>
           </DialogHeader>
-          <div className="space-y-6">
-            <div className="space-y-4">
-              <div>
-                <Label className="text-sm font-medium mb-2 block">Lead Source</Label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {LEAD_SOURCES.map((source) => {
-                    const Icon = source.icon;
-                    return (
-                      <Button
-                        key={source.value}
-                        type="button"
-                        variant={newLeadForm.source === source.value ? "default" : "outline"}
-                        className="justify-start h-auto py-2"
-                        onClick={() => setNewLeadForm({ ...newLeadForm, source: source.value })}
-                        data-testid={`button-source-${source.value.toLowerCase().replace(/\s+/g, '-')}`}
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmitNewLead)} className="space-y-6">
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="source"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Lead Source</FormLabel>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {LEAD_SOURCES.map((source) => {
+                          const Icon = source.icon;
+                          return (
+                            <Button
+                              key={source.value}
+                              type="button"
+                              variant={field.value === source.value ? "default" : "outline"}
+                              className="justify-start h-auto py-2"
+                              onClick={() => field.onChange(source.value)}
+                              data-testid={`button-source-${source.value.toLowerCase().replace(/\s+/g, '-')}`}
+                            >
+                              <Icon className="w-4 h-4 mr-2 shrink-0" />
+                              <span className="truncate">{source.label}</span>
+                            </Button>
+                          );
+                        })}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <Separator />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="customerName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Customer Name *</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="John Smith"
+                          data-testid="input-customer-name"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="customerPhone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Phone Number *</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="(312) 555-1234"
+                          data-testid="input-customer-phone"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="customerEmail"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="email"
+                          placeholder="john@example.com"
+                          data-testid="input-customer-email"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="cost"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Lead Cost ($)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          data-testid="input-lead-cost"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <Separator />
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <FormField
+                  control={form.control}
+                  name="address"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-2">
+                      <FormLabel>Address</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="123 Main Street"
+                          data-testid="input-address"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="city"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>City</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Chicago"
+                          data-testid="input-city"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="zipCode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Zip Code</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="60601"
+                          data-testid="input-zip-code"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="serviceType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Service Type</FormLabel>
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
                       >
-                        <Icon className="w-4 h-4 mr-2 shrink-0" />
-                        <span className="truncate">{source.label}</span>
-                      </Button>
-                    );
-                  })}
-                </div>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-service-type">
+                            <SelectValue placeholder="Select service" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {SERVICE_TYPES.map((type) => (
+                            <SelectItem key={type} value={type}>
+                              {type}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="priority"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Priority</FormLabel>
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="select-priority">
+                            <SelectValue placeholder="Select priority" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {PRIORITY_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
-            </div>
 
-            <Separator />
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="customerName">Customer Name *</Label>
-                <Input
-                  id="customerName"
-                  value={newLeadForm.customerName}
-                  onChange={(e) => setNewLeadForm({ ...newLeadForm, customerName: e.target.value })}
-                  placeholder="John Smith"
-                  data-testid="input-customer-name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="customerPhone">Phone Number *</Label>
-                <Input
-                  id="customerPhone"
-                  value={newLeadForm.customerPhone}
-                  onChange={(e) => setNewLeadForm({ ...newLeadForm, customerPhone: e.target.value })}
-                  placeholder="(312) 555-1234"
-                  data-testid="input-customer-phone"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="customerEmail">Email</Label>
-                <Input
-                  id="customerEmail"
-                  type="email"
-                  value={newLeadForm.customerEmail}
-                  onChange={(e) => setNewLeadForm({ ...newLeadForm, customerEmail: e.target.value })}
-                  placeholder="john@example.com"
-                  data-testid="input-customer-email"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="leadCost">Lead Cost ($)</Label>
-                <Input
-                  id="leadCost"
-                  type="number"
-                  step="0.01"
-                  value={newLeadForm.cost}
-                  onChange={(e) => setNewLeadForm({ ...newLeadForm, cost: e.target.value })}
-                  placeholder="0.00"
-                  data-testid="input-lead-cost"
-                />
-              </div>
-            </div>
-
-            <Separator />
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="sm:col-span-2 space-y-2">
-                <Label htmlFor="address">Address</Label>
-                <Input
-                  id="address"
-                  value={newLeadForm.address}
-                  onChange={(e) => setNewLeadForm({ ...newLeadForm, address: e.target.value })}
-                  placeholder="123 Main Street"
-                  data-testid="input-address"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="city">City</Label>
-                <Input
-                  id="city"
-                  value={newLeadForm.city}
-                  onChange={(e) => setNewLeadForm({ ...newLeadForm, city: e.target.value })}
-                  placeholder="Chicago"
-                  data-testid="input-city"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="zipCode">Zip Code</Label>
-                <Input
-                  id="zipCode"
-                  value={newLeadForm.zipCode}
-                  onChange={(e) => setNewLeadForm({ ...newLeadForm, zipCode: e.target.value })}
-                  placeholder="60601"
-                  data-testid="input-zip-code"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="serviceType">Service Type</Label>
-                <Select
-                  value={newLeadForm.serviceType}
-                  onValueChange={(value) => setNewLeadForm({ ...newLeadForm, serviceType: value })}
-                >
-                  <SelectTrigger id="serviceType" data-testid="select-service-type">
-                    <SelectValue placeholder="Select service" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SERVICE_TYPES.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {type}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="priority">Priority</Label>
-                <Select
-                  value={newLeadForm.priority}
-                  onValueChange={(value) => setNewLeadForm({ ...newLeadForm, priority: value })}
-                >
-                  <SelectTrigger id="priority" data-testid="select-priority">
-                    <SelectValue placeholder="Select priority" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PRIORITY_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                value={newLeadForm.description}
-                onChange={(e) => setNewLeadForm({ ...newLeadForm, description: e.target.value })}
-                placeholder="Describe the issue or service needed..."
-                rows={3}
-                data-testid="textarea-description"
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Describe the issue or service needed..."
+                        rows={3}
+                        data-testid="textarea-description"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-          </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsNewLeadDialogOpen(false);
-                setNewLeadForm(initialNewLeadForm);
-              }}
-              data-testid="button-cancel-new-lead"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleCreateLead}
-              disabled={createLeadMutation.isPending}
-              data-testid="button-submit-new-lead"
-            >
-              {createLeadMutation.isPending ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Plus className="w-4 h-4 mr-2" />
-              )}
-              Create Lead
-            </Button>
-          </DialogFooter>
+
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setIsNewLeadDialogOpen(false);
+                    form.reset();
+                  }}
+                  data-testid="button-cancel-new-lead"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={createLeadMutation.isPending}
+                  data-testid="button-submit-new-lead"
+                >
+                  {createLeadMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Plus className="w-4 h-4 mr-2" />
+                  )}
+                  Create Lead
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
         </DialogContent>
       </Dialog>
     </div>

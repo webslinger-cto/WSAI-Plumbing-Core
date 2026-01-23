@@ -156,11 +156,6 @@ export default function QuoteBuilder({
   // Fetch jobs for job selector (when showJobSelector is true or no jobId provided)
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
     queryKey: ["/api/jobs"],
-    queryFn: async () => {
-      const res = await fetch("/api/jobs");
-      if (!res.ok) throw new Error("Failed to fetch jobs");
-      return res.json();
-    },
     enabled: showJobSelector || !initialJobId,
   });
 
