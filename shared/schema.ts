@@ -179,6 +179,7 @@ export const leads = pgTable("leads", {
   isDuplicate: boolean("is_duplicate").default(false),
   duplicateOfId: varchar("duplicate_of_id"),
   revenue: decimal("revenue"),
+  customerId: varchar("customer_id"), // FK to customers table (set after match-or-create)
 });
 
 export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, createdAt: true, updatedAt: true });
@@ -289,6 +290,8 @@ export const jobs = pgTable("jobs", {
   customerConsentInAppMessaging: boolean("customer_consent_in_app_messaging").default(false),
   // Quote linkage for customer portal access
   quoteId: varchar("quote_id"),
+  // Customer linkage
+  customerId: varchar("customer_id"), // FK to customers table
 });
 
 export const insertJobSchema = createInsertSchema(jobs).omit({ id: true, createdAt: true, updatedAt: true });
@@ -336,6 +339,7 @@ export const quotes = pgTable("quotes", {
   acceptedAt: timestamp("accepted_at"),
   declinedAt: timestamp("declined_at"),
   expiresAt: timestamp("expires_at"),
+  customerId: varchar("customer_id"), // FK to customers table
 });
 
 export const insertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true });
@@ -1120,6 +1124,7 @@ export const chatThreads = pgTable("chat_threads", {
   relatedLeadId: varchar("related_lead_id").references(() => leads.id), // Link to lead (chat starts here)
   relatedQuoteId: varchar("related_quote_id").references(() => quotes.id), // Link to quote (after estimate)
   relatedJobId: varchar("related_job_id").references(() => jobs.id), // Link to job (after acceptance)
+  customerId: varchar("customer_id"), // Direct link to customer (for customer-level threads)
   visibility: text("visibility").notNull().default("internal"), // 'internal' | 'customer_visible'
   status: text("status").notNull().default("active"), // 'active' | 'closed'
   subject: text("subject"), // e.g. "Lead #1234 - Drain Cleaning"
@@ -1355,3 +1360,71 @@ export const permitSubmissions = pgTable("permit_submissions", {
 export const insertPermitSubmissionSchema = createInsertSchema(permitSubmissions).omit({ id: true, createdAt: true });
 export type InsertPermitSubmission = z.infer<typeof insertPermitSubmissionSchema>;
 export type PermitSubmission = typeof permitSubmissions.$inferSelect;
+
+// Customer status enum
+export const customerStatuses = ["active", "do_not_service", "inactive"] as const;
+export type CustomerStatus = typeof customerStatuses[number];
+
+// Customer preferred contact method enum
+export const customerContactMethods = ["call", "text", "email"] as const;
+export type CustomerContactMethod = typeof customerContactMethods[number];
+
+// Customers table
+export const customers = pgTable("customers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerNumber: text("customer_number"), // unique per company display number
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  phonePrimary: text("phone_primary"),
+  phoneAlt: text("phone_alt"),
+  email: text("email"),
+  preferredContactMethod: text("preferred_contact_method").default("call"),
+  tags: jsonb("tags").notNull().default([]),
+  notes: text("notes"),
+  preferences: jsonb("preferences").notNull().default({}),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+export type Customer = typeof customers.$inferSelect;
+
+// Customer addresses table
+export const customerAddresses = pgTable("customer_addresses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerId: varchar("customer_id").notNull().references(() => customers.id),
+  label: text("label"), // e.g. "Home", "Business", "Rental Property"
+  street1: text("street1").notNull(),
+  street2: text("street2"),
+  city: text("city").notNull(),
+  state: text("state").notNull(),
+  zip: text("zip").notNull(),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertCustomerAddressSchema = createInsertSchema(customerAddresses).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertCustomerAddress = z.infer<typeof insertCustomerAddressSchema>;
+export type CustomerAddress = typeof customerAddresses.$inferSelect;
+
+// Customer payment profile type enum
+export const paymentTypes = ["cash", "card", "check", "ach"] as const;
+export type PaymentType = typeof paymentTypes[number];
+
+// Customer payment profiles table (NO card numbers - only last4, brand, etc.)
+export const customerPaymentProfiles = pgTable("customer_payment_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerId: varchar("customer_id").notNull().references(() => customers.id),
+  paymentType: text("payment_type").notNull(), // cash, card, check, ach
+  details: jsonb("details").notNull().default({}), // brand, last4, billingZip (NO full card numbers)
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertCustomerPaymentProfileSchema = createInsertSchema(customerPaymentProfiles).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertCustomerPaymentProfile = z.infer<typeof insertCustomerPaymentProfileSchema>;
+export type CustomerPaymentProfile = typeof customerPaymentProfiles.$inferSelect;
