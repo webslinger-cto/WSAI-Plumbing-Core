@@ -15,6 +15,49 @@ A thread-based chat system facilitates both internal team coordination and custo
 
 A public website chat feature at `/chat` enables lead capture directly from the website. Customers fill in their name, phone, and initial message to start a conversation without authentication. This automatically creates a lead with source='website_chat', a customer-visible chat thread, and a token-based session for continued conversation. Dispatchers see incoming public chats in their chat page and can respond in real-time.
 
+### Permit Center Module
+The Permit Center enables automatic detection of required permits based on job location, service type, and description. The system uses jurisdiction-specific rules to identify which permits are needed (plumbing, sewer repair, excavation, right-of-way). Key features include:
+- **Automatic permit detection**: When a dispatcher clicks "Detect" on a job, the system analyzes the job details against jurisdiction rules
+- **PDF packet generation**: Generates pre-filled permit application PDFs with company and job information
+- **Jurisdiction management**: Supports multiple jurisdictions with unique permit requirements
+- **Status tracking**: Tracks permit packets from detection through submission
+
+The module is disabled by default and must be enabled in Settings > Integrations. Database tables include `permit_jurisdictions`, `permit_types`, `permit_rules`, `permit_packets`, `permit_packet_documents`, `permit_templates`, `permit_webhook_endpoints`, and `permit_submissions`. The Permit Center tab appears in the Job Details dialog on the Dispatcher Dashboard when enabled.
+
+#### Permit Center Automation
+The automation layer extends the Permit Center with advanced capabilities:
+
+**Storage (S3/MinIO)**:
+- PDFs stored in object storage (not base64 in database)
+- Supports S3-compatible storage (AWS S3, MinIO)
+- Signed download URLs for secure document access
+
+**Queue & Workers (BullMQ/Redis)**:
+- Background job processing for PDF generation, email submission, forms checking
+- Automatic retries with exponential backoff (3 attempts)
+- Idempotency keys prevent duplicate processing
+
+**PDF Form Fill**:
+- AcroForm field filling using pdf-lib
+- Overlay text positioning for non-fillable PDFs
+- Customer field policy controls PII handling
+
+**Filing Methods**:
+- **Assisted Submit**: Manual portal submission with confirmation number tracking
+- **Email Submit**: Automated email submission via Resend API
+
+**Webhooks**:
+- Configurable webhook endpoints for automation triggers
+- Events: permit.packet.detected, permit.packet.ready_for_review, permit.packet.submitted, permit.template.updated, permit.error
+- HMAC-SHA256 signature verification
+
+**Required Environment Variables for Automation**:
+- `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION` - Object storage
+- `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE` - For MinIO/self-hosted S3
+- `REDIS_URL` - Queue workers (optional)
+- `PERMITS_WEBHOOK_SECRET` - Webhook signing (optional)
+- `PERMITS_FROM_EMAIL` - Email submission sender address
+
 ### Frontend
 The frontend is built with React and TypeScript, utilizing Vite for tooling and Wouter for client-side routing. State management is handled by TanStack Query for server state and React hooks for local component state. The UI components are constructed using Radix UI primitives, following the shadcn/ui pattern with a "new-york" style variant. Styling is managed with Tailwind CSS, implementing a dark-first design system with a blue primary and red emergency accent theme.
 

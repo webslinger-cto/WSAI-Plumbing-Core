@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import JobTimeline from "@/components/JobTimeline";
 import { JobChat } from "@/components/JobChat";
+import { PermitCenterCard } from "@/features/permits/PermitCenterCard";
 import {
   Select,
   SelectContent,
@@ -1821,6 +1822,7 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
                 <TabsTrigger value="details" className="text-xs sm:text-sm" data-testid="tab-job-details">Details</TabsTrigger>
                 <TabsTrigger value="timeline" className="text-xs sm:text-sm" data-testid="tab-job-timeline">Timeline</TabsTrigger>
                 <TabsTrigger value="chat" className="text-xs sm:text-sm" data-testid="tab-job-chat">Chat</TabsTrigger>
+                <TabsTrigger value="permits" className="text-xs sm:text-sm" data-testid="tab-job-permits">Permits</TabsTrigger>
               </TabsList>
               <TabsContent value="details" className="space-y-4 mt-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
@@ -1868,6 +1870,9 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
               </TabsContent>
               <TabsContent value="chat" className="mt-4">
                 <JobChat jobId={selectedJob.id} jobCustomerName={selectedJob.customerName} userId={userId} />
+              </TabsContent>
+              <TabsContent value="permits" className="mt-4">
+                <PermitCenterCard jobId={selectedJob.id} />
               </TabsContent>
             </Tabs>
           )}

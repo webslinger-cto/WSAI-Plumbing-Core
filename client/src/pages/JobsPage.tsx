@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +15,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { PermitCenterCard } from "@/features/permits/PermitCenterCard";
 import {
   Select,
   SelectContent,
@@ -449,18 +451,29 @@ export default function JobsPage() {
       </Dialog>
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Job</DialogTitle>
+            <DialogTitle>Job Details - {selectedJob?.customerName}</DialogTitle>
           </DialogHeader>
           {selectedJob && (
-            <EditJobForm
-              job={selectedJob}
-              technicians={technicians}
-              onSave={(updates) => updateMutation.mutate({ jobId: selectedJob.id, updates })}
-              onCancel={() => setEditDialogOpen(false)}
-              isPending={updateMutation.isPending}
-            />
+            <Tabs defaultValue="edit" className="mt-4">
+              <TabsList className="flex flex-wrap h-auto gap-1">
+                <TabsTrigger value="edit" className="text-xs sm:text-sm" data-testid="tab-job-edit">Edit</TabsTrigger>
+                <TabsTrigger value="permits" className="text-xs sm:text-sm" data-testid="tab-job-permits">Permits</TabsTrigger>
+              </TabsList>
+              <TabsContent value="edit" className="mt-4">
+                <EditJobForm
+                  job={selectedJob}
+                  technicians={technicians}
+                  onSave={(updates) => updateMutation.mutate({ jobId: selectedJob.id, updates })}
+                  onCancel={() => setEditDialogOpen(false)}
+                  isPending={updateMutation.isPending}
+                />
+              </TabsContent>
+              <TabsContent value="permits" className="mt-4">
+                <PermitCenterCard jobId={selectedJob.id} />
+              </TabsContent>
+            </Tabs>
           )}
         </DialogContent>
       </Dialog>

@@ -984,6 +984,8 @@ export const companySettings = pgTable("company_settings", {
   seoWebhookSecret: text("seo_webhook_secret"), // HMAC secret for webhook authentication
   // Lead API/Webhook integration settings
   leadApiEnabled: boolean("lead_api_enabled").notNull().default(true), // Enable/disable lead API and webhooks (Thumbtack, Angi, etc.)
+  // Permit Center settings
+  permitCenterEnabled: boolean("permit_center_enabled").notNull().default(false), // Enable/disable Permit Center module
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
 
@@ -1191,3 +1193,165 @@ export const chatEmailNotifications = pgTable("chat_email_notifications", {
   customerIdentifier: text("customer_identifier").notNull(),
   lastNotifiedAt: timestamp("last_notified_at").notNull().default(sql`now()`),
 });
+
+// ============================================
+// PERMIT CENTER MODULE
+// ============================================
+
+// Permit jurisdictions (cities/counties that issue permits)
+export const permitJurisdictions = pgTable("permit_jurisdictions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(), // e.g. "City of Chicago"
+  state: text("state"), // e.g. "IL"
+  county: text("county"),
+  city: text("city"),
+  zipCodes: text("zip_codes").array(), // optional list of zips served
+  authorityName: text("authority_name"),
+  portalUrl: text("portal_url"),
+  submissionMethod: text("submission_method").default("portal"), // portal | email | in_person | mail
+  submissionEmail: text("submission_email"),
+  submissionPhone: text("submission_phone"),
+  notes: text("notes"),
+  formsPageUrl: text("forms_page_url"), // URL to page listing permit forms
+  formsPdfUrl: text("forms_pdf_url"), // direct URL to PDF form
+  lastCheckedAt: timestamp("last_checked_at"), // when forms were last checked for updates
+  lastVerifiedAt: timestamp("last_verified_at"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitJurisdictionSchema = createInsertSchema(permitJurisdictions).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPermitJurisdiction = z.infer<typeof insertPermitJurisdictionSchema>;
+export type PermitJurisdiction = typeof permitJurisdictions.$inferSelect;
+
+// Permit types (plumbing, excavation, sewer, etc.)
+export const permitTypes = pgTable("permit_types", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: text("code").notNull().unique(), // e.g. "plumbing", "excavation", "row"
+  name: text("name").notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitTypeSchema = createInsertSchema(permitTypes).omit({ id: true, createdAt: true });
+export type InsertPermitType = z.infer<typeof insertPermitTypeSchema>;
+export type PermitType = typeof permitTypes.$inferSelect;
+
+// Permit rules (decide which permit types are recommended/required for a job in a jurisdiction)
+export const permitRules = pgTable("permit_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jurisdictionId: varchar("jurisdiction_id").notNull().references(() => permitJurisdictions.id),
+  permitTypeId: varchar("permit_type_id").notNull().references(() => permitTypes.id),
+  conditions: jsonb("conditions").notNull().default({}), // { serviceTypeIncludes: ["sewer"], descriptionIncludes: ["excavat"] }
+  priority: integer("priority").notNull().default(100),
+  required: boolean("required").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitRuleSchema = createInsertSchema(permitRules).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPermitRule = z.infer<typeof insertPermitRuleSchema>;
+export type PermitRule = typeof permitRules.$inferSelect;
+
+// Permit packets (instances of permits detected/generated for a job)
+export const permitPackets = pgTable("permit_packets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  jurisdictionId: varchar("jurisdiction_id").notNull().references(() => permitJurisdictions.id),
+  permitTypeId: varchar("permit_type_id").notNull().references(() => permitTypes.id),
+  status: text("status").notNull().default("detected"), // detected | generating | ready_for_review | ready_to_submit | submitted | closed | error
+  required: boolean("required").notNull().default(false),
+  detectedReason: text("detected_reason"),
+  customerInfo: jsonb("customer_info").notNull().default({}),
+  errorMessage: text("error_message"),
+  generatedAt: timestamp("generated_at"),
+  submittedAt: timestamp("submitted_at"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitPacketSchema = createInsertSchema(permitPackets).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPermitPacket = z.infer<typeof insertPermitPacketSchema>;
+export type PermitPacket = typeof permitPackets.$inferSelect;
+
+// Permit packet documents (generated PDFs, attachments)
+export const permitPacketDocuments = pgTable("permit_packet_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  packetId: varchar("packet_id").notNull().references(() => permitPackets.id),
+  docType: text("doc_type").notNull(), // application_pdf | cover_sheet | attachment
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type").notNull().default("application/pdf"),
+  fileKey: text("file_key"), // S3 storage key
+  fileSize: integer("file_size"),
+  sha256: text("sha256"),
+  url: text("url"), // data URL or storage URL (deprecated, use file_key)
+  templateId: varchar("template_id").references(() => permitTemplates.id),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitPacketDocumentSchema = createInsertSchema(permitPacketDocuments).omit({ id: true, createdAt: true });
+export type InsertPermitPacketDocument = z.infer<typeof insertPermitPacketDocumentSchema>;
+export type PermitPacketDocument = typeof permitPacketDocuments.$inferSelect;
+
+// Permit templates (PDF forms for each jurisdiction/permit type combination)
+export const permitTemplates = pgTable("permit_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jurisdictionId: varchar("jurisdiction_id").notNull().references(() => permitJurisdictions.id),
+  permitTypeId: varchar("permit_type_id").notNull().references(() => permitTypes.id),
+  name: text("name").notNull(),
+  version: integer("version").notNull().default(1),
+  sourceUrl: text("source_url"), // URL where form was downloaded from
+  fileKey: text("file_key"), // S3 key for the template PDF
+  fileSha256: text("file_sha256"),
+  fileSize: integer("file_size"),
+  fieldMapJsonb: jsonb("field_map_jsonb").notNull().default({}), // AcroForm field name -> data source mapping
+  overlayMapJsonb: jsonb("overlay_map_jsonb").notNull().default({}), // x/y positions for overlay text
+  customerFieldPolicyJsonb: jsonb("customer_field_policy_jsonb").notNull().default({}), // which fields are customer-only
+  isActive: boolean("is_active").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitTemplateSchema = createInsertSchema(permitTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPermitTemplate = z.infer<typeof insertPermitTemplateSchema>;
+export type PermitTemplate = typeof permitTemplates.$inferSelect;
+
+// Permit webhook endpoints (tenant-scoped webhook configurations)
+export const permitWebhookEndpoints = pgTable("permit_webhook_endpoints", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id"), // optional tenant scoping
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  eventsJsonb: jsonb("events_jsonb").notNull().default([]), // array of event names to trigger
+  secretKey: text("secret_key"), // per-endpoint HMAC secret
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitWebhookEndpointSchema = createInsertSchema(permitWebhookEndpoints).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPermitWebhookEndpoint = z.infer<typeof insertPermitWebhookEndpointSchema>;
+export type PermitWebhookEndpoint = typeof permitWebhookEndpoints.$inferSelect;
+
+// Permit submissions (tracking of permit filing attempts)
+export const permitSubmissions = pgTable("permit_submissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  packetId: varchar("packet_id").notNull().references(() => permitPackets.id),
+  method: text("method").notNull(), // assisted | email | portal
+  destinationEmail: text("destination_email"),
+  confirmationNumber: text("confirmation_number"),
+  messageId: text("message_id"), // email message ID if applicable
+  statusJsonb: jsonb("status_jsonb").notNull().default({}),
+  notes: text("notes"),
+  receiptFileKey: text("receipt_file_key"), // S3 key for receipt document
+  submittedAt: timestamp("submitted_at").notNull().default(sql`now()`),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitSubmissionSchema = createInsertSchema(permitSubmissions).omit({ id: true, createdAt: true });
+export type InsertPermitSubmission = z.infer<typeof insertPermitSubmissionSchema>;
+export type PermitSubmission = typeof permitSubmissions.$inferSelect;

@@ -48,6 +48,7 @@ import {
   BookOpen,
   FileUp,
   FileDown,
+  FileText,
 } from "lucide-react";
 
 type FeaturePermission = {
@@ -511,6 +512,7 @@ function UserPasswordManagement() {
 interface CompanySettingsData {
   id?: string;
   leadApiEnabled?: boolean;
+  permitCenterEnabled?: boolean;
   [key: string]: unknown;
 }
 
@@ -591,6 +593,88 @@ function LeadApiIntegrationCard() {
             <Badge variant="outline">Networx</Badge>
             <Badge variant="outline">Inquirly</Badge>
             <Badge variant="outline">Zapier</Badge>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PermitCenterSettingsCard() {
+  const { toast } = useToast();
+  
+  const { data: settings, isLoading } = useQuery<CompanySettingsData>({
+    queryKey: ["/api/settings"],
+  });
+
+  const updateSettingsMutation = useMutation({
+    mutationFn: async (data: Partial<CompanySettingsData>) => {
+      const res = await apiRequest("PATCH", "/api/settings", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({
+        title: "Settings updated",
+        description: "Permit Center setting has been saved.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to update settings",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleToggle = (checked: boolean) => {
+    updateSettingsMutation.mutate({ permitCenterEnabled: checked });
+  };
+
+  const isEnabled = settings?.permitCenterEnabled === true;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <FileText className="w-5 h-5" />
+          Permit Center
+        </CardTitle>
+        <CardDescription>
+          Automatically detect required permits and generate pre-filled application packets
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="flex items-center justify-between gap-4 p-4 rounded-lg border bg-muted/30">
+          <div>
+            <Label htmlFor="permitCenterEnabled" className="text-base font-medium">Enable Permit Center</Label>
+            <p className="text-sm text-muted-foreground">
+              When enabled, dispatchers and technicians can detect permits for jobs and generate application packets
+            </p>
+          </div>
+          <Switch
+            id="permitCenterEnabled"
+            checked={isEnabled}
+            onCheckedChange={handleToggle}
+            disabled={isLoading || updateSettingsMutation.isPending}
+            data-testid="switch-permit-center-enabled"
+          />
+        </div>
+        {!isEnabled && (
+          <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+            <p className="text-sm text-yellow-400">
+              Permit Center is currently <strong>disabled</strong>. Enable it to access permit detection and packet generation for jobs.
+            </p>
+          </div>
+        )}
+        <div className="p-4 bg-muted/50 rounded-lg space-y-2">
+          <h4 className="font-medium">Supported Permit Types</h4>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline">Plumbing</Badge>
+            <Badge variant="outline">Sewer Repair</Badge>
+            <Badge variant="outline">Excavation</Badge>
+            <Badge variant="outline">Right-of-Way</Badge>
           </div>
         </div>
       </CardContent>
@@ -1283,6 +1367,7 @@ export default function SettingsPage() {
 
         <TabsContent value="integrations" className="space-y-6">
           <LeadApiIntegrationCard />
+          <PermitCenterSettingsCard />
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
