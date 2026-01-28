@@ -36,6 +36,8 @@ import {
   Tag,
   TrendingUp,
   MessageSquare,
+  UserCheck,
+  FileStack,
 } from "lucide-react";
 const cseLogo = "/cse-logo.png";
 
@@ -51,6 +53,7 @@ const adminMenuItems = [
   { title: "Leads", url: "/leads", icon: Users },
   { title: "Jobs", url: "/jobs", icon: Briefcase },
   { title: "Quotes", url: "/quotes", icon: Receipt },
+  { title: "Customers", url: "/customers", icon: UserCheck },
   { title: "Technician Map", url: "/map", icon: MapPin },
   { title: "Outreach", url: "/outreach", icon: Megaphone },
   { title: "Technicians", url: "/technicians", icon: Wrench },
@@ -58,17 +61,20 @@ const adminMenuItems = [
   { title: "Pricebook", url: "/pricebook", icon: Tag },
   { title: "Marketing ROI", url: "/marketing", icon: TrendingUp },
   { title: "Payroll", url: "/payroll", icon: Wallet },
+  { title: "Permit Center", url: "/permits", icon: FileStack },
 ];
 
 const dispatcherMenuItems = [
   { title: "Dispatch Center", url: "/", icon: LayoutDashboard },
   { title: "Jobs", url: "/jobs", icon: Briefcase },
   { title: "Quotes", url: "/quotes", icon: Receipt },
+  { title: "Customers", url: "/customers", icon: UserCheck },
   { title: "Technician Map", url: "/map", icon: MapPin },
   { title: "Staffing Pool", url: "/staffing", icon: UserCog },
   { title: "Calls", url: "/calls", icon: Phone },
   { title: "Messages", url: "/chat", icon: MessageSquare },
   { title: "Leads", url: "/leads", icon: Users },
+  { title: "Permit Center", url: "/permits", icon: FileStack },
 ];
 
 const techMenuItems = [

@@ -51,6 +51,9 @@ import PublicChatPage from "@/pages/PublicChatPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 import BusinessIntakePage from "@/pages/business-intake";
+import CustomersPage from "@/features/customers/CustomersPage";
+import CustomerProfile from "@/features/customers/CustomerProfile";
+import PermitCenterPage from "@/features/permits/PermitCenterPage";
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -71,6 +74,9 @@ function AdminRouter() {
       <Route path="/leads" component={LeadsPage} />
       <Route path="/jobs" component={JobsPage} />
       <Route path="/quotes" component={QuotesPage} />
+      <Route path="/customers" component={CustomersPage} />
+      <Route path="/customers/:id" component={CustomerProfile} />
+      <Route path="/permits" component={PermitCenterPage} />
       <Route path="/technicians" component={TechniciansPage} />
       <Route path="/map" component={TechnicianMapPage} />
       <Route path="/quote-templates" component={QuoteTemplatesPage} />
@@ -94,6 +100,9 @@ function DispatcherRouter({ userId, fullName }: { userId: string; fullName: stri
       <Route path="/">{() => <DispatcherDashboard userId={userId} />}</Route>
       <Route path="/jobs" component={JobsPage} />
       <Route path="/quotes" component={QuotesPage} />
+      <Route path="/customers" component={CustomersPage} />
+      <Route path="/customers/:id" component={CustomerProfile} />
+      <Route path="/permits" component={PermitCenterPage} />
       <Route path="/map" component={TechnicianMapPage} />
       <Route path="/staffing" component={StaffingPool} />
       <Route path="/calls" component={CallsPage} />

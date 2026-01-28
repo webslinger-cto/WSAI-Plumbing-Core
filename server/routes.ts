@@ -59,6 +59,7 @@ import { dispatchToClosestTechnician } from "./services/dispatch";
 import { generateApplicationPDF, generateComparisonPDF, generateHouseCallProComparisonPDF, generateTestResultsPDF, generateThreeWayComparisonPDF, generateReadmePDF, generateChatSystemPDF } from "./services/pdf-generator";
 import { pushJobToBuilder1 } from "./services/builder1-integration";
 import { registerPermitRoutes } from "./modules/permits";
+import { registerCustomerRoutes } from "./modules/customers/routes";
 
 // Helper: Notify all dispatchers about technician status changes
 async function notifyDispatchersOfStatusChange(
@@ -207,6 +208,9 @@ export async function registerRoutes(
   
   // Register permit center module routes
   registerPermitRoutes(app, { isAuthenticatedUser });
+  
+  // Register customer module routes
+  registerCustomerRoutes(app, { isAuthenticatedUser });
   
   // Health check
   app.get("/api/health", async (req, res) => {
