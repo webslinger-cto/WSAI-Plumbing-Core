@@ -56,6 +56,7 @@ import type { Job, Lead, Call, Technician, Quote, PricebookItem } from "@shared/
 import { useState } from "react";
 import { formatDistanceToNow, format } from "date-fns";
 import { DollarSign, Trash2, Save, Send, X, Edit3 } from "lucide-react";
+import DispatcherCalendar from "@/components/DispatcherCalendar";
 
 const jobStatusConfig: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   pending: { label: "Pending", color: "bg-muted text-muted-foreground", icon: Clock },
@@ -1580,9 +1581,9 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
           <h1 className="text-2xl font-bold" data-testid="text-page-title">Dispatch Center</h1>
           <p className="text-muted-foreground">Manage jobs, calls, and technician assignments</p>
         </div>
-        <Button onClick={() => setActiveTab("quotebuilder")} data-testid="button-new-quote">
-          <Plus className="w-4 h-4 mr-2" />
-          New Quote
+        <Button onClick={() => setActiveTab("calendar")} data-testid="button-view-calendar">
+          <Calendar className="w-4 h-4 mr-2" />
+          Calendar
         </Button>
       </div>
 
@@ -1600,9 +1601,9 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
             <FileText className="w-4 h-4 mr-2" />
             Quotes ({pendingQuotes.length})
           </TabsTrigger>
-          <TabsTrigger value="quotebuilder" data-testid="tab-quotebuilder">
-            <DollarSign className="w-4 h-4 mr-2" />
-            Quote Builder
+          <TabsTrigger value="calendar" data-testid="tab-calendar">
+            <Calendar className="w-4 h-4 mr-2" />
+            Calendar
           </TabsTrigger>
         </TabsList>
 
@@ -1797,8 +1798,8 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
           </Card>
         </TabsContent>
 
-        <TabsContent value="quotebuilder">
-          <QuoteBuilderTab jobs={jobs} technicians={technicians} />
+        <TabsContent value="calendar" className="min-h-[600px]">
+          <DispatcherCalendar jobs={jobs} technicians={technicians} userId={userId} />
         </TabsContent>
       </Tabs>
 
