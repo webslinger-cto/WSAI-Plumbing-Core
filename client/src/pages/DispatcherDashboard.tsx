@@ -57,6 +57,7 @@ import { useState } from "react";
 import { formatDistanceToNow, format } from "date-fns";
 import { DollarSign, Trash2, Save, Send, X, Edit3 } from "lucide-react";
 import DispatcherCalendar from "@/components/DispatcherCalendar";
+import RecordDetailPanel from "@/components/RecordDetailPanel";
 
 const jobStatusConfig: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   pending: { label: "Pending", color: "bg-muted text-muted-foreground", icon: Clock },
@@ -1812,73 +1813,14 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
         isPending={assignMutation.isPending}
       />
 
-      <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
-        <DialogContent className="max-w-2xl w-[95vw] sm:w-full max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-base sm:text-lg">Job Details - {selectedJob?.customerName}</DialogTitle>
-          </DialogHeader>
-          {selectedJob && (
-            <Tabs defaultValue="details" className="mt-4">
-              <TabsList className="flex flex-wrap h-auto gap-1">
-                <TabsTrigger value="details" className="text-xs sm:text-sm" data-testid="tab-job-details">Details</TabsTrigger>
-                <TabsTrigger value="timeline" className="text-xs sm:text-sm" data-testid="tab-job-timeline">Timeline</TabsTrigger>
-                <TabsTrigger value="chat" className="text-xs sm:text-sm" data-testid="tab-job-chat">Chat</TabsTrigger>
-                <TabsTrigger value="permits" className="text-xs sm:text-sm" data-testid="tab-job-permits">Permits</TabsTrigger>
-              </TabsList>
-              <TabsContent value="details" className="space-y-4 mt-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Customer</p>
-                    <p className="font-medium">{selectedJob.customerName}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Phone</p>
-                    <p className="font-medium">{selectedJob.customerPhone}</p>
-                  </div>
-                  <div className="space-y-1 sm:col-span-2">
-                    <p className="text-sm text-muted-foreground">Address</p>
-                    <p className="font-medium">{selectedJob.address}, {selectedJob.city}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Service</p>
-                    <p className="font-medium">{selectedJob.serviceType}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Status</p>
-                    <Badge className={jobStatusConfig[selectedJob.status]?.color}>
-                      {jobStatusConfig[selectedJob.status]?.label || selectedJob.status}
-                    </Badge>
-                  </div>
-                  {selectedJob.scheduledDate && (
-                    <div className="space-y-1">
-                      <p className="text-sm text-muted-foreground">Scheduled</p>
-                      <p className="font-medium text-sm sm:text-base">
-                        {format(new Date(selectedJob.scheduledDate), "MMM d, yyyy")}
-                        {selectedJob.scheduledTimeStart && ` at ${selectedJob.scheduledTimeStart}`}
-                      </p>
-                    </div>
-                  )}
-                  {selectedJob.description && (
-                    <div className="space-y-1 sm:col-span-2">
-                      <p className="text-sm text-muted-foreground">Notes</p>
-                      <p className="text-sm">{selectedJob.description}</p>
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-              <TabsContent value="timeline" className="mt-4">
-                <JobTimeline job={selectedJob} />
-              </TabsContent>
-              <TabsContent value="chat" className="mt-4">
-                <JobChat jobId={selectedJob.id} jobCustomerName={selectedJob.customerName} userId={userId} />
-              </TabsContent>
-              <TabsContent value="permits" className="mt-4">
-                <PermitCenterCard jobId={selectedJob.id} />
-              </TabsContent>
-            </Tabs>
-          )}
-        </DialogContent>
-      </Dialog>
+      <RecordDetailPanel
+        open={detailsDialogOpen}
+        onOpenChange={setDetailsDialogOpen}
+        jobId={selectedJob?.id || null}
+        technicians={technicians}
+        canEdit={true}
+        userId={userId}
+      />
 
       <Dialog open={showCustomerSnapshot} onOpenChange={setShowCustomerSnapshot}>
         <DialogContent className="max-w-4xl w-[95vw] sm:w-full max-h-[80vh] overflow-y-auto">

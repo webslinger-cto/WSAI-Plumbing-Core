@@ -61,6 +61,67 @@ import { generateApplicationPDF, generateComparisonPDF, generateHouseCallProComp
 import { pushJobToBuilder1 } from "./services/builder1-integration";
 import { registerPermitRoutes } from "./modules/permits";
 import { registerCustomerRoutes } from "./modules/customers/routes";
+import type { Request } from "express";
+
+function computeFieldDiffs(oldObj: Record<string, unknown>, newUpdates: Record<string, unknown>): Record<string, { old: unknown; new: unknown }> {
+  const diffs: Record<string, { old: unknown; new: unknown }> = {};
+  const skipFields = ["updatedAt", "createdAt", "id"];
+  for (const key of Object.keys(newUpdates)) {
+    if (skipFields.includes(key)) continue;
+    const oldVal = oldObj[key as keyof typeof oldObj];
+    const newVal = newUpdates[key];
+    const oldStr = oldVal instanceof Date ? oldVal.toISOString() : JSON.stringify(oldVal);
+    const newStr = newVal instanceof Date ? (newVal as Date).toISOString() : JSON.stringify(newVal);
+    if (oldStr !== newStr) {
+      diffs[key] = { old: oldVal ?? null, new: newVal ?? null };
+    }
+  }
+  return diffs;
+}
+
+function buildAuditSummary(entityType: string, action: string, diffs: Record<string, { old: unknown; new: unknown }>): string {
+  const fields = Object.keys(diffs);
+  if (fields.length === 0) return `${action} ${entityType} (no changes)`;
+  if (fields.includes("status")) {
+    return `Changed ${entityType} status from "${diffs.status.old}" to "${diffs.status.new}"${fields.length > 1 ? ` and ${fields.length - 1} other field(s)` : ""}`;
+  }
+  if (fields.length <= 3) return `Updated ${entityType}: ${fields.join(", ")}`;
+  return `Updated ${entityType}: ${fields.slice(0, 3).join(", ")} and ${fields.length - 3} more`;
+}
+
+async function logAudit(
+  entityType: string,
+  entityId: string,
+  action: string,
+  changedFields: Record<string, { old: unknown; new: unknown }>,
+  req: Request,
+  summary?: string
+) {
+  try {
+    const user = (req as any).session?.passport?.user;
+    const userId = (req as any).user?.id || user || null;
+    let userName: string | null = null;
+    let userRole: string | null = null;
+    if (userId) {
+      const u = await storage.getUser(userId);
+      if (u) { userName = u.fullName || u.username; userRole = u.role; }
+    }
+    await storage.createAuditLog({
+      entityType,
+      entityId,
+      action,
+      userId,
+      userName,
+      userRole,
+      changedFields,
+      summary: summary || buildAuditSummary(entityType, action, changedFields),
+      ipAddress: req.ip || req.headers["x-forwarded-for"] as string || null,
+      userAgent: req.headers["user-agent"] || null,
+    });
+  } catch (err) {
+    console.error("Audit log error:", err);
+  }
+}
 
 // Helper: Notify all dispatchers about technician status changes
 async function notifyDispatchersOfStatusChange(
@@ -1233,9 +1294,24 @@ export async function registerRoutes(
   });
 
   app.patch("/api/leads/:id", async (req, res) => {
-    const lead = await storage.updateLead(req.params.id, req.body);
-    if (!lead) return res.status(404).json({ error: "Lead not found" });
-    res.json(lead);
+    try {
+      const oldLead = await storage.getLead(req.params.id);
+      if (!oldLead) return res.status(404).json({ error: "Lead not found" });
+
+      const lead = await storage.updateLead(req.params.id, req.body);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+      const diffs = computeFieldDiffs(oldLead as unknown as Record<string, unknown>, req.body);
+      if (Object.keys(diffs).length > 0) {
+        const action = diffs.status ? "status_change" : "update";
+        await logAudit("lead", req.params.id, action, diffs, req);
+      }
+
+      res.json(lead);
+    } catch (error) {
+      console.error("Error updating lead:", error);
+      res.status(500).json({ error: "Failed to update lead" });
+    }
   });
 
   // Mark lead as contacted and check SLA
@@ -1507,7 +1583,9 @@ export async function registerRoutes(
 
   app.patch("/api/jobs/:id", async (req, res) => {
     try {
-      // Convert timestamp strings to Date objects
+      const oldJob = await storage.getJob(req.params.id);
+      if (!oldJob) return res.status(404).json({ error: "Job not found" });
+
       const body = { ...req.body };
       const timestampFields = ['assignedAt', 'confirmedAt', 'enRouteAt', 'arrivedAt', 'startedAt', 'completedAt', 'cancelledAt'];
       timestampFields.forEach(field => {
@@ -1521,6 +1599,13 @@ export async function registerRoutes(
       
       const job = await storage.updateJob(req.params.id, body);
       if (!job) return res.status(404).json({ error: "Job not found" });
+
+      const diffs = computeFieldDiffs(oldJob as unknown as Record<string, unknown>, body);
+      if (Object.keys(diffs).length > 0) {
+        const action = diffs.status ? "status_change" : "update";
+        await logAudit("job", req.params.id, action, diffs, req);
+      }
+
       res.json(job);
     } catch (error) {
       console.error("Error updating job:", error);
@@ -2077,9 +2162,14 @@ Emergency Chicago Sewer Experts Team
       const originalQuote = await storage.getQuote(req.params.id);
       if (!originalQuote) return res.status(404).json({ error: "Quote not found" });
       
-      // Update the quote
       const quote = await storage.updateQuote(req.params.id, updates);
       if (!quote) return res.status(404).json({ error: "Quote not found" });
+
+      const quoteDiffs = computeFieldDiffs(originalQuote as unknown as Record<string, unknown>, updates);
+      if (Object.keys(quoteDiffs).length > 0) {
+        const quoteAction = quoteDiffs.status ? "status_change" : "update";
+        await logAudit("quote", req.params.id, quoteAction, quoteDiffs, req);
+      }
       
       // If status changed to 'accepted', automatically create a job
       if (updates.status === 'accepted' && originalQuote.status !== 'accepted') {
@@ -7591,6 +7681,36 @@ ${emailContent}
     } catch (error) {
       console.error("Error sending public chat message:", error);
       res.status(500).json({ error: "Failed to send message" });
+    }
+  });
+
+  // Audit Logs
+  app.get("/api/audit-logs", async (req, res) => {
+    try {
+      const entityType = req.query.entityType as string | undefined;
+      const entityId = req.query.entityId as string | undefined;
+      const limit = parseInt(req.query.limit as string) || 100;
+      
+      if (entityType && entityId) {
+        const logs = await storage.getAuditLogsByEntity(entityType, entityId);
+        return res.json(logs);
+      }
+      
+      const logs = await storage.getAuditLogs(limit);
+      res.json(logs);
+    } catch (error) {
+      console.error("Get audit logs error:", error);
+      res.status(500).json({ error: "Failed to get audit logs" });
+    }
+  });
+
+  app.post("/api/audit-logs", async (req, res) => {
+    try {
+      const log = await storage.createAuditLog(req.body);
+      res.json(log);
+    } catch (error) {
+      console.error("Create audit log error:", error);
+      res.status(500).json({ error: "Failed to create audit log" });
     }
   });
 

@@ -38,6 +38,7 @@ import {
   type ChatThreadParticipant, type InsertChatThreadParticipant,
   type ChatMessage, type InsertChatMessage,
   type ChatMagicSession, type InsertChatMagicSession,
+  type AuditLog, type InsertAuditLog,
   users, technicians, salespersons, salesCommissions, salespersonLocations,
   leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
@@ -45,6 +46,7 @@ import {
   timeEntries, payrollPeriods, payrollRecords, employeePayRates, jobLeadFees, jobRevenueEvents, companySettings, quoteLineItems,
   contentPacks, contentItems, jobMessages,
   chatThreads, chatThreadParticipants, chatMessages, chatMagicSessions, chatEmailNotifications,
+  auditLogs,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -406,6 +408,11 @@ export interface IStorage {
   getLastChatEmailNotificationByLead(leadId: string, customerIdentifier: string): Promise<Date | null>;
   updateChatEmailNotification(jobId: string, customerIdentifier: string): Promise<void>;
   updateChatEmailNotificationByLead(leadId: string, customerIdentifier: string): Promise<void>;
+
+  // Audit Logs
+  createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
+  getAuditLogsByEntity(entityType: string, entityId: string): Promise<AuditLog[]>;
+  getAuditLogs(limit?: number): Promise<AuditLog[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -1692,6 +1699,31 @@ export class MemStorage implements IStorage {
 
   async deleteChecklistTemplate(id: string): Promise<boolean> {
     return this.checklistTemplatesMap.delete(id);
+  }
+
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    return {
+      id: randomUUID(),
+      entityType: log.entityType,
+      entityId: log.entityId,
+      action: log.action,
+      userId: log.userId ?? null,
+      userName: log.userName ?? null,
+      userRole: log.userRole ?? null,
+      changedFields: log.changedFields ?? {},
+      summary: log.summary ?? null,
+      ipAddress: log.ipAddress ?? null,
+      userAgent: log.userAgent ?? null,
+      createdAt: new Date(),
+    };
+  }
+
+  async getAuditLogsByEntity(entityType: string, entityId: string): Promise<AuditLog[]> {
+    return [];
+  }
+
+  async getAuditLogs(limit: number = 100): Promise<AuditLog[]> {
+    return [];
   }
 }
 
@@ -3552,6 +3584,23 @@ export class DatabaseStorage implements IStorage {
         lastNotifiedAt: new Date()
       });
     }
+  }
+
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    const [result] = await db.insert(auditLogs).values(log).returning();
+    return result;
+  }
+
+  async getAuditLogsByEntity(entityType: string, entityId: string): Promise<AuditLog[]> {
+    return await db.select().from(auditLogs)
+      .where(and(eq(auditLogs.entityType, entityType), eq(auditLogs.entityId, entityId)))
+      .orderBy(desc(auditLogs.createdAt));
+  }
+
+  async getAuditLogs(limit: number = 100): Promise<AuditLog[]> {
+    return await db.select().from(auditLogs)
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(limit);
   }
 }
 

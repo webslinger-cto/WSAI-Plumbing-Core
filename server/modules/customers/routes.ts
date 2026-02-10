@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "../../db";
 import { chatThreads, chatThreadParticipants } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
+import { storage } from "../../storage";
 
 const customerCreateSchema = z.object({
   firstName: z.string().min(1),
@@ -99,12 +100,52 @@ export function registerCustomerRoutes(app: Express, { isAuthenticatedUser }: { 
     }
   });
 
-  app.patch("/api/customers/:id", isAuthenticatedUser, async (req, res) => {
+  app.patch("/api/customers/:id", isAuthenticatedUser, async (req: any, res) => {
     try {
+      const oldCustomer = await customerService.getById(req.params.id);
       const updated = await customerService.update(req.params.id, req.body);
       if (!updated) {
         return res.status(404).json({ error: "Customer not found" });
       }
+
+      if (oldCustomer) {
+        const skipFields = ["updatedAt", "createdAt", "id"];
+        const diffs: Record<string, { old: unknown; new: unknown }> = {};
+        for (const key of Object.keys(req.body)) {
+          if (skipFields.includes(key)) continue;
+          const oldVal = (oldCustomer as any)[key];
+          const newVal = req.body[key];
+          if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+            diffs[key] = { old: oldVal ?? null, new: newVal ?? null };
+          }
+        }
+        if (Object.keys(diffs).length > 0) {
+          try {
+            const userId = req.session?.passport?.user || null;
+            let userName: string | null = null;
+            let userRole: string | null = null;
+            if (userId) {
+              const u = await storage.getUser(userId);
+              if (u) { userName = u.fullName || u.username; userRole = u.role; }
+            }
+            await storage.createAuditLog({
+              entityType: "customer",
+              entityId: req.params.id,
+              action: "update",
+              userId,
+              userName,
+              userRole,
+              changedFields: diffs,
+              summary: `Updated customer: ${Object.keys(diffs).join(", ")}`,
+              ipAddress: req.ip || null,
+              userAgent: req.headers["user-agent"] || null,
+            });
+          } catch (auditErr) {
+            console.error("Customer audit log error:", auditErr);
+          }
+        }
+      }
+
       res.json(updated);
     } catch (error) {
       console.error("Customer update failed:", error);
