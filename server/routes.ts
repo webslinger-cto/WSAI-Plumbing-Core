@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { chatMagicSessions } from "@shared/schema";
+import { chatMagicSessions, payrollPeriods, payrollRecords } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import {
   insertLeadSchema,
@@ -36,6 +36,7 @@ import {
   type InsertLead,
 } from "@shared/schema";
 import { sendEmail, generateLeadAcknowledgmentEmail } from "./services/email";
+import { calculateTaxes } from "./taxCalculation";
 import { isWithinRadius } from "./geocoding";
 import { 
   autoContactLead, 
@@ -5765,6 +5766,152 @@ ${emailContent}
     } catch (error) {
       console.error("Error updating payroll record:", error);
       res.status(500).json({ error: "Failed to update payroll record" });
+    }
+  });
+
+  // ============================================
+  // PROCESS PAYROLL (bulk)
+  // ============================================
+
+  app.post("/api/payroll/process", async (req, res) => {
+    try {
+      const { startDate, endDate } = req.body;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: "startDate and endDate are required" });
+      }
+
+      const periodStart = new Date(startDate);
+      const periodEnd = new Date(endDate);
+
+      if (periodEnd <= periodStart) {
+        return res.status(400).json({ error: "endDate must be after startDate" });
+      }
+
+      const allTechnicians = await storage.getTechnicians();
+      const allJobs = await storage.getJobs();
+
+      const periodJobs = allJobs.filter(j => {
+        if (j.status !== "completed" || !j.completedAt) return false;
+        const completedAt = new Date(j.completedAt);
+        return completedAt >= periodStart && completedAt <= periodEnd;
+      });
+
+      const result = await db.transaction(async (tx) => {
+        const [period] = await tx.insert(payrollPeriods).values({
+          startDate: periodStart,
+          endDate: periodEnd,
+          status: "processing",
+          processedAt: new Date(),
+          processedBy: (req as any).user?.id || null,
+        }).returning();
+
+        const records: any[] = [];
+
+        for (const tech of allTechnicians) {
+          const techJobs = periodJobs.filter(j => j.assignedTechnicianId === tech.id);
+          if (techJobs.length === 0) continue;
+
+          const hourlyRate = parseFloat(String(tech.hourlyRate)) || 25;
+          const commissionRate = parseFloat(String(tech.commissionRate)) || 0.1;
+          const emergencyMultiplier = parseFloat(String(tech.emergencyRate)) || 1.5;
+
+          let regularHours = 0;
+          let overtimeHours = 0;
+
+          techJobs.forEach(job => {
+            if (job.startedAt && job.completedAt) {
+              const started = new Date(job.startedAt);
+              const completed = new Date(job.completedAt);
+              const hours = (completed.getTime() - started.getTime()) / (1000 * 60 * 60);
+              const isEmergency = job.priority === "urgent" || job.priority === "high";
+              if (isEmergency) {
+                overtimeHours += hours;
+              } else {
+                regularHours += hours;
+              }
+            } else if (job.estimatedDuration) {
+              regularHours += job.estimatedDuration / 60;
+            }
+          });
+
+          const totalRevenue = techJobs.reduce((sum, j) => sum + (parseFloat(String(j.totalRevenue)) || 0), 0);
+          const regularPay = regularHours * hourlyRate;
+          const overtimePay = overtimeHours * hourlyRate * emergencyMultiplier;
+          const commissionPay = totalRevenue * commissionRate;
+          const leadFeeDeductions = techJobs.length * 125;
+          const grossPay = regularPay + overtimePay + commissionPay;
+
+          let payRate = null;
+          if (tech.userId) {
+            payRate = await storage.getActiveEmployeePayRate(tech.userId);
+          }
+          const employmentType = payRate?.employmentType === "salary" ? "salary" : "hourly";
+
+          const taxResult = calculateTaxes({
+            grossPay,
+            employmentType,
+            residenceState: "IL",
+            filingStatus: "single",
+          });
+
+          const totalDeductions = leadFeeDeductions;
+          const netPay = grossPay - taxResult.totalTax - totalDeductions;
+          const userId = tech.userId || tech.id;
+
+          const [record] = await tx.insert(payrollRecords).values({
+            userId,
+            technicianId: tech.id,
+            periodId: period.id,
+            employmentType,
+            regularHours: String(Math.round(regularHours * 100) / 100),
+            overtimeHours: String(Math.round(overtimeHours * 100) / 100),
+            hourlyRate: String(hourlyRate),
+            overtimeRate: String(Math.round(hourlyRate * emergencyMultiplier * 100) / 100),
+            regularPay: String(Math.round(regularPay * 100) / 100),
+            overtimePay: String(Math.round(overtimePay * 100) / 100),
+            commissionPay: String(Math.round(commissionPay * 100) / 100),
+            bonusPay: "0",
+            leadFeeDeductions: String(leadFeeDeductions),
+            materialDeductions: "0",
+            permitDeductions: "0",
+            deductions: String(totalDeductions),
+            federalTax: String(taxResult.federalTax),
+            stateTax: String(taxResult.stateTax),
+            socialSecurity: String(taxResult.socialSecurity),
+            medicare: String(taxResult.medicare),
+            grossPay: String(Math.round(grossPay * 100) / 100),
+            netPay: String(Math.round(netPay * 100) / 100),
+            isPaid: false,
+          }).returning();
+
+          records.push({
+            ...record,
+            technicianName: tech.fullName,
+            jobsInPeriod: techJobs.length,
+            totalRevenue,
+          });
+        }
+
+        await tx.update(payrollPeriods)
+          .set({ status: "closed" })
+          .where(eq(payrollPeriods.id, period.id));
+
+        return {
+          period: { ...period, status: "closed" },
+          records,
+          summary: {
+            totalEmployees: records.length,
+            totalGrossPay: records.reduce((s: number, r: any) => s + parseFloat(r.grossPay), 0),
+            totalNetPay: records.reduce((s: number, r: any) => s + parseFloat(r.netPay), 0),
+            totalJobs: periodJobs.length,
+          },
+        };
+      });
+
+      res.status(201).json(result);
+    } catch (error) {
+      console.error("Error processing payroll:", error);
+      res.status(500).json({ error: "Failed to process payroll" });
     }
   });
 

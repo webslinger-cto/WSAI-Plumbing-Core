@@ -23,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   DollarSign,
@@ -35,10 +36,15 @@ import {
   FileText,
   Receipt,
   Percent,
+  CheckCircle,
+  History,
+  AlertCircle,
+  Loader2,
+  Calendar,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Technician, Job, User, JobRevenueEvent, SalesCommission, Salesperson } from "@shared/schema";
+import type { Technician, Job, User, JobRevenueEvent, SalesCommission, Salesperson, PayrollPeriod, PayrollRecord } from "@shared/schema";
 
 interface TimeEntry {
   id: number;
@@ -50,28 +56,6 @@ interface TimeEntry {
   status: string;
 }
 
-interface PayrollRecord {
-  id: number;
-  employeeName: string;
-  periodStart: string;
-  periodEnd: string;
-  grossPay: number;
-  deductions: number;
-  netPay: number;
-  status: string;
-}
-
-interface LeadFee {
-  id: number;
-  technicianName: string;
-  jobId: number;
-  customerName: string;
-  feeAmount: number;
-  deductedAt: string | null;
-  status: string;
-}
-
-// Tax rate constants
 const TAX_RATES = {
   federal: 22,
   state: 4.95,
@@ -83,7 +67,20 @@ export default function PayrollPage() {
   const [activeTab, setActiveTab] = useState("timesheet");
   const [isClockInDialogOpen, setIsClockInDialogOpen] = useState(false);
   const [isSetRateDialogOpen, setIsSetRateDialogOpen] = useState(false);
+  const [isProcessDialogOpen, setIsProcessDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState("");
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null);
+  const [processDateRange, setProcessDateRange] = useState(() => {
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay() - 7);
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    return {
+      startDate: startOfWeek.toISOString().split("T")[0],
+      endDate: endOfWeek.toISOString().split("T")[0],
+    };
+  });
   const [newRate, setNewRate] = useState({
     employeeId: "",
     type: "1099 Hourly",
@@ -109,61 +106,104 @@ export default function PayrollPage() {
     queryKey: ["/api/payroll/time-entries"],
   });
 
-  // Fetch job revenue events for analytics integration
   const { data: revenueEvents = [] } = useQuery<JobRevenueEvent[]>({
     queryKey: ["/api/revenue-events"],
   });
 
-  // Fetch sales commissions for payroll integration
   const { data: salesCommissions = [] } = useQuery<SalesCommission[]>({
     queryKey: ["/api/sales-commissions"],
   });
 
-  // Fetch salespersons for commission display
   const { data: salespersons = [] } = useQuery<Salesperson[]>({
     queryKey: ["/api/salespersons"],
   });
 
-  // Calculate payroll data per technician (restored from original logic)
+  const { data: payrollPeriods = [] } = useQuery<PayrollPeriod[]>({
+    queryKey: ["/api/payroll/periods"],
+  });
+
+  const { data: periodRecords = [] } = useQuery<PayrollRecord[]>({
+    queryKey: ["/api/payroll/records", selectedPeriodId ? { periodId: selectedPeriodId } : undefined],
+    queryFn: async () => {
+      if (!selectedPeriodId) return [];
+      const res = await fetch(`/api/payroll/records?periodId=${selectedPeriodId}`);
+      if (!res.ok) throw new Error("Failed to fetch records");
+      return res.json();
+    },
+    enabled: !!selectedPeriodId,
+  });
+
+  const processPayrollMutation = useMutation({
+    mutationFn: async (data: { startDate: string; endDate: string }) => {
+      const res = await apiRequest("POST", "/api/payroll/process", data);
+      return res.json();
+    },
+    onSuccess: (result) => {
+      toast({
+        title: "Payroll Processed",
+        description: `Generated ${result.summary.totalEmployees} payroll records for ${result.summary.totalJobs} jobs. Total gross: $${result.summary.totalGrossPay.toFixed(2)}`,
+      });
+      setIsProcessDialogOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll/periods"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll/records"] });
+      setActiveTab("history");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Processing Failed",
+        description: error.message || "Failed to process payroll",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const markPaidMutation = useMutation({
+    mutationFn: async (recordId: string) => {
+      const res = await apiRequest("PATCH", `/api/payroll/records/${recordId}`, {
+        isPaid: true,
+        paidAt: new Date().toISOString(),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Marked as Paid" });
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll/records"] });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to mark as paid", variant: "destructive" });
+    },
+  });
+
   const payrollData = useMemo(() => {
     const completedJobs = jobs.filter(j => j.status === "completed");
-    
     return technicians.map((tech) => {
       const techJobs = completedJobs.filter(j => j.assignedTechnicianId === tech.id);
       const hourlyRate = parseFloat(String(tech.hourlyRate)) || 25;
       const commissionRate = parseFloat(String(tech.commissionRate)) || 0.1;
       const emergencyRate = parseFloat(String(tech.emergencyRate)) || 1.5;
-
       let totalHoursWorked = 0;
       let emergencyHoursWorked = 0;
-
       techJobs.forEach((job) => {
         if (job.startedAt && job.completedAt) {
           const started = new Date(job.startedAt);
           const completed = new Date(job.completedAt);
           const hours = (completed.getTime() - started.getTime()) / (1000 * 60 * 60);
-          
           const isEmergency = job.priority === "urgent" || job.priority === "high";
-          if (isEmergency) {
-            emergencyHoursWorked += hours;
-          }
+          if (isEmergency) emergencyHoursWorked += hours;
           totalHoursWorked += hours;
         } else if (job.estimatedDuration) {
           totalHoursWorked += job.estimatedDuration / 60;
         }
       });
-
       const totalRevenue = techJobs.reduce((sum, j) => sum + (parseFloat(String(j.totalRevenue)) || 0), 0);
       const regularHours = totalHoursWorked - emergencyHoursWorked;
       const regularPay = regularHours * hourlyRate;
       const emergencyPay = emergencyHoursWorked * hourlyRate * emergencyRate;
       const commissionEarned = totalRevenue * commissionRate;
-      const leadFees = techJobs.length * 125; // $125 per job
-      
+      const leadFees = techJobs.length * 125;
       const grossPay = regularPay + emergencyPay + commissionEarned;
       const estimatedTax = grossPay * 0.22;
       const netPay = grossPay - estimatedTax - leadFees;
-
       return {
         technicianId: tech.id,
         technicianName: tech.fullName,
@@ -185,18 +225,14 @@ export default function PayrollPage() {
     });
   }, [technicians, jobs]);
 
-  // Calculate stats from real payroll data
   const stats = useMemo(() => {
     const totalPayroll = payrollData.reduce((sum, p) => sum + p.grossPay, 0);
     const totalHours = payrollData.reduce((sum, p) => sum + p.totalHours, 0);
-    
-    // Pending = entries from time entries not processed yet
     const pendingHours = timeEntries.filter(e => e.status === "pending").reduce((sum, e) => sum + (e.hoursWorked || 0), 0);
-    const avgHourlyRate = technicians.length > 0 
-      ? technicians.reduce((sum, t) => sum + (parseFloat(String(t.hourlyRate)) || 25), 0) / technicians.length 
+    const avgHourlyRate = technicians.length > 0
+      ? technicians.reduce((sum, t) => sum + (parseFloat(String(t.hourlyRate)) || 25), 0) / technicians.length
       : 25;
     const pendingPayroll = pendingHours * avgHourlyRate;
-
     return {
       totalPayroll: Math.round(totalPayroll * 100) / 100,
       pendingPayroll: Math.round(pendingPayroll * 100) / 100,
@@ -205,7 +241,6 @@ export default function PayrollPage() {
     };
   }, [payrollData, timeEntries, technicians]);
 
-  // Get employee pay rates from users/technicians
   const employeePayRates = useMemo(() => {
     return technicians.map(tech => ({
       id: tech.id,
@@ -220,31 +255,16 @@ export default function PayrollPage() {
     }));
   }, [technicians]);
 
-  // Calculate job revenue by technician - use revenue events exclusively to avoid double counting
   const jobRevenue = useMemo(() => {
     const revenueByTech: Record<string, { name: string; jobs: number; revenue: number; labor: number; materials: number; netProfit: number; commission: number }> = {};
-    
-    // Track job IDs that have revenue events to avoid double counting
     const eventJobIds = new Set(revenueEvents.map(e => e.jobId));
-    
-    // First add data from revenue events (authoritative source)
     revenueEvents.forEach(event => {
       const techId = event.technicianId;
       const tech = technicians.find(t => t.id === techId);
       if (!tech) return;
-      
       if (!revenueByTech[techId]) {
-        revenueByTech[techId] = {
-          name: tech.fullName,
-          jobs: 0,
-          revenue: 0,
-          labor: 0,
-          materials: 0,
-          netProfit: 0,
-          commission: 0,
-        };
+        revenueByTech[techId] = { name: tech.fullName, jobs: 0, revenue: 0, labor: 0, materials: 0, netProfit: 0, commission: 0 };
       }
-      
       revenueByTech[techId].jobs++;
       revenueByTech[techId].revenue += parseFloat(String(event.totalRevenue)) || 0;
       revenueByTech[techId].labor += parseFloat(String(event.laborCost)) || 0;
@@ -252,27 +272,14 @@ export default function PayrollPage() {
       revenueByTech[techId].netProfit += parseFloat(String(event.netProfit)) || 0;
       revenueByTech[techId].commission += parseFloat(String(event.commissionAmount)) || 0;
     });
-    
-    // Add fallback data from jobs that DON'T have revenue events (older jobs)
     jobs.filter(j => j.status === "completed" && !eventJobIds.has(j.id)).forEach(job => {
       const techId = job.assignedTechnicianId;
       if (!techId) return;
-      
       const tech = technicians.find(t => t.id === techId);
       if (!tech) return;
-      
       if (!revenueByTech[techId]) {
-        revenueByTech[techId] = {
-          name: tech.fullName,
-          jobs: 0,
-          revenue: 0,
-          labor: 0,
-          materials: 0,
-          netProfit: 0,
-          commission: 0,
-        };
+        revenueByTech[techId] = { name: tech.fullName, jobs: 0, revenue: 0, labor: 0, materials: 0, netProfit: 0, commission: 0 };
       }
-      
       const revenue = parseFloat(String(job.totalRevenue)) || 0;
       const labor = parseFloat(String(job.laborCost)) || 0;
       const materials = parseFloat(String(job.materialsCost)) || 0;
@@ -282,51 +289,39 @@ export default function PayrollPage() {
       const totalCost = labor + materials + travel + equipment + other;
       const netProfit = revenue - totalCost;
       const commissionRate = parseFloat(String(tech.commissionRate)) || 0.1;
-      
       revenueByTech[techId].jobs++;
       revenueByTech[techId].revenue += revenue;
-      revenueByTech[techId].labor += labor + travel + equipment + other; // Include all labor-related costs
+      revenueByTech[techId].labor += labor + travel + equipment + other;
       revenueByTech[techId].materials += materials;
       revenueByTech[techId].netProfit += netProfit;
       revenueByTech[techId].commission += netProfit > 0 ? netProfit * commissionRate : 0;
     });
-    
-    return Object.entries(revenueByTech).map(([id, data]) => ({
-      id,
-      ...data,
-    }));
+    return Object.entries(revenueByTech).map(([id, data]) => ({ id, ...data }));
   }, [jobs, technicians, revenueEvents]);
 
-  // Calculate sales commission summary (for salespersons)
   const salesCommissionSummary = useMemo(() => {
     const bySalesperson: Record<string, { name: string; jobs: number; revenue: number; netProfit: number; commission: number; pending: number; paid: number }> = {};
-    
     salesCommissions.forEach(comm => {
       const spId = comm.salespersonId;
       const salesperson = salespersons.find(s => s.id === spId);
       const name = salesperson?.fullName || "Unknown";
-      
       if (!bySalesperson[spId]) {
         bySalesperson[spId] = { name, jobs: 0, revenue: 0, netProfit: 0, commission: 0, pending: 0, paid: 0 };
       }
-      
       const amount = parseFloat(String(comm.commissionAmount)) || 0;
       bySalesperson[spId].jobs++;
       bySalesperson[spId].revenue += parseFloat(String(comm.jobRevenue)) || 0;
       bySalesperson[spId].netProfit += parseFloat(String(comm.netProfit)) || 0;
       bySalesperson[spId].commission += amount;
-      
       if (comm.status === "paid") {
         bySalesperson[spId].paid += amount;
       } else {
         bySalesperson[spId].pending += amount;
       }
     });
-    
     return Object.entries(bySalesperson).map(([id, data]) => ({ id, ...data }));
   }, [salesCommissions, salespersons]);
 
-  // Total commission amounts for display
   const totalCommissions = useMemo(() => {
     const techCommissions = payrollData.reduce((sum, p) => sum + p.commissionEarned, 0);
     const salesPending = salesCommissions.filter(c => c.status === "pending").reduce((sum, c) => sum + parseFloat(String(c.commissionAmount) || "0"), 0);
@@ -339,7 +334,6 @@ export default function PayrollPage() {
     };
   }, [payrollData, salesCommissions]);
 
-  // Lead fees (mock data based on jobs)
   const leadFees = useMemo(() => {
     return jobs
       .filter(j => j.status === "completed" && j.assignedTechnicianId)
@@ -360,63 +354,47 @@ export default function PayrollPage() {
 
   const handleClockIn = () => {
     if (!selectedEmployee) {
-      toast({
-        title: "Error",
-        description: "Please select an employee",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Please select an employee", variant: "destructive" });
       return;
     }
-    
-    toast({
-      title: "Clocked In",
-      description: `Employee clocked in successfully`,
-    });
+    toast({ title: "Clocked In", description: "Employee clocked in successfully" });
     setIsClockInDialogOpen(false);
     setSelectedEmployee("");
   };
 
   const handleSetRate = () => {
-    toast({
-      title: "Rate Updated",
-      description: "Employee pay rate has been updated",
-    });
+    toast({ title: "Rate Updated", description: "Employee pay rate has been updated" });
     setIsSetRateDialogOpen(false);
-    setNewRate({
-      employeeId: "",
-      type: "1099 Hourly",
-      hourlyRate: "25.00",
-      salary: "",
-      commission: "10",
-    });
+    setNewRate({ employeeId: "", type: "1099 Hourly", hourlyRate: "25.00", salary: "", commission: "10" });
+  };
+
+  const handleProcessPayroll = () => {
+    if (!processDateRange.startDate || !processDateRange.endDate) {
+      toast({ title: "Error", description: "Please select both start and end dates", variant: "destructive" });
+      return;
+    }
+    processPayrollMutation.mutate(processDateRange);
   };
 
   const getAvatarColor = (name: string) => {
     const colors = [
-      "bg-red-500",
-      "bg-sky-500",
-      "bg-amber-500",
-      "bg-yellow-500",
-      "bg-lime-500",
-      "bg-green-500",
-      "bg-emerald-500",
-      "bg-teal-500",
-      "bg-cyan-500",
-      "bg-sky-500",
-      "bg-blue-500",
-      "bg-indigo-500",
-      "bg-violet-500",
-      "bg-purple-500",
-      "bg-fuchsia-500",
-      "bg-pink-500",
+      "bg-red-500", "bg-sky-500", "bg-amber-500", "bg-yellow-500",
+      "bg-lime-500", "bg-green-500", "bg-emerald-500", "bg-teal-500",
+      "bg-cyan-500", "bg-sky-500", "bg-blue-500", "bg-indigo-500",
+      "bg-violet-500", "bg-purple-500", "bg-fuchsia-500", "bg-pink-500",
     ];
     const index = name.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
     return colors[index];
   };
 
+  const getTechName = (techId: string | null) => {
+    if (!techId) return "Unknown";
+    const tech = technicians.find(t => t.id === techId);
+    return tech?.fullName || "Unknown";
+  };
+
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight" data-testid="text-payroll-title">
@@ -427,22 +405,24 @@ export default function PayrollPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={() => setIsClockInDialogOpen(true)}
             data-testid="button-clock-in-employee"
           >
             <Play className="w-4 h-4 mr-2" />
             Clock In Employee
           </Button>
-          <Button data-testid="button-process-payroll">
+          <Button
+            onClick={() => setIsProcessDialogOpen(true)}
+            data-testid="button-process-payroll"
+          >
             <CreditCard className="w-4 h-4 mr-2" />
             Process Payroll
           </Button>
         </div>
       </div>
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="bg-card">
           <CardContent className="pt-6">
@@ -513,7 +493,6 @@ export default function PayrollPage() {
         </Card>
       </div>
 
-      {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="bg-muted/50">
           <TabsTrigger value="timesheet" data-testid="tab-timesheet">
@@ -526,7 +505,11 @@ export default function PayrollPage() {
           </TabsTrigger>
           <TabsTrigger value="records" data-testid="tab-records">
             <FileText className="w-4 h-4 mr-2" />
-            Payroll Records
+            Payroll Summary
+          </TabsTrigger>
+          <TabsTrigger value="history" data-testid="tab-history">
+            <History className="w-4 h-4 mr-2" />
+            Processed Payroll
           </TabsTrigger>
           <TabsTrigger value="payrates" data-testid="tab-payrates">
             <DollarSign className="w-4 h-4 mr-2" />
@@ -538,7 +521,6 @@ export default function PayrollPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Time Sheet Tab */}
         <TabsContent value="timesheet" className="space-y-4">
           <Card>
             <CardHeader>
@@ -573,8 +555,8 @@ export default function PayrollPage() {
                           <TableCell className="font-medium">{entry.userName}</TableCell>
                           <TableCell>{new Date(entry.clockInTime).toLocaleString()}</TableCell>
                           <TableCell>
-                            {entry.clockOutTime 
-                              ? new Date(entry.clockOutTime).toLocaleString() 
+                            {entry.clockOutTime
+                              ? new Date(entry.clockOutTime).toLocaleString()
                               : <Badge variant="outline">Active</Badge>
                             }
                           </TableCell>
@@ -594,14 +576,13 @@ export default function PayrollPage() {
           </Card>
         </TabsContent>
 
-        {/* Job Revenue Tab - Linked to Analytics */}
         <TabsContent value="jobrevenue" className="space-y-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4">
               <div>
                 <CardTitle>Revenue by Technician</CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
-                  {revenueEvents.length > 0 
+                  {revenueEvents.length > 0
                     ? `Linked to ${revenueEvents.length} revenue events from analytics`
                     : "Using job data (create revenue events for full tracking)"}
                 </p>
@@ -658,7 +639,6 @@ export default function PayrollPage() {
             </CardContent>
           </Card>
 
-          {/* Sales Commissions Section */}
           {salesCommissionSummary.length > 0 && (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-4">
@@ -707,7 +687,6 @@ export default function PayrollPage() {
           )}
         </TabsContent>
 
-        {/* Payroll Records Tab - Shows technician payroll summary */}
         <TabsContent value="records" className="space-y-4">
           <Card>
             <CardHeader>
@@ -719,9 +698,9 @@ export default function PayrollPage() {
                   <div className="p-4 rounded-full bg-muted mb-4">
                     <FileText className="w-8 h-8 text-muted-foreground" />
                   </div>
-                  <h3 className="text-lg font-medium">No payroll records</h3>
+                  <h3 className="text-lg font-medium">No payroll data</h3>
                   <p className="text-muted-foreground mt-1">
-                    Payroll records will appear here after processing
+                    Data will appear here as technicians complete jobs
                   </p>
                 </div>
               ) : (
@@ -790,13 +769,202 @@ export default function PayrollPage() {
           </Card>
         </TabsContent>
 
-        {/* Pay Rates Tab */}
+        <TabsContent value="history" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <div>
+                <CardTitle>Processed Payroll Periods</CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  View and manage processed payroll runs
+                </p>
+              </div>
+              <Badge variant="secondary">
+                {payrollPeriods.length} period{payrollPeriods.length !== 1 ? "s" : ""}
+              </Badge>
+            </CardHeader>
+            <CardContent>
+              {payrollPeriods.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="p-4 rounded-full bg-muted mb-4">
+                    <History className="w-8 h-8 text-muted-foreground" />
+                  </div>
+                  <h3 className="text-lg font-medium">No payroll history</h3>
+                  <p className="text-muted-foreground mt-1">
+                    Click "Process Payroll" to run your first payroll period
+                  </p>
+                  <Button
+                    className="mt-4"
+                    onClick={() => setIsProcessDialogOpen(true)}
+                    data-testid="button-process-payroll-empty"
+                  >
+                    <CreditCard className="w-4 h-4 mr-2" />
+                    Process Payroll
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Period</TableHead>
+                          <TableHead>Processed</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {payrollPeriods.map((period) => (
+                          <TableRow
+                            key={period.id}
+                            className={selectedPeriodId === period.id ? "bg-muted/50" : ""}
+                            data-testid={`row-period-${period.id}`}
+                          >
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-2">
+                                <Calendar className="w-4 h-4 text-muted-foreground" />
+                                {new Date(period.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                {" - "}
+                                {new Date(period.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {period.processedAt
+                                ? new Date(period.processedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })
+                                : "—"}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={period.status === "closed" ? "default" : "secondary"}
+                                className={period.status === "closed" ? "bg-green-500/10 text-green-500 border-green-500/30" : ""}
+                              >
+                                {period.status === "closed" ? "Completed" : period.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setSelectedPeriodId(selectedPeriodId === period.id ? null : period.id)}
+                                data-testid={`button-view-period-${period.id}`}
+                              >
+                                {selectedPeriodId === period.id ? "Hide Records" : "View Records"}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {selectedPeriodId && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Payroll Records for Selected Period</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {periodRecords.length === 0 ? (
+                          <p className="text-muted-foreground text-center py-6">No records found for this period</p>
+                        ) : (
+                          <div className="rounded-md border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Employee</TableHead>
+                                  <TableHead>Type</TableHead>
+                                  <TableHead className="text-right">Reg Hrs</TableHead>
+                                  <TableHead className="text-right">OT Hrs</TableHead>
+                                  <TableHead className="text-right">Reg Pay</TableHead>
+                                  <TableHead className="text-right">OT Pay</TableHead>
+                                  <TableHead className="text-right">Commission</TableHead>
+                                  <TableHead className="text-right">Lead Fees</TableHead>
+                                  <TableHead className="text-right">Tax</TableHead>
+                                  <TableHead className="text-right">Gross</TableHead>
+                                  <TableHead className="text-right">Net Pay</TableHead>
+                                  <TableHead>Status</TableHead>
+                                  <TableHead className="text-right">Actions</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {periodRecords.map((record) => {
+                                  const totalTax = parseFloat(String(record.federalTax || 0))
+                                    + parseFloat(String(record.stateTax || 0))
+                                    + parseFloat(String(record.socialSecurity || 0))
+                                    + parseFloat(String(record.medicare || 0));
+                                  return (
+                                    <TableRow key={record.id} data-testid={`row-record-${record.id}`}>
+                                      <TableCell>
+                                        <div className="flex items-center gap-2">
+                                          <Avatar className="h-7 w-7">
+                                            <AvatarFallback className={getAvatarColor(getTechName(record.technicianId))}>
+                                              {getTechName(record.technicianId).split(" ").map(n => n[0]).join("").toUpperCase()}
+                                            </AvatarFallback>
+                                          </Avatar>
+                                          <span className="font-medium text-sm">{getTechName(record.technicianId)}</span>
+                                        </div>
+                                      </TableCell>
+                                      <TableCell>
+                                        <Badge variant="outline" className="text-xs">
+                                          {record.employmentType === "hourly" ? "1099" : "W2"}
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell className="text-right">{parseFloat(String(record.regularHours || 0)).toFixed(1)}</TableCell>
+                                      <TableCell className="text-right">{parseFloat(String(record.overtimeHours || 0)).toFixed(1)}</TableCell>
+                                      <TableCell className="text-right">${parseFloat(String(record.regularPay || 0)).toFixed(2)}</TableCell>
+                                      <TableCell className="text-right">${parseFloat(String(record.overtimePay || 0)).toFixed(2)}</TableCell>
+                                      <TableCell className="text-right text-green-500">${parseFloat(String(record.commissionPay || 0)).toFixed(2)}</TableCell>
+                                      <TableCell className="text-right text-red-500">-${parseFloat(String(record.leadFeeDeductions || 0)).toFixed(2)}</TableCell>
+                                      <TableCell className="text-right text-red-500">-${totalTax.toFixed(2)}</TableCell>
+                                      <TableCell className="text-right font-medium">${parseFloat(String(record.grossPay)).toFixed(2)}</TableCell>
+                                      <TableCell className="text-right font-bold text-green-500">${parseFloat(String(record.netPay)).toFixed(2)}</TableCell>
+                                      <TableCell>
+                                        {record.isPaid ? (
+                                          <Badge className="bg-green-500/10 text-green-500 border-green-500/30">
+                                            <CheckCircle className="w-3 h-3 mr-1" />
+                                            Paid
+                                          </Badge>
+                                        ) : (
+                                          <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/30">
+                                            Unpaid
+                                          </Badge>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        {!record.isPaid && (
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => markPaidMutation.mutate(record.id)}
+                                            disabled={markPaidMutation.isPending}
+                                            data-testid={`button-mark-paid-${record.id}`}
+                                          >
+                                            <CheckCircle className="w-3 h-3 mr-1" />
+                                            Mark Paid
+                                          </Button>
+                                        )}
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="payrates" className="space-y-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4">
               <CardTitle>Employee Pay Rates</CardTitle>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => setIsSetRateDialogOpen(true)}
                 data-testid="button-set-rate"
               >
@@ -805,7 +973,6 @@ export default function PayrollPage() {
               </Button>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Tax Rates Section */}
               <div className="p-4 bg-muted/30 rounded-lg">
                 <p className="text-sm text-muted-foreground mb-3">Tax Rates (W2 Employees Only)</p>
                 <div className="flex flex-wrap gap-x-8 gap-y-2">
@@ -828,7 +995,6 @@ export default function PayrollPage() {
                 </div>
               </div>
 
-              {/* Employee Table */}
               {employeePayRates.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <div className="p-4 rounded-full bg-muted mb-4">
@@ -875,7 +1041,7 @@ export default function PayrollPage() {
                             ${employee.hourlyRate.toFixed(2)}/hr
                           </TableCell>
                           <TableCell className="text-right text-muted-foreground">
-                            {employee.salary ? `$${employee.salary.toLocaleString()}` : "—"}
+                            {employee.salary ? `$${employee.salary.toLocaleString()}` : "\u2014"}
                           </TableCell>
                           <TableCell className="text-right">
                             {employee.commission}%
@@ -888,10 +1054,10 @@ export default function PayrollPage() {
                             })}
                           </TableCell>
                           <TableCell>
-                            <Badge 
-                              variant="outline" 
-                              className={employee.status === "Active" 
-                                ? "bg-green-500/10 text-green-500 border-green-500/30" 
+                            <Badge
+                              variant="outline"
+                              className={employee.status === "Active"
+                                ? "bg-green-500/10 text-green-500 border-green-500/30"
                                 : "bg-muted text-muted-foreground"
                               }
                             >
@@ -908,7 +1074,6 @@ export default function PayrollPage() {
           </Card>
         </TabsContent>
 
-        {/* Lead Fees Tab */}
         <TabsContent value="leadfees" className="space-y-4">
           <Card>
             <CardHeader>
@@ -953,13 +1118,13 @@ export default function PayrollPage() {
                             -${fee.feeAmount}
                           </TableCell>
                           <TableCell>
-                            {fee.deductedAt 
+                            {fee.deductedAt
                               ? new Date(fee.deductedAt).toLocaleDateString()
-                              : "—"
+                              : "\u2014"
                             }
                           </TableCell>
                           <TableCell>
-                            <Badge 
+                            <Badge
                               variant="outline"
                               className={fee.status === "Deducted"
                                 ? "bg-green-500/10 text-green-500 border-green-500/30"
@@ -980,7 +1145,6 @@ export default function PayrollPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Clock In Employee Dialog */}
       <Dialog open={isClockInDialogOpen} onOpenChange={setIsClockInDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -1015,7 +1179,6 @@ export default function PayrollPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Set Rate Dialog */}
       <Dialog open={isSetRateDialogOpen} onOpenChange={setIsSetRateDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -1024,8 +1187,8 @@ export default function PayrollPage() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>Employee</Label>
-              <Select 
-                value={newRate.employeeId} 
+              <Select
+                value={newRate.employeeId}
                 onValueChange={(v) => setNewRate({...newRate, employeeId: v})}
               >
                 <SelectTrigger data-testid="select-rate-employee">
@@ -1042,8 +1205,8 @@ export default function PayrollPage() {
             </div>
             <div className="space-y-2">
               <Label>Employment Type</Label>
-              <Select 
-                value={newRate.type} 
+              <Select
+                value={newRate.type}
                 onValueChange={(v) => setNewRate({...newRate, type: v})}
               >
                 <SelectTrigger data-testid="select-rate-type">
@@ -1091,6 +1254,88 @@ export default function PayrollPage() {
             </Button>
             <Button onClick={handleSetRate} data-testid="button-save-rate">
               Save Rate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isProcessDialogOpen} onOpenChange={setIsProcessDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Process Payroll</DialogTitle>
+            <DialogDescription>
+              Select a date range to calculate payroll for all technicians with completed jobs in that period.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Period Start</Label>
+                <Input
+                  type="date"
+                  value={processDateRange.startDate}
+                  onChange={(e) => setProcessDateRange({...processDateRange, startDate: e.target.value})}
+                  data-testid="input-period-start"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Period End</Label>
+                <Input
+                  type="date"
+                  value={processDateRange.endDate}
+                  onChange={(e) => setProcessDateRange({...processDateRange, endDate: e.target.value})}
+                  data-testid="input-period-end"
+                />
+              </div>
+            </div>
+            <div className="p-4 bg-muted/30 rounded-lg space-y-2">
+              <p className="text-sm font-medium">What this will do:</p>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                  Create a payroll period for the selected date range
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                  Calculate hours, pay, commissions for each technician
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                  Apply tax calculations (1099 vs W2)
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                  Deduct $125 lead fee per completed job
+                </li>
+              </ul>
+            </div>
+            {processPayrollMutation.isError && (
+              <div className="p-3 bg-destructive/10 text-destructive rounded-lg flex items-center gap-2 text-sm">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                {(processPayrollMutation.error as any)?.message || "Failed to process payroll. Please try again."}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsProcessDialogOpen(false)} disabled={processPayrollMutation.isPending}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleProcessPayroll}
+              disabled={processPayrollMutation.isPending}
+              data-testid="button-confirm-process-payroll"
+            >
+              {processPayrollMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Process Payroll
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
