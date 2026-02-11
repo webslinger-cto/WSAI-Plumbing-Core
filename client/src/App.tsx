@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Crown, Eye, User, Bell } from "lucide-react";
+import { Crown, Eye, User, Bell, CheckCheck } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import type { Notification } from "@shared/schema";
 import AppSidebar from "@/components/AppSidebar";
@@ -67,7 +67,7 @@ interface AuthState {
   isSuperAdmin: boolean;
 }
 
-function AdminRouter() {
+function AdminRouter({ userId, fullName }: { userId: string; fullName: string }) {
   return (
     <Switch>
       <Route path="/" component={AdminDashboard} />
@@ -88,6 +88,7 @@ function AdminRouter() {
       <Route path="/outreach" component={OutreachPage} />
       <Route path="/export" component={ExportPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/chat">{() => <DispatchChatPage userId={userId} fullName={fullName} />}</Route>
       <Route path="/operations">{() => <OperationsMenuPage role="admin" />}</Route>
       <Route component={NotFound} />
     </Switch>
@@ -152,6 +153,7 @@ function SalespersonRouter({ salespersonId, userId, fullName }: { salespersonId:
       <Route path="/earnings">
         {() => <EarningsPage salespersonId={salespersonId} fullName={fullName} />}
       </Route>
+      <Route path="/chat">{() => <DispatchChatPage userId={userId} fullName={fullName} />}</Route>
       <Route path="/operations">{() => <OperationsMenuPage role="salesperson" username={fullName} />}</Route>
       <Route component={NotFound} />
     </Switch>
@@ -315,12 +317,21 @@ function NotificationsBell({ userId }: NotificationsBellProps) {
       return res.json();
     },
     enabled: !!userId,
-    refetchInterval: 30000, // Poll every 30 seconds
+    refetchInterval: 10000, // Poll every 10 seconds
   });
   
   const markReadMutation = useMutation({
     mutationFn: async (notificationId: string) => {
       return apiRequest("PATCH", `/api/notifications/${notificationId}/read`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications", userId] });
+    },
+  });
+  
+  const markAllReadMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/notifications/mark-all-read", { userId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications", userId] });
@@ -354,8 +365,20 @@ function NotificationsBell({ userId }: NotificationsBellProps) {
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-80 p-0" align="end">
-        <div className="p-3 border-b">
+        <div className="p-3 border-b flex items-center justify-between gap-2">
           <h4 className="font-semibold">Notifications</h4>
+          {unreadCount > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => markAllReadMutation.mutate()}
+              disabled={markAllReadMutation.isPending}
+              data-testid="button-mark-all-read"
+            >
+              <CheckCheck className="w-4 h-4 mr-1" />
+              Mark all read
+            </Button>
+          )}
         </div>
         <ScrollArea className="h-80">
           {notifications.length === 0 ? (
@@ -496,13 +519,13 @@ function App() {
     );
   }
 
-  // Public chat page (no auth - for website visitors)
-  if (location === '/chat' || location.startsWith('/chat?')) {
+  // Public chat page (no auth - for website visitors) at /public-chat
+  if (location === '/public-chat' || location.startsWith('/public-chat?')) {
     return (
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <Switch>
-            <Route path="/chat" component={PublicChatPage} />
+            <Route path="/public-chat" component={PublicChatPage} />
           </Switch>
           <Toaster />
         </TooltipProvider>
@@ -606,13 +629,11 @@ function App() {
                   />
                 )}
                 
-                {(effectiveRole === "admin" || effectiveRole === "dispatcher") && (
-                  <NotificationsBell userId={auth.userId} />
-                )}
+                <NotificationsBell userId={auth.userId} />
               </header>
               <main className="flex-1 overflow-auto p-6">
                 {effectiveRole === "admin" ? (
-                  <AdminRouter />
+                  <AdminRouter userId={auth.userId} fullName={effectiveFullName} />
                 ) : effectiveRole === "dispatcher" ? (
                   <DispatcherRouter userId={auth.userId} fullName={effectiveFullName} />
                 ) : effectiveRole === "salesperson" ? (

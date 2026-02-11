@@ -188,6 +188,61 @@ async function notifyDispatchersOfStatusChange(
   }
 }
 
+// Helper: Send notification to all staff (dispatchers + admins) or specific roles
+async function notifyStaff(config: {
+  type: string;
+  title: string;
+  message: string;
+  jobId?: string;
+  actionUrl?: string;
+  excludeUserId?: string;
+  targetRoles?: string[];
+}) {
+  try {
+    const users = await storage.getUsers();
+    const roles = config.targetRoles || ["dispatcher", "admin", "salesperson", "technician"];
+    const recipients = users.filter(u => 
+      roles.includes(u.role) && u.id !== config.excludeUserId
+    );
+    for (const user of recipients) {
+      await storage.createNotification({
+        userId: user.id,
+        type: config.type,
+        title: config.title,
+        message: config.message,
+        jobId: config.jobId || undefined,
+        actionUrl: config.actionUrl || undefined,
+        isRead: false,
+      });
+    }
+  } catch (error) {
+    console.error("Failed to send staff notification:", error);
+  }
+}
+
+// Helper: Send notification to a specific user
+async function notifyUser(userId: string, config: {
+  type: string;
+  title: string;
+  message: string;
+  jobId?: string;
+  actionUrl?: string;
+}) {
+  try {
+    await storage.createNotification({
+      userId,
+      type: config.type,
+      title: config.title,
+      message: config.message,
+      jobId: config.jobId || undefined,
+      actionUrl: config.actionUrl || undefined,
+      isRead: false,
+    });
+  } catch (error) {
+    console.error(`Failed to notify user ${userId}:`, error);
+  }
+}
+
 // Helper: Create chat thread when a lead is created
 async function createLeadChatThread(
   lead: { id: string; customerName: string; customerPhone: string; serviceType?: string | null },
@@ -989,6 +1044,15 @@ export async function registerRoutes(
         console.error(`Team notification failed for lead ${lead.id}:`, err)
       );
       
+      // In-app notification for all dispatchers/admins
+      notifyStaff({
+        type: "new_lead",
+        title: "New Lead Received",
+        message: `${lead.customerName} - ${lead.serviceType || lead.source || "New inquiry"}${lead.address ? ` at ${lead.address}` : ""}`,
+        actionUrl: "/leads",
+        excludeUserId: creatorUserId,
+      }).catch(err => console.error("Lead notification error:", err));
+      
       // Create chat thread for customer communication (requires user context)
       if (creatorUserId) {
         createLeadChatThread(lead, creatorUserId).catch(err =>
@@ -1568,6 +1632,16 @@ export async function registerRoutes(
         console.error(`Job creation notification failed for job ${job.id}:`, err)
       );
       
+      // In-app notification for all staff
+      notifyStaff({
+        type: "new_job",
+        title: "New Job Created",
+        message: `${job.serviceType || "Service"} for ${job.customerName}${job.address ? ` at ${job.address}` : ""}`,
+        jobId: job.id,
+        actionUrl: `/jobs?jobId=${job.id}`,
+        targetRoles: ["dispatcher", "admin"],
+      }).catch(err => console.error("Job creation notification error:", err));
+      
       // Push job to Builder 1 for SEO content tracking
       const lead = job.leadId ? await storage.getLead(job.leadId) : undefined;
       pushJobToBuilder1(job, lead, "job_created").catch(err => {
@@ -2032,6 +2106,16 @@ export async function registerRoutes(
         console.error(`Quote notification failed for quote ${quote.id}:`, err)
       );
       
+      // In-app notification for dispatchers/admins
+      notifyStaff({
+        type: "new_quote",
+        title: "New Quote Created",
+        message: `Quote for ${quote.customerName} - $${parseFloat(quote.total || "0").toFixed(2)}`,
+        jobId: quote.jobId || undefined,
+        actionUrl: "/quotes",
+        targetRoles: ["dispatcher", "admin"],
+      }).catch(err => console.error("Quote notification error:", err));
+      
       // Send email to customer if status is 'sent' and email is provided
       if (result.data.status === 'sent' && result.data.customerEmail && quote.publicToken) {
         const baseUrl = process.env.APP_BASE_URL || 'https://chicagosewerexpertsapp.com';
@@ -2375,6 +2459,15 @@ Emergency Chicago Sewer Experts Team
       // Mark as viewed if first time viewing
       if (!quote.viewedAt) {
         await storage.updateQuote(quote.id, { viewedAt: new Date(), status: 'viewed' });
+        
+        // Notify staff that customer opened the quote
+        notifyStaff({
+          type: "quote_viewed",
+          title: "Quote Viewed by Customer",
+          message: `${quote.customerName} opened their quote ($${parseFloat(quote.total || "0").toFixed(2)})`,
+          actionUrl: "/quotes",
+          targetRoles: ["dispatcher", "admin", "salesperson"],
+        }).catch(err => console.error("Quote viewed notification error:", err));
       }
       
       res.json(quote);
@@ -2507,8 +2600,15 @@ Emergency Chicago Sewer Experts Team
         description: `Job created from accepted quote. Total: $${quote.total}`,
       });
       
-      // Note: Automated notifications (48hr, 24hr, day-of reminders) 
-      // will be triggered by the automation service when the job gets scheduled
+      // In-app notification: Quote accepted
+      notifyStaff({
+        type: "quote_accepted",
+        title: "Quote Accepted!",
+        message: `${quote.customerName} accepted quote for $${parseFloat(quote.total || "0").toFixed(2)} - Job #${newJob.id.substring(0, 8)} created`,
+        jobId: newJob.id,
+        actionUrl: `/jobs?jobId=${newJob.id}`,
+        targetRoles: ["dispatcher", "admin", "salesperson"],
+      }).catch(err => console.error("Quote accepted notification error:", err));
       
       res.json({ quote: updatedQuote, job: newJob });
     } catch (error) {
@@ -2526,6 +2626,15 @@ Emergency Chicago Sewer Experts Team
         status: 'declined', 
         declinedAt: new Date() 
       });
+      
+      // In-app notification: Quote declined
+      notifyStaff({
+        type: "quote_declined",
+        title: "Quote Declined",
+        message: `${quote.customerName} declined quote for $${parseFloat(quote.total || "0").toFixed(2)}`,
+        actionUrl: "/quotes",
+        targetRoles: ["dispatcher", "admin", "salesperson"],
+      }).catch(err => console.error("Quote declined notification error:", err));
       
       res.json(updatedQuote);
     } catch (error) {
@@ -3588,6 +3697,14 @@ Emergency Chicago Sewer Experts Team
         console.error(`Team notification failed for lead ${lead.id}:`, err)
       );
       
+      // In-app notification
+      notifyStaff({
+        type: "new_lead",
+        title: "New eLocal Lead",
+        message: `${lead.customerName} - ${lead.serviceType || "Service request"}${lead.address ? ` at ${lead.address}` : ""}`,
+        actionUrl: "/leads",
+      }).catch(err => console.error("eLocal lead notification error:", err));
+      
       res.status(200).json({ success: true, leadId: lead.id });
     } catch (error) {
       console.error("eLocal webhook error:", error);
@@ -3649,6 +3766,14 @@ Emergency Chicago Sewer Experts Team
       notifyLeadRecipients(lead).catch(err => 
         console.error(`Team notification failed for lead ${lead.id}:`, err)
       );
+      
+      // In-app notification
+      notifyStaff({
+        type: "new_lead",
+        title: "New Angi Lead",
+        message: `${lead.customerName} - ${lead.serviceType || "Service request"}${lead.address ? ` at ${lead.address}` : ""}`,
+        actionUrl: "/leads",
+      }).catch(err => console.error("Angi lead notification error:", err));
       
       res.status(200).json({ success: true, leadId: lead.id });
     } catch (error) {
@@ -3723,6 +3848,14 @@ Emergency Chicago Sewer Experts Team
         console.error(`Team notification failed for lead ${lead.id}:`, err)
       );
       
+      // In-app notification
+      notifyStaff({
+        type: "new_lead",
+        title: "New Thumbtack Lead",
+        message: `${lead.customerName} - ${lead.serviceType || "Service request"}${lead.address ? ` at ${lead.address}` : ""}`,
+        actionUrl: "/leads",
+      }).catch(err => console.error("Thumbtack lead notification error:", err));
+      
       res.status(200).json({ success: true, leadId: lead.id, thumbtackLeadId: leadID });
     } catch (error) {
       console.error("Thumbtack webhook error:", error);
@@ -3773,6 +3906,14 @@ Emergency Chicago Sewer Experts Team
       notifyLeadRecipients(lead).catch(err => 
         console.error(`Team notification failed for lead ${lead.id}:`, err)
       );
+      
+      // In-app notification
+      notifyStaff({
+        type: "new_lead",
+        title: "New Networx Lead",
+        message: `${lead.customerName} - ${lead.serviceType || "Service request"}${lead.address ? ` at ${lead.address}` : ""}`,
+        actionUrl: "/leads",
+      }).catch(err => console.error("Networx lead notification error:", err));
       
       res.status(200).json({ success: true, leadId: lead.id });
     } catch (error) {
@@ -7599,6 +7740,14 @@ ${emailContent}
       
       console.log(`[PUBLIC CHAT] Created chat thread ${thread.id} with session for lead ${lead.id}`);
       
+      // Notify all dispatchers/admins about new website chat
+      notifyStaff({
+        type: "new_chat",
+        title: "New Website Chat",
+        message: `${customerName} started a chat: "${initialMessage.substring(0, 80)}${initialMessage.length > 80 ? '...' : ''}"`,
+        actionUrl: "/chat",
+      }).catch(err => console.error("Public chat notification error:", err));
+      
       res.status(201).json({
         sessionToken: rawToken,
         leadId: lead.id,
@@ -7773,6 +7922,18 @@ ${emailContent}
     try {
       const validatedData = insertWorkOrderSchema.parse(req.body);
       const order = await storage.createWorkOrder(validatedData);
+      
+      // Notify dispatchers/admins about new work order
+      const job = order.jobId ? await storage.getJob(order.jobId) : null;
+      notifyStaff({
+        type: "work_order_created",
+        title: "Work Order Submitted",
+        message: `Work order submitted for ${job?.customerName || "customer"}${job?.address ? ` at ${job.address}` : ""} - $${parseFloat(order.totalPrice || "0").toFixed(2)}`,
+        jobId: order.jobId || undefined,
+        actionUrl: order.jobId ? `/jobs?jobId=${order.jobId}` : undefined,
+        targetRoles: ["dispatcher", "admin"],
+      }).catch(err => console.error("Work order notification error:", err));
+      
       res.status(201).json(order);
     } catch (error: any) {
       if (error?.name === "ZodError") {
@@ -7785,8 +7946,24 @@ ${emailContent}
 
   app.patch("/api/work-orders/:id", async (req, res) => {
     try {
+      const oldOrder = await storage.getWorkOrder(req.params.id);
       const order = await storage.updateWorkOrder(req.params.id, req.body);
       if (!order) return res.status(404).json({ error: "Work order not found" });
+      
+      // Notify on status changes (draft -> signed, signed -> completed)
+      if (oldOrder && req.body.status && req.body.status !== oldOrder.status) {
+        const job = order.jobId ? await storage.getJob(order.jobId) : null;
+        const statusLabel = req.body.status === "signed" ? "Signed by Customer" : req.body.status === "completed" ? "Completed" : req.body.status;
+        notifyStaff({
+          type: "work_order_updated",
+          title: `Work Order ${statusLabel}`,
+          message: `Work order for ${job?.customerName || "customer"} is now ${statusLabel.toLowerCase()} - $${parseFloat(order.totalPrice || "0").toFixed(2)}`,
+          jobId: order.jobId || undefined,
+          actionUrl: order.jobId ? `/jobs?jobId=${order.jobId}` : undefined,
+          targetRoles: ["dispatcher", "admin"],
+        }).catch(err => console.error("Work order update notification error:", err));
+      }
+      
       res.json(order);
     } catch (error) {
       console.error("Error updating work order:", error);
