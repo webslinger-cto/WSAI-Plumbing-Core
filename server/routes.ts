@@ -1855,6 +1855,8 @@ export async function registerRoutes(
         const jobToLeadMap: Record<string, string> = {
           assigned: "assigned",
           confirmed: "assigned",
+          estimating: "in_progress",
+          estimate_submitted: "estimated",
           en_route: "in_progress",
           on_site: "in_progress",
           in_progress: "in_progress",
