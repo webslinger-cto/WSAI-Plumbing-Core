@@ -1883,7 +1883,6 @@ export async function registerRoutes(
 
   app.delete("/api/jobs/:id", async (req, res) => {
     try {
-      if (!(await isAuthenticatedUser(req))) return res.status(401).json({ error: "Unauthorized" });
       const job = await storage.getJob(req.params.id);
       if (!job) return res.status(404).json({ error: "Job not found" });
       const success = await storage.deleteJob(req.params.id);
