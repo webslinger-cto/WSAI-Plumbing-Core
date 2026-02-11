@@ -26,6 +26,7 @@ The system features role-based access with tailored dashboards:
 - **Customer Management Module**: Centralized customer profiles, payment management, and deduplication.
 - **Payroll System**: Manages pay periods, time entries, configurable pay rates, Illinois tax calculations, and payroll record generation.
 - **Digital Work Order Form**: Paperless work orders with pre-filled data, digital signature capture, and status tracking.
+- **Digital Estimate Form**: Digitized version of the company's physical paper estimate form (`client/src/components/EstimateForm.tsx`). Includes company header, date fields, customer info, authorization text with digital signature, right to cancel clause, work description with pricebook integration, warranty terms, credit card authorization section with cardholder signature, service tech pricing (price/discounts/deposit/balance), completion signature, and print/PDF functionality. Uses `formType: "estimate"` in the quotes table to distinguish from legacy quotes. Extended quotes schema with 18 additional fields (city, zipCode, datePromised, workDescription, warrantyYears, pricing breakdown fields, signature fields).
 - **Job Media Upload**: Technicians can upload images and video clips to jobs via presigned URLs to Replit Object Storage, with client-side validation for file types and sizes.
 
 ### UI/UX Decisions

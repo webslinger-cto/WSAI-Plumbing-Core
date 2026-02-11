@@ -353,6 +353,24 @@ export const quotes = pgTable("quotes", {
   expiresAt: timestamp("expires_at"),
   customerId: varchar("customer_id"), // FK to customers table
   termsAcceptedAt: timestamp("terms_accepted_at"), // When customer acknowledged T&C
+  city: text("quote_city"),
+  zipCode: text("quote_zip_code"),
+  datePromised: text("date_promised"),
+  workDescription: text("work_description"),
+  warrantyYears: text("warranty_years"),
+  price: decimal("price"),
+  discounts: decimal("discounts").default("0"),
+  totalPrice: decimal("total_price"),
+  depositAmount: decimal("deposit_amount").default("0"),
+  depositCheckNumber: text("deposit_check_number"),
+  balanceAmount: decimal("balance_amount").default("0"),
+  balanceCheckNumber: text("balance_check_number"),
+  authorizationSignature: text("authorization_signature"),
+  authorizationPrintedName: text("authorization_printed_name"),
+  completionSignature: text("completion_signature"),
+  cardholderSignature: text("cardholder_signature"),
+  serviceTechName: text("service_tech_name"),
+  formType: text("form_type").default("legacy"),
 });
 
 export const insertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true });

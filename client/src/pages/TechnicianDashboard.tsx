@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import KPICard from "@/components/KPICard";
-import QuoteBuilder from "@/components/QuoteBuilder";
+import EstimateForm from "@/components/EstimateForm";
 import JobTimeline from "@/components/JobTimeline";
 import { JobChat } from "@/components/JobChat";
 import JobAttachments from "@/components/JobAttachments";
@@ -776,9 +776,9 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
               </div>
             </PopoverContent>
           </Popover>
-          <Button onClick={() => setShowQuoteBuilder(true)} data-testid="button-new-quote">
+          <Button onClick={() => setShowQuoteBuilder(true)} data-testid="button-new-estimate">
             <Plus className="w-4 h-4 mr-2" />
-            New Quote
+            New Estimate
           </Button>
         </div>
       </div>
@@ -1022,9 +1022,9 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
       <Dialog open={showQuoteBuilder} onOpenChange={setShowQuoteBuilder}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Create New Quote</DialogTitle>
+            <DialogTitle>Create New Estimate</DialogTitle>
           </DialogHeader>
-          <QuoteBuilder
+          <EstimateForm
             technicianId={technicianId}
             technicianName={fullName}
             showJobSelector={true}
@@ -1052,7 +1052,7 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
                 </TabsTrigger>
                 <TabsTrigger value="timeline" className="text-xs sm:text-sm" data-testid="tab-timeline">Timeline</TabsTrigger>
                 <TabsTrigger value="chat" className="text-xs sm:text-sm" data-testid="tab-chat">Chat</TabsTrigger>
-                <TabsTrigger value="quote" className="text-xs sm:text-sm" data-testid="tab-quote">Quote</TabsTrigger>
+                <TabsTrigger value="quote" className="text-xs sm:text-sm" data-testid="tab-estimate">Estimate</TabsTrigger>
                 <TabsTrigger value="workorder" className="text-xs sm:text-sm" data-testid="tab-workorder">
                   <FileText className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
                   Work Order
@@ -1147,12 +1147,15 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
                 <JobChat jobId={selectedJob.id} jobCustomerName={selectedJob.customerName} userId={userId} />
               </TabsContent>
               <TabsContent value="quote" className="mt-4">
-                <QuoteBuilder
+                <EstimateForm
                   jobId={selectedJob.id}
                   technicianId={technicianId}
                   customerName={selectedJob.customerName}
                   customerPhone={selectedJob.customerPhone || ""}
-                  customerAddress={`${selectedJob.address}${selectedJob.city ? `, ${selectedJob.city}` : ""}`}
+                  customerEmail={selectedJob.customerEmail || ""}
+                  customerAddress={selectedJob.address || ""}
+                  customerCity={selectedJob.city || ""}
+                  customerZip={selectedJob.zipCode || ""}
                   technicianName={fullName}
                   onQuoteCreated={() => setSelectedJob(null)}
                 />
