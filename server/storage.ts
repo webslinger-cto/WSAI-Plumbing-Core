@@ -328,6 +328,7 @@ export interface IStorage {
   getJobLeadFee(id: string): Promise<JobLeadFee | undefined>;
   getJobLeadFeesByJob(jobId: string): Promise<JobLeadFee[]>;
   getJobLeadFeesByTechnician(technicianId: string): Promise<JobLeadFee[]>;
+  getAllJobLeadFees(): Promise<JobLeadFee[]>;
   createJobLeadFee(fee: InsertJobLeadFee): Promise<JobLeadFee>;
   updateJobLeadFee(id: string, updates: Partial<JobLeadFee>): Promise<JobLeadFee | undefined>;
 
@@ -3128,6 +3129,10 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(jobLeadFees)
       .where(eq(jobLeadFees.technicianId, technicianId))
       .orderBy(desc(jobLeadFees.acceptedAt));
+  }
+
+  async getAllJobLeadFees(): Promise<JobLeadFee[]> {
+    return db.select().from(jobLeadFees);
   }
 
   async createJobLeadFee(fee: InsertJobLeadFee): Promise<JobLeadFee> {

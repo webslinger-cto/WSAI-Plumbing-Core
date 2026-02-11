@@ -6253,6 +6253,8 @@ ${emailContent}
       const allJobs = await storage.getJobs();
       const allRevenueEvents = await storage.getAllJobRevenueEvents();
       const allPayrollPeriods = await storage.getPayrollPeriods();
+      const allLeadFees = await storage.getAllJobLeadFees();
+      const allQuotes = await storage.getAllQuotes();
       
       let targetTechs = allTechnicians;
       if (technicianId) {
@@ -6266,29 +6268,45 @@ ${emailContent}
         const completedJobs = techJobs.filter(j => j.status === "completed");
         const activeJobs = techJobs.filter(j => ["assigned", "confirmed", "en_route", "on_site", "in_progress"].includes(j.status || ""));
         const techRevEvents = allRevenueEvents.filter(e => e.technicianId === tech.id);
+        const techLeadFees = allLeadFees.filter(f => f.technicianId === tech.id);
         
         const hourlyRate = parseFloat(String(tech.hourlyRate)) || 25;
         const commissionRate = parseFloat(String(tech.commissionRate)) || 0.1;
 
         const completedJobDetails = completedJobs.map(job => {
           const revEvent = techRevEvents.find(e => e.jobId === job.id);
-          const revenue = revEvent 
+          let revenue = revEvent 
             ? parseFloat(String(revEvent.totalRevenue)) || 0
             : parseFloat(job.totalRevenue || "0");
-          const commission = revEvent
-            ? parseFloat(String(revEvent.commissionAmount)) || 0
+          
+          if (revenue === 0) {
+            const jobQuote = allQuotes.find(q => q.jobId === job.id && q.status === "accepted");
+            if (jobQuote) {
+              revenue = parseFloat(String(jobQuote.total) || "0");
+            }
+          }
+
+          const commission = revEvent && parseFloat(String(revEvent.commissionAmount)) > 0
+            ? parseFloat(String(revEvent.commissionAmount))
             : (revenue > 0 ? revenue * commissionRate : 0);
           
           let hoursWorked = 0;
-          if (job.startedAt && job.completedAt) {
-            hoursWorked = (new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / (1000 * 60 * 60);
-          } else if (job.estimatedDuration) {
+          if (parseFloat(String(job.laborHours || "0")) > 0) {
+            hoursWorked = parseFloat(String(job.laborHours));
+          } else if (job.startedAt && job.completedAt) {
+            const diff = (new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / (1000 * 60 * 60);
+            hoursWorked = diff > 0.05 ? diff : 0;
+          }
+          if (hoursWorked === 0 && job.estimatedDuration) {
             hoursWorked = job.estimatedDuration / 60;
           }
           
           const hourlyPay = hoursWorked * hourlyRate;
           const isEmergency = job.priority === "urgent" || job.priority === "high";
           const emergencyMultiplier = isEmergency ? (parseFloat(String(tech.emergencyRate)) || 1.5) : 1;
+
+          const jobLeadFee = techLeadFees.find(f => f.jobId === job.id);
+          const leadFeeAmount = jobLeadFee ? parseFloat(String(jobLeadFee.amount)) || 0 : 0;
           
           return {
             jobId: job.id,
@@ -6302,15 +6320,23 @@ ${emailContent}
             commission: Math.round(commission * 100) / 100,
             totalEarned: Math.round((hourlyPay * emergencyMultiplier + commission) * 100) / 100,
             isEmergency,
-            leadFee: 125,
+            leadFee: Math.round(leadFeeAmount * 100) / 100,
           };
         });
 
         const projectedJobs = activeJobs.map(job => {
-          const estRevenue = parseFloat(job.totalRevenue || "0");
+          let estRevenue = parseFloat(job.totalRevenue || "0");
+          if (estRevenue === 0) {
+            const jobQuote = allQuotes.find(q => q.jobId === job.id && q.status === "accepted");
+            if (jobQuote) {
+              estRevenue = parseFloat(String(jobQuote.total) || "0");
+            }
+          }
           const estHours = job.estimatedDuration ? job.estimatedDuration / 60 : 2;
           const estCommission = estRevenue > 0 ? estRevenue * commissionRate : 0;
           const estHourlyPay = estHours * hourlyRate;
+          const jobLeadFee = techLeadFees.find(f => f.jobId === job.id);
+          const leadFeeAmount = jobLeadFee ? parseFloat(String(jobLeadFee.amount)) || 0 : 0;
           return {
             jobId: job.id,
             customerName: job.customerName,
@@ -6323,7 +6349,7 @@ ${emailContent}
             estimatedHourlyPay: Math.round(estHourlyPay * 100) / 100,
             estimatedCommission: Math.round(estCommission * 100) / 100,
             estimatedTotal: Math.round((estHourlyPay + estCommission) * 100) / 100,
-            leadFee: 125,
+            leadFee: Math.round(leadFeeAmount * 100) / 100,
           };
         });
 
@@ -6342,13 +6368,13 @@ ${emailContent}
         }
 
         const totalEarnedFromCompleted = completedJobDetails.reduce((sum, j) => sum + j.totalEarned, 0);
-        const totalLeadFees = completedJobDetails.length * 125;
+        const totalLeadFees = completedJobDetails.reduce((sum, j) => sum + j.leadFee, 0);
         const totalRevenue = completedJobDetails.reduce((sum, j) => sum + j.revenue, 0);
         const totalHoursWorked = completedJobDetails.reduce((sum, j) => sum + j.hoursWorked, 0);
         const totalCommission = completedJobDetails.reduce((sum, j) => sum + j.commission, 0);
         const totalHourlyPay = completedJobDetails.reduce((sum, j) => sum + j.hourlyPay, 0);
         const projectedEarnings = projectedJobs.reduce((sum, j) => sum + j.estimatedTotal, 0);
-        const projectedLeadFees = projectedJobs.length * 125;
+        const projectedLeadFees = projectedJobs.reduce((sum, j) => sum + j.leadFee, 0);
 
         const totalPaidFromRecords = techRecords
           .filter(r => r.isPaid)
@@ -6368,12 +6394,12 @@ ${emailContent}
             totalHoursWorked: Math.round(totalHoursWorked * 100) / 100,
             totalHourlyPay: Math.round(totalHourlyPay * 100) / 100,
             totalCommission: Math.round(totalCommission * 100) / 100,
-            totalLeadFees,
+            totalLeadFees: Math.round(totalLeadFees * 100) / 100,
             totalEarned: Math.round(totalEarnedFromCompleted * 100) / 100,
             netEarned: Math.round((totalEarnedFromCompleted - totalLeadFees) * 100) / 100,
             totalPaid: Math.round(totalPaidFromRecords * 100) / 100,
             projectedEarnings: Math.round(projectedEarnings * 100) / 100,
-            projectedLeadFees,
+            projectedLeadFees: Math.round(projectedLeadFees * 100) / 100,
             projectedNet: Math.round((projectedEarnings - projectedLeadFees) * 100) / 100,
           },
           completedJobs: completedJobDetails.sort((a, b) => 
@@ -6393,17 +6419,51 @@ ${emailContent}
     }
   });
 
-  // Backfill revenue events for all completed jobs that don't have them
   app.post("/api/admin/backfill-revenue-events", async (req, res) => {
     try {
       const allJobs = await storage.getJobs();
+      const allQuotes = await storage.getAllQuotes();
       const completedJobs = allJobs.filter(j => j.status === "completed");
       let created = 0;
+      let updated = 0;
       let skipped = 0;
       
       for (const job of completedJobs) {
         const existing = await storage.getJobRevenueEventsByJob(job.id);
+        
         if (existing.length > 0) {
+          const revEvent = existing[0];
+          const existingRevenue = parseFloat(String(revEvent.totalRevenue)) || 0;
+          if (existingRevenue === 0) {
+            let revenue = parseFloat(job.totalRevenue || "0");
+            if (revenue === 0) {
+              const jobQuote = allQuotes.find(q => q.jobId === job.id && q.status === "accepted");
+              if (jobQuote) {
+                revenue = parseFloat(String(jobQuote.total) || "0");
+              }
+            }
+            if (revenue > 0) {
+              const techId = job.assignedTechnicianId;
+              const tech = techId ? await storage.getTechnician(techId) : null;
+              const commissionRate = tech ? parseFloat(String(tech.commissionRate) || "0.1") : 0.1;
+              const laborCost = parseFloat(job.laborCost || "0");
+              const materialsCost = parseFloat(job.materialsCost || "0");
+              const totalCost = laborCost + materialsCost;
+              const netProfit = revenue - totalCost;
+              const commissionAmount = netProfit > 0 ? netProfit * commissionRate : 0;
+              
+              await storage.updateJobRevenueEvent(revEvent.id, {
+                totalRevenue: revenue.toFixed(2),
+                netProfit: netProfit.toFixed(2),
+                commissionAmount: commissionAmount.toFixed(2),
+              });
+              if (!job.totalRevenue || parseFloat(job.totalRevenue) === 0) {
+                await storage.updateJob(job.id, { totalRevenue: revenue.toFixed(2) });
+              }
+              updated++;
+              continue;
+            }
+          }
           skipped++;
           continue;
         }
@@ -6413,8 +6473,9 @@ ${emailContent}
       
       res.json({ 
         success: true, 
-        message: `Backfilled ${created} revenue events, skipped ${skipped} existing`,
+        message: `Backfilled: ${created} created, ${updated} updated with revenue, ${skipped} already correct`,
         created,
+        updated,
         skipped,
         totalCompleted: completedJobs.length,
       });
