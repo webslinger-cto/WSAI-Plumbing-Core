@@ -151,7 +151,7 @@ export const leadSources = ["eLocal", "Networx", "Angi", "HomeAdvisor", "Thumbta
 export type LeadSource = typeof leadSources[number];
 
 // Lead statuses
-export const leadStatuses = ["new", "contacted", "qualified", "estimated", "quoted", "scheduled", "converted", "permit_pending", "assigned", "lost", "duplicate", "spam"] as const;
+export const leadStatuses = ["new", "contacted", "qualified", "estimated", "quoted", "scheduled", "converted", "permit_pending", "assigned", "in_progress", "completed", "lost", "dead", "duplicate", "spam"] as const;
 export type LeadStatus = typeof leadStatuses[number];
 
 // Leads table

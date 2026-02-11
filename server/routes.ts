@@ -1442,10 +1442,18 @@ export async function registerRoutes(
       const oldLead = await storage.getLead(req.params.id);
       if (!oldLead) return res.status(404).json({ error: "Lead not found" });
 
-      const lead = await storage.updateLead(req.params.id, req.body);
+      const body = { ...req.body };
+      const leadDateFields = ['receivedAt', 'convertedAt', 'contactedAt', 'slaDeadline'];
+      leadDateFields.forEach(field => {
+        if (body[field] && typeof body[field] === 'string') {
+          body[field] = new Date(body[field]);
+        }
+      });
+
+      const lead = await storage.updateLead(req.params.id, body);
       if (!lead) return res.status(404).json({ error: "Lead not found" });
 
-      const diffs = computeFieldDiffs(oldLead as unknown as Record<string, unknown>, req.body);
+      const diffs = computeFieldDiffs(oldLead as unknown as Record<string, unknown>, body);
       if (Object.keys(diffs).length > 0) {
         const action = diffs.status ? "status_change" : "update";
         await logAudit("lead", req.params.id, action, diffs, req);

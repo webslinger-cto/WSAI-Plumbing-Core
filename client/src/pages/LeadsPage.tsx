@@ -84,6 +84,7 @@ function mapApiLeadToTableLead(lead: ApiLead): Lead & { slaBreach?: boolean } {
     name: lead.customerName,
     phone: lead.customerPhone,
     email: lead.customerEmail || undefined,
+    address: lead.address || "",
     city: lead.city || "",
     state: "IL",
     zipCode: lead.zipCode || "",
@@ -201,6 +202,99 @@ export default function LeadsPage() {
       toast({
         title: "Error",
         description: "Failed to mark lead as contacted",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+
+  const updateLeadStatusMutation = useMutation({
+    mutationFn: async ({ leadId, status }: { leadId: string; status: string }) => {
+      const response = await apiRequest("PATCH", `/api/leads/${leadId}`, { status });
+      return response.json();
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({
+        title: "Status Updated",
+        description: `Lead status changed to "${variables.status}"`,
+      });
+      setStatusDialogOpen(false);
+      setSelectedLead(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const createQuoteFromLeadMutation = useMutation({
+    mutationFn: async (lead: Lead) => {
+      const fullAddress = [lead.address, lead.city, "IL", lead.zipCode].filter(Boolean).join(", ");
+      const response = await apiRequest("POST", "/api/quotes", {
+        leadId: lead.id,
+        customerName: lead.name,
+        customerPhone: lead.phone,
+        address: fullAddress,
+        status: "draft",
+        subtotal: "0",
+        total: "0",
+        notes: `Quote created from lead: ${lead.service || "Service inquiry"}`,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      toast({
+        title: "Quote Created",
+        description: "A new draft quote has been created from this lead.",
+      });
+      setSelectedLead(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const createJobFromLeadMutation = useMutation({
+    mutationFn: async (lead: Lead) => {
+      const fullAddress = [lead.address, lead.city, "IL", lead.zipCode].filter(Boolean).join(", ");
+      const response = await apiRequest("POST", "/api/jobs", {
+        leadId: lead.id,
+        customerName: lead.name,
+        customerPhone: lead.phone,
+        address: fullAddress || lead.city || "",
+        city: lead.city || "",
+        zipCode: lead.zipCode || "",
+        serviceType: lead.service || "General",
+        description: lead.service || "Service from lead",
+        status: "pending",
+        priority: lead.priority || "normal",
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      toast({
+        title: "Job Created",
+        description: "A new job has been created from this lead.",
+      });
+      setSelectedLead(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -409,7 +503,7 @@ export default function LeadsPage() {
                   <div className="flex items-center gap-2 text-sm">
                     <MapPin className="w-4 h-4 text-muted-foreground" />
                     <span>
-                      {selectedLead.city}, {selectedLead.state} {selectedLead.zipCode}
+                      {[selectedLead.address, selectedLead.city, selectedLead.state, selectedLead.zipCode].filter(Boolean).join(", ") || "No address"}
                     </span>
                   </div>
                 </div>
@@ -474,7 +568,7 @@ export default function LeadsPage() {
                 </>
               )}
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2 pt-2 flex-wrap">
                 {!selectedLead.contactedAt && selectedLead.status === "new" && (
                   <Button 
                     variant="outline"
@@ -490,15 +584,69 @@ export default function LeadsPage() {
                     Mark Contacted
                   </Button>
                 )}
-                <Button className="flex-1" data-testid="button-create-quote">
+                <Button
+                  className="flex-1"
+                  onClick={() => {
+                    if (selectedLead) createQuoteFromLeadMutation.mutate(selectedLead);
+                  }}
+                  disabled={createQuoteFromLeadMutation.isPending}
+                  data-testid="button-create-quote"
+                >
+                  {createQuoteFromLeadMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : null}
                   Create Quote
                 </Button>
-                <Button variant="outline" className="flex-1" data-testid="button-update-status">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    if (selectedLead) createJobFromLeadMutation.mutate(selectedLead);
+                  }}
+                  disabled={createJobFromLeadMutation.isPending}
+                  data-testid="button-create-job"
+                >
+                  {createJobFromLeadMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : null}
+                  Create Job
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setStatusDialogOpen(true)}
+                  data-testid="button-update-status"
+                >
                   Update Status
                 </Button>
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={statusDialogOpen} onOpenChange={setStatusDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Update Lead Status</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-2">
+            {["new", "contacted", "estimated", "quoted", "converted", "assigned", "in_progress", "completed", "lost", "dead"].map((status) => (
+              <Button
+                key={status}
+                variant="outline"
+                className="capitalize"
+                onClick={() => {
+                  if (selectedLead) {
+                    updateLeadStatusMutation.mutate({ leadId: selectedLead.id, status });
+                  }
+                }}
+                disabled={updateLeadStatusMutation.isPending}
+                data-testid={`button-status-${status}`}
+              >
+                {status.replace("_", " ")}
+              </Button>
+            ))}
+          </div>
         </DialogContent>
       </Dialog>
 
