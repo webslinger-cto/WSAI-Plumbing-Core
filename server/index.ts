@@ -66,15 +66,6 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Initialize database with seed data if needed (for production)
-  if (storage.initialize) {
-    await storage.initialize();
-  }
-
-  // Always ensure godmode super admin exists
-  const { ensureGodmodeUser } = await import("./seed");
-  await ensureGodmodeUser();
-
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -108,6 +99,19 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+
+      // Initialize database after server is listening so health checks pass
+      (async () => {
+        try {
+          if (storage.initialize) {
+            await storage.initialize();
+          }
+          const { ensureGodmodeUser } = await import("./seed");
+          await ensureGodmodeUser();
+        } catch (err) {
+          console.error("Database initialization error (non-fatal):", err);
+        }
+      })();
     },
   );
 })();
