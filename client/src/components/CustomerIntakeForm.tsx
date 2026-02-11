@@ -52,6 +52,10 @@ import {
   ChevronRight,
   CheckCircle2,
   X,
+  Play,
+  Flag,
+  Truck,
+  Wrench,
 } from "lucide-react";
 import type { Lead, Quote, Job, Technician } from "@shared/schema";
 import { format } from "date-fns";
@@ -120,9 +124,10 @@ const WORKFLOW_STAGES = [
   { key: "new", label: "Intake", description: "Customer information captured" },
   { key: "estimated", label: "Estimate", description: "Estimate provided" },
   { key: "quoted", label: "Quote", description: "Quote sent to customer" },
-  { key: "converted", label: "Job", description: "Job created" },
-  { key: "permit_pending", label: "Permit", description: "Permit requested" },
+  { key: "converted", label: "Job Created", description: "Job created" },
   { key: "assigned", label: "Assigned", description: "Technician assigned" },
+  { key: "in_progress", label: "In Progress", description: "Work in progress" },
+  { key: "completed", label: "Completed", description: "Job completed" },
 ];
 
 interface CustomerIntakeFormProps {
@@ -146,6 +151,7 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
     queryKey: ["/api/quotes"],
     select: (data) => data.filter(q => {
       if (!lead) return false;
+      if (q.leadId === lead.id) return true;
       return q.customerPhone === lead.customerPhone || q.customerName === lead.customerName;
     }),
     enabled: !!lead,
@@ -224,10 +230,13 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
       if (!lead) return;
       const fullAddress = lead.address ? `${lead.address}${lead.city ? ', ' + lead.city : ''}${lead.state ? ', ' + lead.state : ''} ${lead.zipCode || ''}`.trim() : undefined;
       const res = await apiRequest("POST", "/api/quotes", {
+        leadId: lead.id,
         customerName: lead.customerName,
         customerPhone: lead.customerPhone,
         customerEmail: lead.customerEmail || undefined,
         address: fullAddress,
+        city: lead.city || undefined,
+        zipCode: lead.zipCode || undefined,
         status: "draft",
         subtotal: lead.estimateAmount || "0",
         total: lead.estimateAmount || "0",
@@ -314,6 +323,31 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
     },
   });
 
+  const updateJobStatusMutation = useMutation({
+    mutationFn: async ({ jobId, status, leadStatus }: { jobId: string; status: string; leadStatus?: string }) => {
+      await apiRequest("PATCH", `/api/jobs/${jobId}`, { status });
+      if (lead && leadStatus) {
+        await apiRequest("PATCH", `/api/leads/${lead.id}`, { status: leadStatus });
+      }
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      const statusLabels: Record<string, string> = {
+        en_route: "En Route",
+        in_progress: "In Progress",
+        completed: "Completed",
+      };
+      toast({ 
+        title: `Job ${statusLabels[variables.status] || variables.status}`, 
+        description: `Job status updated to ${statusLabels[variables.status] || variables.status}` 
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update job status", variant: "destructive" });
+    },
+  });
+
   const onSubmit = (data: IntakeFormValues) => {
     if (isEditing) {
       updateMutation.mutate(data);
@@ -322,10 +356,25 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
     }
   };
 
-  const currentStageIndex = lead ? WORKFLOW_STAGES.findIndex(s => s.key === lead.status) : 0;
   const hasQuote = linkedQuotes.length > 0;
   const hasJob = linkedJobs.length > 0;
   const jobAssigned = linkedJobs.some(j => j.assignedTechnicianId);
+  const latestJob = linkedJobs.length > 0 ? linkedJobs[0] : null;
+  const jobStatus = latestJob?.status || null;
+  const isJobInProgress = jobStatus === "in_progress" || jobStatus === "on_site" || jobStatus === "en_route";
+  const isJobCompleted = jobStatus === "completed";
+
+  const getEffectiveStageIndex = () => {
+    if (!lead) return 0;
+    if (isJobCompleted) return WORKFLOW_STAGES.length - 1;
+    if (isJobInProgress) return WORKFLOW_STAGES.findIndex(s => s.key === "in_progress");
+    if (jobAssigned) return WORKFLOW_STAGES.findIndex(s => s.key === "assigned");
+    if (hasJob) return WORKFLOW_STAGES.findIndex(s => s.key === "converted");
+    if (hasQuote) return WORKFLOW_STAGES.findIndex(s => s.key === "quoted");
+    const leadIdx = WORKFLOW_STAGES.findIndex(s => s.key === lead.status);
+    return leadIdx >= 0 ? leadIdx : 0;
+  };
+  const currentStageIndex = getEffectiveStageIndex();
 
   return (
     <div className="space-y-6">
@@ -336,22 +385,19 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
               <h3 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Workflow Progress</h3>
               {lead && (
                 <Badge variant="outline" data-testid="text-lead-status">
-                  {lead.status?.toUpperCase()}
+                  {isJobCompleted ? "COMPLETED" : isJobInProgress ? "IN PROGRESS" : lead.status?.toUpperCase()}
                 </Badge>
               )}
             </div>
             <div className="flex items-center gap-1 overflow-x-auto pb-2" data-testid="section-workflow-stages">
               {WORKFLOW_STAGES.map((stage, index) => {
-                const isActive = index <= currentStageIndex || 
-                  (stage.key === "quoted" && hasQuote) ||
-                  (stage.key === "converted" && hasJob) ||
-                  (stage.key === "assigned" && jobAssigned);
-                const isCurrent = stage.key === lead?.status;
+                const isActive = index <= currentStageIndex;
+                const isCurrent = index === currentStageIndex;
                 return (
                   <div key={stage.key} className="flex items-center gap-1 flex-shrink-0">
                     <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium ${
                       isCurrent 
-                        ? "bg-primary text-primary-foreground" 
+                        ? stage.key === "completed" ? "bg-green-600 text-white" : "bg-primary text-primary-foreground"
                         : isActive 
                           ? "bg-primary/20 text-primary" 
                           : "bg-muted text-muted-foreground"
@@ -370,7 +416,7 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
             <Separator className="my-3" />
 
             <div className="flex items-center gap-2 flex-wrap">
-              {lead && lead.status === "new" && (
+              {lead && !isJobCompleted && (lead.status === "new" || lead.status === "contacted") && (
                 <Button 
                   size="sm" 
                   onClick={() => setEstimateMutation.mutate()}
@@ -381,7 +427,7 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
                   Mark as Estimated
                 </Button>
               )}
-              {lead && (lead.status === "estimated" || lead.status === "new") && !hasQuote && (
+              {lead && !isJobCompleted && !hasQuote && (
                 <Button 
                   size="sm" 
                   onClick={() => setShowQuoteDialog(true)}
@@ -391,7 +437,7 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
                   Create Quote
                 </Button>
               )}
-              {lead && !hasJob && (
+              {lead && !isJobCompleted && !hasJob && (
                 <Button 
                   size="sm" 
                   onClick={() => setShowJobDialog(true)}
@@ -401,7 +447,7 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
                   Create Job
                 </Button>
               )}
-              {hasJob && !jobAssigned && (
+              {hasJob && !jobAssigned && !isJobCompleted && (
                 <Button 
                   size="sm" 
                   onClick={() => setShowAssignDialog(true)}
@@ -411,17 +457,65 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
                   Assign Technician
                 </Button>
               )}
-              {hasQuote && linkedQuotes[0] && (
-                <Badge variant="outline" className="text-xs">
-                  Quote: {linkedQuotes[0].status}
-                </Badge>
+              {hasJob && jobAssigned && !isJobInProgress && !isJobCompleted && latestJob && (
+                <Button
+                  size="sm"
+                  onClick={() => updateJobStatusMutation.mutate({ 
+                    jobId: latestJob.id, 
+                    status: "in_progress", 
+                    leadStatus: "in_progress" 
+                  })}
+                  disabled={updateJobStatusMutation.isPending}
+                  data-testid="button-start-job"
+                >
+                  <Play className="w-4 h-4 mr-1" />
+                  Start Job
+                </Button>
               )}
-              {hasJob && linkedJobs[0] && (
-                <Badge variant="outline" className="text-xs">
-                  Job: {linkedJobs[0].status}
-                </Badge>
+              {hasJob && isJobInProgress && latestJob && (
+                <Button
+                  size="sm"
+                  onClick={() => updateJobStatusMutation.mutate({ 
+                    jobId: latestJob.id, 
+                    status: "completed", 
+                    leadStatus: "completed" 
+                  })}
+                  disabled={updateJobStatusMutation.isPending}
+                  data-testid="button-complete-job"
+                >
+                  <Flag className="w-4 h-4 mr-1" />
+                  Complete Job
+                </Button>
               )}
             </div>
+
+            {(hasQuote || hasJob) && (
+              <>
+                <Separator className="my-3" />
+                <div className="flex items-center gap-2 flex-wrap">
+                  {hasQuote && linkedQuotes[0] && (
+                    <Badge variant="outline" className="text-xs" data-testid="badge-quote-status">
+                      Quote: {linkedQuotes[0].status}
+                    </Badge>
+                  )}
+                  {hasJob && latestJob && (
+                    <Badge variant="outline" className="text-xs" data-testid="badge-job-status">
+                      Job: {latestJob.status}
+                    </Badge>
+                  )}
+                  {latestJob?.assignedTechnicianId && (
+                    <Badge variant="outline" className="text-xs" data-testid="badge-tech-assigned">
+                      Tech: {technicians.find(t => t.id === latestJob.assignedTechnicianId)?.fullName || "Assigned"}
+                    </Badge>
+                  )}
+                  {isJobCompleted && (
+                    <Badge className="text-xs bg-green-600 text-white no-default-hover-elevate no-default-active-elevate" data-testid="badge-completed">
+                      Workflow Complete
+                    </Badge>
+                  )}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       )}

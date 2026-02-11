@@ -329,6 +329,7 @@ export type JobTimelineEvent = typeof jobTimelineEvents.$inferSelect;
 export const quotes = pgTable("quotes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   jobId: varchar("job_id").references(() => jobs.id), // Optional - populated when quote is accepted and job is created
+  leadId: varchar("lead_id").references(() => leads.id), // Link to originating lead
   technicianId: varchar("technician_id").references(() => technicians.id),
   customerName: text("customer_name").notNull(),
   customerPhone: text("customer_phone"),
