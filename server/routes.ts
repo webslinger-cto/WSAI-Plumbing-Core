@@ -2390,8 +2390,8 @@ Emergency Chicago Sewer Experts Team
       const quote = await storage.getQuoteByToken(req.params.token);
       if (!quote) return res.status(404).json({ error: "Quote not found" });
       
-      // Parse consent from request body
-      const { consent } = req.body as {
+      // Parse consent and T&C acceptance from request body
+      const { consent, termsAccepted } = req.body as {
         consent?: {
           smsOptIn?: boolean;
           emailOptIn?: boolean;
@@ -2400,7 +2400,14 @@ Emergency Chicago Sewer Experts Team
           disclosureVersion?: string;
           disclosureText?: string;
         };
+        termsAccepted?: boolean;
       };
+      
+      if (!termsAccepted) {
+        return res.status(400).json({ 
+          error: "You must read and agree to the Terms & Conditions before accepting this quote." 
+        });
+      }
       
       // Validate consent: if opted in, ownership must be confirmed
       if (consent?.smsOptIn && !consent?.smsOwnershipConfirmed) {
@@ -2422,10 +2429,11 @@ Emergency Chicago Sewer Experts Team
         : (req.socket?.remoteAddress || null);
       const consentUserAgent = req.headers["user-agent"] || null;
       
-      // Update quote status to accepted
+      // Update quote status to accepted with T&C acknowledgment timestamp
       const updatedQuote = await storage.updateQuote(quote.id, { 
         status: 'accepted', 
-        acceptedAt: new Date() 
+        acceptedAt: new Date(),
+        termsAcceptedAt: new Date(),
       });
       
       // When quote is accepted, automatically create a job

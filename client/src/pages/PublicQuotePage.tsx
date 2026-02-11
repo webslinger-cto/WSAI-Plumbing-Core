@@ -28,6 +28,9 @@ import {
   Building2,
   AlertCircle,
   Loader2,
+  ChevronDown,
+  ChevronUp,
+  ScrollText,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { CustomerChat } from "@/components/CustomerChat";
@@ -52,6 +55,19 @@ interface LaborEntry {
 
 const DISCLOSURE_TEXT_V1 = "By opting in, you agree to receive job updates about this service request by the selected channel(s). Msg & data rates may apply. Reply STOP to opt out of SMS. You can opt out anytime for this job.";
 
+const TERMS_AND_CONDITIONS = [
+  "The work to be performed hereunder on behalf of Emergency Chicago Sewer Experts is limited to those specific items set forth on the customers Proposal/Contract.",
+  "Emergency Chicago Sewer Experts shall not be responsible for damage to the premises caused by the removal of a clean-out, drain cover, or cap during the process of performing the work hereunder. If a clean-out, drain cover or cap is rusted or fastened in such a way as to necessitate its replacement after removal, Emergency Chicago Sewer Experts shall so notify Customer and if Customer authorizes its replacement, such replacement shall be made at an additional charge for the replacement cost of the clean-out, drain cover or cap and the labor charges for installation. If customer refuses to authorize such replacement, Emergency Chicago Sewer Experts shall not be responsible for any damage resulting there from including without limitation, damage from sewer gas, backups and leakage.",
+  "Emergency Chicago Sewer Experts shall not be responsible for any damage due to leaky or defective traps, hidden or unknown lead piping, improper or faulty plumbing, rusted or defective pipes, corrosion or mineral or hard water buildup, harmful cleaning chemicals such as sulfuric or caustic acids, or drainage tiles, lines, piping, plumbing or other matters which are settled, broken deteriorated or damaged. If during the performance or work hereunder, fixtures are damaged or broken, or defective or corroded drainage tiles, lines, piping, plumbing, or other matters are broken or if Emergency Chicago Sewer Experts equipment becomes lodged in any such defective tiles, lines, piping, plumbing, or other matters and cannot be practically removed without excavation, Emergency Chicago Sewer Experts shall not be liable for the removal of such equipment or for the repairs or replacement or any fixtures, tiles, piping, plumbing or other matters which may be damaged.",
+  "This agreement covers only the work listed on the customers Proposal/Contract. Grass replacement, landscape damage, wall patching, painting, tile or concrete replacement damage to utilities, or any other type of damage which may be done in connection with the work performed hereunder is the responsibility of Customer and Emergency Chicago Sewer Experts shall have no liability thereof unless specifically stated on the customers Proposal/Contract.",
+  "As its only warranty with respect to work performed hereunder, Emergency Chicago Sewer Experts agrees to provide its labor free of charge on time to correct any subsequent back up drainage failure that occurs within a sewer line successfully cleaned by Emergency Chicago Sewer Experts which failure occurs within 30 days or unless stated on front of contract, provided however, that such failure results solely from normal use and not as a result of structural defects or deterioration in the sewer line or as a result of foreign objects being disposed through the drainage system, such warranty shall only cover labor provided by Emergency Chicago Sewer Experts and not the cost of any equipment or plumbing materials necessary to correct such situation. In the event that Emergency Chicago Sewer Experts determines that the failure resulted from something other than normal usage, Customer shall pay for the work performed at Emergency Chicago Sewer Experts normal rates. In the event of such failure and upon notice from Customer, Emergency Chicago Sewer Experts will, in the absence of events beyond its control, including but not limited to labor strikes, fires, casualty, government restriction, or acts of God, furnish its service to rectify such failure in a reasonable time during normal working hours. In no event shall Emergency Chicago Sewer Experts be responsible for any water or other damage which may result from such failure or Emergency Chicago Sewer Experts inability to correct same.",
+  "THE WARRANTY PROVIDED ABOVE BY EMERGENCY CHICAGO SEWER EXPERTS IS THE ONLY WARRANTY MADE HEREUNDER. NO OTHER WARRANTY IS EXPRESSED OR IMPLIED.",
+  "Customer acknowledges that Emergency Chicago Sewer Experts is not the manufacturer or supplier of plumbing materials used in connection with the work performed hereunder and further acknowledges that Emergency Chicago Sewer Experts has made no representation, either expressed or implied, as to the fitness quality, design, condition, capacity, ability, durability, or performance of such materials and of the workmanship thereof. Customer agrees that it shall look solely to the manufacturer of such plumbing materials for any loss Customer may sustain as a result of a defect in any such materials.",
+  "Emergency Chicago Sewer Experts shall not be liable for any direct, indirect, special, incidental or consequential damages, whether based on contract, tort, or other legal theory, arising out of the work hereunder. Emergency Chicago Sewer Experts liability hereunder shall be limited to the amount of the contract price set forth on the customers Proposal/Contract for the work performed hereunder.",
+  "There will be a charge of $25.00 per check for any check returned to Emergency Chicago Sewer Experts. In the event Customer fails to make payment according to the terms and conditions appearing on the customers Proposal/Contract, Emergency Chicago Sewer Experts may charge interest on the unpaid balance at the lesser of 1-1/2% per month or the highest permissible legal rate of interest allowed by the state where the premises are located. In the event, at the sole judgment of Emergency Chicago Sewer Experts it becomes necessary to consult an attorney and institute legal action to collect said unpaid balance, Emergency Chicago Sewer Experts shall be entitled to a judgment for such unpaid balance, accrued interest thereon and reasonable attorney's fees and costs incurred in such legal action.",
+  "This agreement, together with the provisions and conditions on the customers Proposal/Contract comprise the entire agreement and understanding of the parties, and there are no promises, terms conditions, or obligation, oral or written, with regard to the subject matter hereof, other than as specifically contained herein.",
+];
+
 export default function PublicQuotePage() {
   const params = useParams<{ token: string }>();
   const token = params.token;
@@ -63,6 +79,10 @@ export default function PublicQuotePage() {
   const [smsOwnershipConfirmed, setSmsOwnershipConfirmed] = useState(false);
   const [emailOwnershipConfirmed, setEmailOwnershipConfirmed] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
+  
+  // Terms & Conditions state
+  const [termsExpanded, setTermsExpanded] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   const { data: quote, isLoading, error } = useQuery<Quote>({
     queryKey: ['/api/public/quote', token],
@@ -79,16 +99,19 @@ export default function PublicQuotePage() {
       // Only send consent payload if at least one opt-in is selected
       // This preserves legacy behavior - no consent data means customer never interacted with consent UI
       const hasOptIn = smsOptIn || emailOptIn;
-      const payload = hasOptIn ? {
-        consent: {
+      const payload: Record<string, unknown> = {
+        termsAccepted: true,
+      };
+      if (hasOptIn) {
+        payload.consent = {
           smsOptIn,
           emailOptIn,
           smsOwnershipConfirmed,
           emailOwnershipConfirmed,
           disclosureVersion: "v1",
           disclosureText: DISCLOSURE_TEXT_V1,
-        }
-      } : {};
+        };
+      }
       
       const res = await apiRequest('POST', `/api/public/quote/${token}/accept`, payload);
       return res.json();
@@ -102,7 +125,11 @@ export default function PublicQuotePage() {
   const validateAndAccept = () => {
     setConsentError(null);
     
-    // Validate consent requirements - only if opt-in is checked, ownership must be confirmed
+    if (!termsAccepted) {
+      setConsentError("You must read and agree to the Terms & Conditions before accepting this quote.");
+      return;
+    }
+    
     if (smsOptIn && !smsOwnershipConfirmed) {
       setConsentError("Please confirm that the phone number belongs to you to receive SMS updates.");
       return;
@@ -358,6 +385,50 @@ export default function PublicQuotePage() {
           {canTakeAction && (
             <CardFooter className="flex-col gap-4 pt-6 border-t">
               <div className="w-full space-y-4">
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => setTermsExpanded(!termsExpanded)}
+                    className="flex items-center gap-2 w-full text-left font-semibold text-sm uppercase tracking-wide hover-elevate rounded-md p-2 -ml-2"
+                    data-testid="button-toggle-terms"
+                  >
+                    <ScrollText className="w-4 h-4 text-primary" />
+                    <span>Terms & Conditions</span>
+                    {termsExpanded ? (
+                      <ChevronUp className="w-4 h-4 ml-auto" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 ml-auto" />
+                    )}
+                  </button>
+                  
+                  {termsExpanded && (
+                    <div className="bg-muted/30 rounded-lg p-4 max-h-96 overflow-y-auto border" data-testid="section-terms-content">
+                      <h3 className="font-bold text-center text-lg mb-4">TERMS & CONDITIONS</h3>
+                      <ol className="list-decimal list-outside space-y-3 pl-5 text-sm text-muted-foreground">
+                        {TERMS_AND_CONDITIONS.map((clause, index) => (
+                          <li key={index} className="leading-relaxed pl-1">
+                            {clause}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                  
+                  <div className="flex items-start space-x-2 bg-muted/30 rounded-lg p-4">
+                    <Checkbox 
+                      id="terms-accepted" 
+                      checked={termsAccepted} 
+                      onCheckedChange={(checked) => setTermsAccepted(checked === true)}
+                      data-testid="checkbox-terms-accepted"
+                    />
+                    <Label htmlFor="terms-accepted" className="text-sm cursor-pointer leading-relaxed">
+                      I have read and agree to the <button type="button" onClick={() => setTermsExpanded(true)} className="text-primary underline font-medium">Terms & Conditions</button> of Emergency Chicago Sewer Experts.
+                    </Label>
+                  </div>
+                </div>
+
+                <Separator />
+
                 <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Keep Me Updated</h3>
                 
                 <div className="space-y-3 bg-muted/30 rounded-lg p-4">
@@ -439,9 +510,9 @@ export default function PublicQuotePage() {
               <div className="flex flex-col sm:flex-row gap-3 w-full">
                 <Button
                   size="lg"
-                  className="w-full sm:w-auto bg-green-600 hover:bg-green-700"
+                  className="w-full sm:w-auto bg-green-600"
                   onClick={validateAndAccept}
-                  disabled={acceptMutation.isPending || declineMutation.isPending}
+                  disabled={acceptMutation.isPending || declineMutation.isPending || !termsAccepted}
                   data-testid="button-accept-quote"
                 >
                   {acceptMutation.isPending ? (

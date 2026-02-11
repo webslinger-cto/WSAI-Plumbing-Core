@@ -340,6 +340,7 @@ export const quotes = pgTable("quotes", {
   declinedAt: timestamp("declined_at"),
   expiresAt: timestamp("expires_at"),
   customerId: varchar("customer_id"), // FK to customers table
+  termsAcceptedAt: timestamp("terms_accepted_at"), // When customer acknowledged T&C
 });
 
 export const insertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true });
