@@ -61,6 +61,7 @@ const adminMenuItems = [
   { title: "Pricebook", url: "/pricebook", icon: Tag },
   { title: "Marketing ROI", url: "/marketing", icon: TrendingUp },
   { title: "Payroll", url: "/payroll", icon: Wallet },
+  { title: "Pay Tracker", url: "/pay-tracker", icon: DollarSign },
   { title: "Permit Center", url: "/permits", icon: FileStack },
 ];
 
@@ -81,7 +82,7 @@ const techMenuItems = [
   { title: "My Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Quote Tool", url: "/quote", icon: FileText },
   { title: "Messages", url: "/chat", icon: MessageSquare },
-  { title: "Earnings", url: "/earnings", icon: DollarSign },
+  { title: "Pay Tracker", url: "/pay-tracker", icon: DollarSign },
 ];
 
 const salesMenuItems = [

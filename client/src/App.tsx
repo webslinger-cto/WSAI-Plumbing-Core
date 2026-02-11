@@ -24,6 +24,7 @@ import TechniciansPage from "@/pages/TechniciansPage";
 import ImportPage from "@/pages/ImportPage";
 import OutreachPage from "@/pages/OutreachPage";
 import PayrollPage from "@/pages/PayrollPage";
+import PayTrackerPage from "@/pages/PayTrackerPage";
 import TechnicianDashboard from "@/pages/TechnicianDashboard";
 import QuotePage from "@/pages/QuotePage";
 import DispatcherDashboard from "@/pages/DispatcherDashboard";
@@ -84,6 +85,7 @@ function AdminRouter({ userId, fullName }: { userId: string; fullName: string })
       <Route path="/marketing" component={MarketingROIPage} />
       <Route path="/seo-content" component={SEOContentPage} />
       <Route path="/payroll" component={PayrollPage} />
+      <Route path="/pay-tracker" component={PayTrackerPage} />
       <Route path="/import" component={ImportPage} />
       <Route path="/outreach" component={OutreachPage} />
       <Route path="/export" component={ExportPage} />

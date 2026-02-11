@@ -243,6 +243,68 @@ async function notifyUser(userId: string, config: {
   }
 }
 
+// Helper: Create revenue event for a completed job (idempotent - checks for existing)
+async function createRevenueEventForJob(job: any) {
+  try {
+    const existing = await storage.getJobRevenueEventsByJob(job.id);
+    if (existing.length > 0) return;
+
+    const techId = job.assignedTechnicianId;
+    if (!techId) return;
+
+    const tech = await storage.getTechnician(techId);
+    if (!tech) return;
+
+    let totalRevenue = parseFloat(job.totalRevenue || "0");
+
+    if (totalRevenue === 0) {
+      const workOrders = await storage.getWorkOrdersByJob(job.id);
+      const completedOrder = workOrders.find((wo: any) => wo.status === "completed" || wo.status === "submitted");
+      if (completedOrder) {
+        totalRevenue = parseFloat(completedOrder.totalPrice || "0");
+        if (totalRevenue > 0) {
+          await storage.updateJob(job.id, { totalRevenue: totalRevenue.toFixed(2) });
+        }
+      }
+    }
+
+    if (totalRevenue === 0) {
+      const jobQuotes = await storage.getQuotesByJob(job.id);
+      const acceptedQuote = jobQuotes.find((q: any) => q.status === "accepted") || jobQuotes[0];
+      if (acceptedQuote) {
+        totalRevenue = parseFloat(acceptedQuote.total || "0");
+        if (totalRevenue > 0) {
+          await storage.updateJob(job.id, { totalRevenue: totalRevenue.toFixed(2) });
+        }
+      }
+    }
+
+    const laborCost = parseFloat(job.laborCost || "0");
+    const materialsCost = parseFloat(job.materialsCost || "0");
+    const travelExpense = parseFloat(job.travelExpense || "0");
+    const equipmentCost = parseFloat(job.equipmentCost || "0");
+    const otherExpenses = parseFloat(job.otherExpenses || "0");
+    const totalCost = laborCost + materialsCost + travelExpense + equipmentCost + otherExpenses;
+    const netProfit = totalRevenue - totalCost;
+    const commissionRate = parseFloat(String(tech.commissionRate) || "0.1");
+    const commissionAmount = netProfit > 0 ? netProfit * commissionRate : 0;
+
+    await storage.createJobRevenueEvent({
+      jobId: job.id,
+      technicianId: techId,
+      totalRevenue: totalRevenue.toFixed(2),
+      laborCost: (laborCost + travelExpense + equipmentCost + otherExpenses).toFixed(2),
+      materialCost: materialsCost.toFixed(2),
+      marketingCost: "0",
+      netProfit: netProfit.toFixed(2),
+      commissionAmount: commissionAmount.toFixed(2),
+    });
+    console.log(`[Revenue] Created event for job ${job.id} - Revenue: $${totalRevenue}, Net: $${netProfit}, Commission: $${commissionAmount}`);
+  } catch (error) {
+    console.error(`Failed to create revenue event for job ${job.id}:`, error);
+  }
+}
+
 // Helper: Create chat thread when a lead is created
 async function createLeadChatThread(
   lead: { id: string; customerName: string; customerPhone: string; serviceType?: string | null },
@@ -1678,6 +1740,12 @@ export async function registerRoutes(
       if (Object.keys(diffs).length > 0) {
         const action = diffs.status ? "status_change" : "update";
         await logAudit("job", req.params.id, action, diffs, req);
+      }
+
+      if (body.status === "completed" && oldJob.status !== "completed") {
+        createRevenueEventForJob(job).catch(err =>
+          console.error(`Revenue event creation failed for job ${req.params.id}:`, err)
+        );
       }
 
       res.json(job);
@@ -6165,6 +6233,189 @@ ${emailContent}
     } catch (error) {
       console.error("Error processing payroll:", error);
       res.status(500).json({ error: "Failed to process payroll" });
+    }
+  });
+
+  // ============================================
+  // PAY TRACKER - Per-employee earnings view
+  // ============================================
+
+  app.get("/api/pay-tracker", async (req, res) => {
+    try {
+      const { userId, technicianId } = req.query;
+      
+      const allTechnicians = await storage.getTechnicians();
+      const allJobs = await storage.getJobs();
+      const allRevenueEvents = await storage.getAllJobRevenueEvents();
+      const allPayrollPeriods = await storage.getPayrollPeriods();
+      
+      let targetTechs = allTechnicians;
+      if (technicianId) {
+        targetTechs = allTechnicians.filter(t => t.id === technicianId);
+      } else if (userId) {
+        targetTechs = allTechnicians.filter(t => t.userId === userId);
+      }
+
+      const trackers = await Promise.all(targetTechs.map(async (tech) => {
+        const techJobs = allJobs.filter(j => j.assignedTechnicianId === tech.id);
+        const completedJobs = techJobs.filter(j => j.status === "completed");
+        const activeJobs = techJobs.filter(j => ["assigned", "confirmed", "en_route", "on_site", "in_progress"].includes(j.status || ""));
+        const techRevEvents = allRevenueEvents.filter(e => e.technicianId === tech.id);
+        
+        const hourlyRate = parseFloat(String(tech.hourlyRate)) || 25;
+        const commissionRate = parseFloat(String(tech.commissionRate)) || 0.1;
+
+        const completedJobDetails = completedJobs.map(job => {
+          const revEvent = techRevEvents.find(e => e.jobId === job.id);
+          const revenue = revEvent 
+            ? parseFloat(String(revEvent.totalRevenue)) || 0
+            : parseFloat(job.totalRevenue || "0");
+          const commission = revEvent
+            ? parseFloat(String(revEvent.commissionAmount)) || 0
+            : (revenue > 0 ? revenue * commissionRate : 0);
+          
+          let hoursWorked = 0;
+          if (job.startedAt && job.completedAt) {
+            hoursWorked = (new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / (1000 * 60 * 60);
+          } else if (job.estimatedDuration) {
+            hoursWorked = job.estimatedDuration / 60;
+          }
+          
+          const hourlyPay = hoursWorked * hourlyRate;
+          const isEmergency = job.priority === "urgent" || job.priority === "high";
+          const emergencyMultiplier = isEmergency ? (parseFloat(String(tech.emergencyRate)) || 1.5) : 1;
+          
+          return {
+            jobId: job.id,
+            customerName: job.customerName,
+            serviceType: job.serviceType,
+            address: job.address,
+            completedAt: job.completedAt,
+            revenue,
+            hoursWorked: Math.round(hoursWorked * 100) / 100,
+            hourlyPay: Math.round(hourlyPay * emergencyMultiplier * 100) / 100,
+            commission: Math.round(commission * 100) / 100,
+            totalEarned: Math.round((hourlyPay * emergencyMultiplier + commission) * 100) / 100,
+            isEmergency,
+            leadFee: 125,
+          };
+        });
+
+        const projectedJobs = activeJobs.map(job => {
+          const estRevenue = parseFloat(job.totalRevenue || "0");
+          const estHours = job.estimatedDuration ? job.estimatedDuration / 60 : 2;
+          const estCommission = estRevenue > 0 ? estRevenue * commissionRate : 0;
+          const estHourlyPay = estHours * hourlyRate;
+          return {
+            jobId: job.id,
+            customerName: job.customerName,
+            serviceType: job.serviceType,
+            address: job.address,
+            status: job.status,
+            scheduledDate: job.scheduledDate,
+            estimatedRevenue: Math.round(estRevenue * 100) / 100,
+            estimatedHours: Math.round(estHours * 100) / 100,
+            estimatedHourlyPay: Math.round(estHourlyPay * 100) / 100,
+            estimatedCommission: Math.round(estCommission * 100) / 100,
+            estimatedTotal: Math.round((estHourlyPay + estCommission) * 100) / 100,
+            leadFee: 125,
+          };
+        });
+
+        const techRecords: any[] = [];
+        for (const period of allPayrollPeriods) {
+          const records = await storage.getPayrollRecordsByPeriod(period.id);
+          const techRecord = records.find(r => r.technicianId === tech.id);
+          if (techRecord) {
+            techRecords.push({
+              ...techRecord,
+              periodStartDate: period.startDate,
+              periodEndDate: period.endDate,
+              periodStatus: period.status,
+            });
+          }
+        }
+
+        const totalEarnedFromCompleted = completedJobDetails.reduce((sum, j) => sum + j.totalEarned, 0);
+        const totalLeadFees = completedJobDetails.length * 125;
+        const totalRevenue = completedJobDetails.reduce((sum, j) => sum + j.revenue, 0);
+        const totalHoursWorked = completedJobDetails.reduce((sum, j) => sum + j.hoursWorked, 0);
+        const totalCommission = completedJobDetails.reduce((sum, j) => sum + j.commission, 0);
+        const totalHourlyPay = completedJobDetails.reduce((sum, j) => sum + j.hourlyPay, 0);
+        const projectedEarnings = projectedJobs.reduce((sum, j) => sum + j.estimatedTotal, 0);
+        const projectedLeadFees = projectedJobs.length * 125;
+
+        const totalPaidFromRecords = techRecords
+          .filter(r => r.isPaid)
+          .reduce((sum: number, r: any) => sum + parseFloat(r.netPay || "0"), 0);
+
+        return {
+          technicianId: tech.id,
+          technicianName: tech.fullName,
+          userId: tech.userId,
+          hourlyRate,
+          commissionRate,
+          status: tech.status,
+          summary: {
+            totalJobsCompleted: completedJobs.length,
+            totalActiveJobs: activeJobs.length,
+            totalRevenue: Math.round(totalRevenue * 100) / 100,
+            totalHoursWorked: Math.round(totalHoursWorked * 100) / 100,
+            totalHourlyPay: Math.round(totalHourlyPay * 100) / 100,
+            totalCommission: Math.round(totalCommission * 100) / 100,
+            totalLeadFees,
+            totalEarned: Math.round(totalEarnedFromCompleted * 100) / 100,
+            netEarned: Math.round((totalEarnedFromCompleted - totalLeadFees) * 100) / 100,
+            totalPaid: Math.round(totalPaidFromRecords * 100) / 100,
+            projectedEarnings: Math.round(projectedEarnings * 100) / 100,
+            projectedLeadFees,
+            projectedNet: Math.round((projectedEarnings - projectedLeadFees) * 100) / 100,
+          },
+          completedJobs: completedJobDetails.sort((a, b) => 
+            new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime()
+          ),
+          projectedJobs,
+          payrollHistory: techRecords.sort((a: any, b: any) => 
+            new Date(b.periodStartDate || 0).getTime() - new Date(a.periodStartDate || 0).getTime()
+          ),
+        };
+      }));
+
+      res.json(trackers);
+    } catch (error) {
+      console.error("Error fetching pay tracker:", error);
+      res.status(500).json({ error: "Failed to fetch pay tracker data" });
+    }
+  });
+
+  // Backfill revenue events for all completed jobs that don't have them
+  app.post("/api/admin/backfill-revenue-events", async (req, res) => {
+    try {
+      const allJobs = await storage.getJobs();
+      const completedJobs = allJobs.filter(j => j.status === "completed");
+      let created = 0;
+      let skipped = 0;
+      
+      for (const job of completedJobs) {
+        const existing = await storage.getJobRevenueEventsByJob(job.id);
+        if (existing.length > 0) {
+          skipped++;
+          continue;
+        }
+        await createRevenueEventForJob(job);
+        created++;
+      }
+      
+      res.json({ 
+        success: true, 
+        message: `Backfilled ${created} revenue events, skipped ${skipped} existing`,
+        created,
+        skipped,
+        totalCompleted: completedJobs.length,
+      });
+    } catch (error) {
+      console.error("Error backfilling revenue events:", error);
+      res.status(500).json({ error: "Failed to backfill revenue events" });
     }
   });
 

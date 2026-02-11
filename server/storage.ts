@@ -2318,9 +2318,17 @@ export class DatabaseStorage implements IStorage {
     const currentJobs = allJobs.filter(j => new Date(j.createdAt) >= startDate);
     const currentQuotes = allQuotes.filter(q => new Date(q.createdAt) >= startDate);
 
-    const totalRevenue = currentQuotes.reduce((sum, q) => sum + (parseFloat(q.total || "0")), 0);
-    const prevRevenue = allQuotes.filter(q => new Date(q.createdAt) >= prevStartDate && new Date(q.createdAt) <= prevEndDate)
+    const completedJobsInPeriod = allJobs.filter(j => j.status === "completed" && j.completedAt && new Date(j.completedAt) >= startDate);
+    const prevCompletedJobs = allJobs.filter(j => j.status === "completed" && j.completedAt && new Date(j.completedAt) >= prevStartDate && new Date(j.completedAt) <= prevEndDate);
+
+    const jobRevenue = completedJobsInPeriod.reduce((sum, j) => sum + (parseFloat(j.totalRevenue || "0")), 0);
+    const quoteRevenue = currentQuotes.filter(q => q.status === "accepted").reduce((sum, q) => sum + (parseFloat(q.total || "0")), 0);
+    const totalRevenue = jobRevenue > 0 ? jobRevenue : quoteRevenue;
+
+    const prevJobRevenue = prevCompletedJobs.reduce((sum, j) => sum + (parseFloat(j.totalRevenue || "0")), 0);
+    const prevQuoteRevenue = allQuotes.filter(q => q.status === "accepted" && new Date(q.createdAt) >= prevStartDate && new Date(q.createdAt) <= prevEndDate)
       .reduce((sum, q) => sum + (parseFloat(q.total || "0")), 0);
+    const prevRevenue = prevJobRevenue > 0 ? prevJobRevenue : prevQuoteRevenue;
 
     const totalLeads = currentLeads.length;
     const convertedLeads = currentLeads.filter(l => l.status === "converted").length;
@@ -2328,8 +2336,12 @@ export class DatabaseStorage implements IStorage {
     const prevConvertedLeads = prevLeads.filter(l => l.status === "converted").length;
     const prevConversionRate = prevLeads.length > 0 ? (prevConvertedLeads / prevLeads.length) * 100 : 0;
 
-    const expenseRate = 0.4;
-    const netProfit = totalRevenue * (1 - expenseRate);
+    const totalJobCosts = completedJobsInPeriod.reduce((sum, j) => {
+      return sum + parseFloat(j.laborCost || "0") + parseFloat(j.materialsCost || "0") + 
+        parseFloat(j.travelExpense || "0") + parseFloat(j.equipmentCost || "0") + parseFloat(j.otherExpenses || "0");
+    }, 0);
+    const expenseRate = totalRevenue > 0 && totalJobCosts > 0 ? totalJobCosts / totalRevenue : 0.4;
+    const netProfit = totalRevenue - totalJobCosts;
     const prevProfit = prevRevenue * (1 - expenseRate);
 
     const sourceStats = new Map<string, { leads: number; cost: number; converted: number; revenue: number }>();
