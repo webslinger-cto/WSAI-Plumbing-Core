@@ -1069,7 +1069,20 @@ export async function registerRoutes(
   }
 
   app.post("/api/leads", async (req, res) => {
-    const result = insertLeadSchema.safeParse(req.body);
+    const body = { ...req.body };
+    if (body.receivedAt && typeof body.receivedAt === "string") {
+      body.receivedAt = new Date(body.receivedAt);
+    }
+    if (body.convertedAt && typeof body.convertedAt === "string") {
+      body.convertedAt = new Date(body.convertedAt);
+    }
+    if (body.contactedAt && typeof body.contactedAt === "string") {
+      body.contactedAt = new Date(body.contactedAt);
+    }
+    if (body.slaDeadline && typeof body.slaDeadline === "string") {
+      body.slaDeadline = new Date(body.slaDeadline);
+    }
+    const result = insertLeadSchema.safeParse(body);
     if (!result.success) return res.status(400).json({ error: result.error });
     
     // Get the user who is creating this lead (for chat thread creation)
