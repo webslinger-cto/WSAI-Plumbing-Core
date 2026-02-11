@@ -13,6 +13,10 @@ declare module "http" {
   }
 }
 
+app.get("/api/health", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
 app.use(
   express.json({
     limit: '50mb',

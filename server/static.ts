@@ -10,10 +10,12 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  app.use(express.static(distPath, { maxAge: "1d" }));
 
-  // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
+  app.use("*", (req, res) => {
+    if (req.originalUrl === "/api/health") {
+      return res.status(200).json({ status: "ok" });
+    }
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }
