@@ -378,6 +378,17 @@ export function registerPermitRoutes(app: Express, opts: { isAuthenticatedUser: 
     }
   });
 
+  app.get("/api/permits/job-ids", async (req: any, res) => {
+    try {
+      if (!(await requireAuth(req, res))) return;
+      const rows = await db.selectDistinct({ jobId: permitPackets.jobId }).from(permitPackets);
+      res.json(rows.map(r => r.jobId).filter(Boolean));
+    } catch (error) {
+      console.error("Failed to fetch permit job IDs:", error);
+      res.json([]);
+    }
+  });
+
   app.get("/api/permits/status", async (req: any, res) => {
     try {
       if (!(await requireEnabled(req, res))) return;

@@ -34,8 +34,28 @@ import {
   LayoutGrid,
   List,
   Columns3,
+  ClipboardPen,
 } from "lucide-react";
 import type { Job, Technician } from "@shared/schema";
+
+function PlungerIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <line x1="12" y1="2" x2="12" y2="8" />
+      <rect x="10" y="8" width="4" height="3" rx="1" />
+      <path d="M8 11c0 3 2 5 4 7 2-2 4-4 4-7" />
+      <path d="M6 11h12" />
+    </svg>
+  );
+}
 import { getTechColorById, getTechInitials } from "@/lib/technicianColors";
 import {
   format,
@@ -109,9 +129,11 @@ interface DispatcherCalendarProps {
   jobs: Job[];
   technicians: Technician[];
   userId?: string;
+  estimateJobIds?: Set<string>;
+  permitJobIds?: Set<string>;
 }
 
-export default function DispatcherCalendar({ jobs, technicians, userId }: DispatcherCalendarProps) {
+export default function DispatcherCalendar({ jobs, technicians, userId, estimateJobIds = new Set(), permitJobIds = new Set() }: DispatcherCalendarProps) {
   const { toast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<CalendarView>("week");
@@ -341,6 +363,20 @@ export default function DispatcherCalendar({ jobs, technicians, userId }: Dispat
             <div className="w-3 h-3 rounded-full shrink-0 bg-gray-500" />
             <span className="text-xs text-muted-foreground">Unassigned</span>
           </div>
+          <div className="border-l pl-3 ml-1 flex items-center gap-3">
+            <div className="flex items-center gap-1" data-testid="legend-job">
+              <PlungerIcon className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Job</span>
+            </div>
+            <div className="flex items-center gap-1" data-testid="legend-estimate">
+              <ClipboardPen className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Estimate</span>
+            </div>
+            <div className="flex items-center gap-1" data-testid="legend-permit">
+              <span className="text-[9px] font-bold leading-none bg-muted rounded px-1 py-0.5">P</span>
+              <span className="text-xs text-muted-foreground">Has Permit</span>
+            </div>
+          </div>
         </div>
       )}
 
@@ -351,6 +387,8 @@ export default function DispatcherCalendar({ jobs, technicians, userId }: Dispat
           onClickDate={(d) => { setCurrentDate(d); setView("day"); }}
           onClickEvent={openEditDialog}
           technicians={technicians}
+          estimateJobIds={estimateJobIds}
+          permitJobIds={permitJobIds}
         />
       ) : (
         <TimeGridView
@@ -370,6 +408,8 @@ export default function DispatcherCalendar({ jobs, technicians, userId }: Dispat
             });
           }}
           technicians={technicians}
+          estimateJobIds={estimateJobIds}
+          permitJobIds={permitJobIds}
         />
       )}
 
@@ -396,6 +436,8 @@ function TimeGridView({
   onClickEvent,
   onDropEvent,
   technicians,
+  estimateJobIds = new Set(),
+  permitJobIds = new Set(),
 }: {
   currentDate: Date;
   view: "day" | "week";
@@ -404,6 +446,8 @@ function TimeGridView({
   onClickEvent: (job: Job) => void;
   onDropEvent: (jobId: string, newDate: Date, startTime: string, endTime: string) => void;
   technicians: Technician[];
+  estimateJobIds?: Set<string>;
+  permitJobIds?: Set<string>;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [dragState, setDragState] = useState<{
@@ -535,6 +579,8 @@ function TimeGridView({
                   const techColor = getTechColorById(event.job.assignedTechnicianId, technicians);
                   const isCancelled = event.job.status === "cancelled";
                   const priorityDot = priorityDots[event.job.priority || "normal"];
+                  const isEstimate = estimateJobIds.has(event.job.id);
+                  const hasPermit = permitJobIds.has(event.job.id);
                   return (
                     <div
                       key={event.job.id}
@@ -552,6 +598,16 @@ function TimeGridView({
                       data-testid={`event-${event.job.id}`}
                     >
                       <div className="flex items-center gap-1 min-w-0">
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          {isEstimate ? (
+                            <ClipboardPen className="w-3 h-3" />
+                          ) : (
+                            <PlungerIcon className="w-3 h-3" />
+                          )}
+                          {hasPermit && (
+                            <span className="text-[9px] font-bold leading-none bg-white/25 rounded px-0.5">P</span>
+                          )}
+                        </div>
                         {priorityDot && <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityDot}`} />}
                         <span className="text-xs font-medium truncate">{event.job.customerName}</span>
                       </div>
@@ -592,12 +648,16 @@ function MonthView({
   onClickDate,
   onClickEvent,
   technicians,
+  estimateJobIds = new Set(),
+  permitJobIds = new Set(),
 }: {
   currentDate: Date;
   events: CalendarEvent[];
   onClickDate: (d: Date) => void;
   onClickEvent: (job: Job) => void;
   technicians: Technician[];
+  estimateJobIds?: Set<string>;
+  permitJobIds?: Set<string>;
 }) {
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(currentDate);
@@ -639,16 +699,28 @@ function MonthView({
                   <div className="space-y-0.5">
                     {dayEvents.slice(0, 3).map(ev => {
                       const evTechColor = getTechColorById(ev.job.assignedTechnicianId, technicians);
+                      const isEst = estimateJobIds.has(ev.job.id);
+                      const hasPerm = permitJobIds.has(ev.job.id);
                       return (
                         <div
                           key={ev.job.id}
-                          className="text-[10px] px-1 py-0.5 rounded truncate cursor-pointer text-white"
+                          className="text-[10px] px-1 py-0.5 rounded cursor-pointer text-white flex items-center gap-0.5 min-w-0"
                           style={{ backgroundColor: evTechColor }}
                           onClick={(e) => { e.stopPropagation(); onClickEvent(ev.job); }}
                           data-testid={`month-event-${ev.job.id}`}
                         >
-                          {ev.job.scheduledTimeStart && <span className="mr-1">{ev.job.scheduledTimeStart}</span>}
-                          {ev.job.customerName}
+                          {isEst ? (
+                            <ClipboardPen className="w-2.5 h-2.5 shrink-0" />
+                          ) : (
+                            <PlungerIcon className="w-2.5 h-2.5 shrink-0" />
+                          )}
+                          {hasPerm && (
+                            <span className="text-[8px] font-bold leading-none bg-white/25 rounded px-0.5 shrink-0">P</span>
+                          )}
+                          <span className="truncate">
+                            {ev.job.scheduledTimeStart && <span className="mr-0.5">{ev.job.scheduledTimeStart}</span>}
+                            {ev.job.customerName}
+                          </span>
                         </div>
                       );
                     })}

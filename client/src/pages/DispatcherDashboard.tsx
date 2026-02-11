@@ -53,7 +53,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import type { Job, Lead, Call, Technician, Quote, PricebookItem } from "@shared/schema";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { formatDistanceToNow, format } from "date-fns";
 import { DollarSign, Trash2, Save, Send, X, Edit3 } from "lucide-react";
 import DispatcherCalendar from "@/components/DispatcherCalendar";
@@ -1534,6 +1534,22 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
     queryKey: ["/api/quotes"],
   });
 
+  const { data: permitJobIdsList = [] } = useQuery<string[]>({
+    queryKey: ["/api/permits/job-ids"],
+  });
+
+  const estimateJobIds = useMemo(() => {
+    const ids = new Set<string>();
+    quotes.forEach(q => {
+      if ((q as any).formType === "estimate" && q.jobId) {
+        ids.add(q.jobId);
+      }
+    });
+    return ids;
+  }, [quotes]);
+
+  const permitJobIds = useMemo(() => new Set(permitJobIdsList), [permitJobIdsList]);
+
   const pendingQuotes = quotes.filter(q => q.status === "draft");
 
   const assignMutation = useMutation({
@@ -1921,7 +1937,7 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
         </TabsContent>
 
         <TabsContent value="calendar" className="min-h-[600px]">
-          <DispatcherCalendar jobs={jobs} technicians={technicians} userId={userId} />
+          <DispatcherCalendar jobs={jobs} technicians={technicians} userId={userId} estimateJobIds={estimateJobIds} permitJobIds={permitJobIds} />
         </TabsContent>
       </Tabs>
 
