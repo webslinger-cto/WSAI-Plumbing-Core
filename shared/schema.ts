@@ -151,7 +151,7 @@ export const leadSources = ["eLocal", "Networx", "Angi", "HomeAdvisor", "Thumbta
 export type LeadSource = typeof leadSources[number];
 
 // Lead statuses
-export const leadStatuses = ["new", "contacted", "qualified", "estimated", "quoted", "scheduled", "converted", "permit_pending", "assigned", "in_progress", "completed", "lost", "dead", "duplicate", "spam"] as const;
+export const leadStatuses = ["new", "contacted", "qualified", "estimated", "quoted", "scheduled", "converted", "permit_pending", "assigned", "estimating", "estimate_submitted", "in_progress", "completed", "lost", "dead", "duplicate", "spam"] as const;
 export type LeadStatus = typeof leadStatuses[number];
 
 // Leads table
@@ -230,7 +230,7 @@ export type InsertCall = z.infer<typeof insertCallSchema>;
 export type Call = typeof calls.$inferSelect;
 
 // Job statuses
-export const jobStatuses = ["pending", "assigned", "confirmed", "en_route", "on_site", "in_progress", "completed", "cancelled"] as const;
+export const jobStatuses = ["pending", "assigned", "confirmed", "en_route", "on_site", "in_progress", "awaiting_permit", "awaiting_inspection", "completed", "cancelled"] as const;
 export type JobStatus = typeof jobStatuses[number];
 
 // Jobs table
@@ -304,6 +304,26 @@ export const jobs = pgTable("jobs", {
   quoteId: varchar("quote_id"),
   // Customer linkage
   customerId: varchar("customer_id"), // FK to customers table
+  // Estimate fields (technician on-site estimate)
+  estimateNotes: text("estimate_notes"),
+  estimateAmount: decimal("estimate_amount"),
+  estimateRangeLow: decimal("estimate_range_low"),
+  estimateRangeHigh: decimal("estimate_range_high"),
+  estimateSubmittedAt: timestamp("estimate_submitted_at"),
+  estimateSubmittedBy: varchar("estimate_submitted_by"),
+  estimateMedia: text("estimate_media"), // JSON array of media URLs/keys
+  // Permit fields
+  permitRequired: boolean("permit_required").default(false),
+  permitJurisdiction: text("permit_jurisdiction"),
+  permitStatus: text("permit_status").default("not_required"), // not_required, draft, submitted, approved
+  permitNumber: text("permit_number"),
+  // Inspection fields
+  inspectionRequired: boolean("inspection_required").default(false),
+  inspectionType: text("inspection_type"),
+  inspectionRequestedDate: timestamp("inspection_requested_date"),
+  inspectionScheduledAt: timestamp("inspection_scheduled_at"),
+  inspectionNotes: text("inspection_notes"),
+  inspectionResult: text("inspection_result"), // passed, failed, rescheduled
 });
 
 export const insertJobSchema = createInsertSchema(jobs).omit({ id: true, createdAt: true, updatedAt: true });

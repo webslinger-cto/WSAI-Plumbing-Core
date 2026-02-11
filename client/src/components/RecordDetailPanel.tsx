@@ -47,7 +47,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import JobTimeline from "@/components/JobTimeline";
 import { JobChat } from "@/components/JobChat";
 import { PermitCenterCard } from "@/features/permits/PermitCenterCard";
-import { MessageSquare, ListChecks, ShieldCheck, Camera } from "lucide-react";
+import { MessageSquare, ListChecks, ShieldCheck, Camera, ClipboardList } from "lucide-react";
 import { JobMediaTab } from "@/components/JobMediaTab";
 
 const jobStatusConfig: Record<string, { label: string; color: string }> = {
@@ -59,6 +59,8 @@ const jobStatusConfig: Record<string, { label: string; color: string }> = {
   in_progress: { label: "In Progress", color: "bg-primary/20 text-primary" },
   completed: { label: "Completed", color: "bg-green-500/20 text-green-400" },
   cancelled: { label: "Cancelled", color: "bg-destructive/20 text-destructive" },
+  awaiting_permit: { label: "Awaiting Permit", color: "bg-orange-500/20 text-orange-400" },
+  awaiting_inspection: { label: "Awaiting Inspection", color: "bg-cyan-500/20 text-cyan-400" },
 };
 
 const quoteStatusConfig: Record<string, { label: string; color: string }> = {
@@ -141,6 +143,18 @@ export default function RecordDetailPanel({
               </TabsTrigger>
             )}
             {jobId && (
+              <TabsTrigger value="estimate" className="text-xs sm:text-sm" data-testid="tab-record-estimate">
+                <DollarSign className="w-3.5 h-3.5 mr-1" />
+                Estimate
+              </TabsTrigger>
+            )}
+            {jobId && (
+              <TabsTrigger value="permit-inspection" className="text-xs sm:text-sm" data-testid="tab-record-permit-inspection">
+                <Briefcase className="w-3.5 h-3.5 mr-1" />
+                Permit/Inspect
+              </TabsTrigger>
+            )}
+            {jobId && (
               <TabsTrigger value="media" className="text-xs sm:text-sm" data-testid="tab-record-media">
                 <Camera className="w-3.5 h-3.5 mr-1" />
                 Media
@@ -192,6 +206,18 @@ export default function RecordDetailPanel({
             {jobId && (
               <TabsContent value="permits" className="mt-0">
                 <PermitCenterCard jobId={jobId} />
+              </TabsContent>
+            )}
+
+            {jobId && (
+              <TabsContent value="estimate" className="mt-0">
+                <EstimateViewTab jobId={jobId} />
+              </TabsContent>
+            )}
+
+            {jobId && (
+              <TabsContent value="permit-inspection" className="mt-0">
+                <PermitInspectionTab jobId={jobId} />
               </TabsContent>
             )}
 
@@ -937,4 +963,264 @@ function JobChatTab({ jobId, userId }: { jobId: string; userId?: string }) {
   });
 
   return <JobChat jobId={jobId} jobCustomerName={job?.customerName || "Customer"} userId={userId} />;
+}
+
+function EstimateViewTab({ jobId }: { jobId: string }) {
+  const { data: job, isLoading } = useQuery<Job>({
+    queryKey: ["/api/jobs", jobId],
+    enabled: !!jobId,
+  });
+
+  if (isLoading) return <div className="text-center py-4 text-muted-foreground">Loading...</div>;
+  if (!job) return <div className="text-center py-4 text-muted-foreground">Job not found</div>;
+
+  if (!job.estimateSubmittedAt) {
+    return (
+      <Card>
+        <CardContent className="pt-6 text-center text-muted-foreground space-y-2">
+          <AlertCircle className="w-8 h-8 mx-auto opacity-50" />
+          <p>No estimate submitted yet</p>
+          <p className="text-sm">The technician has not submitted an on-site estimate for this job.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardContent className="pt-6 space-y-4">
+        <div className="flex items-center gap-2 text-green-400 mb-2">
+          <CheckCircle2 className="w-5 h-5" />
+          <span className="font-semibold">Estimate Received</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-muted/30 rounded-lg p-4">
+          <div>
+            <p className="text-sm text-muted-foreground">Estimated Amount</p>
+            <p className="text-xl font-bold" data-testid="text-estimate-amount">
+              ${job.estimateAmount || `${job.estimateRangeLow} - ${job.estimateRangeHigh}`}
+            </p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Submitted</p>
+            <p className="font-medium" data-testid="text-estimate-date">
+              {format(new Date(job.estimateSubmittedAt), "MMM d, yyyy h:mm a")}
+            </p>
+          </div>
+          <div className="sm:col-span-2">
+            <p className="text-sm text-muted-foreground">Assessment Notes</p>
+            <p className="font-medium whitespace-pre-wrap" data-testid="text-estimate-notes">{job.estimateNotes}</p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PermitInspectionTab({ jobId }: { jobId: string }) {
+  const { toast } = useToast();
+  const { data: job, isLoading } = useQuery<Job>({
+    queryKey: ["/api/jobs", jobId],
+    enabled: !!jobId,
+  });
+
+  const [permitStatus, setPermitStatus] = useState("");
+  const [permitNumber, setPermitNumber] = useState("");
+  const [permitJurisdiction, setPermitJurisdiction] = useState("");
+  const [inspectionType, setInspectionType] = useState("");
+  const [inspectionDate, setInspectionDate] = useState("");
+  const [inspectionNotes, setInspectionNotes] = useState("");
+  const [inspectionResult, setInspectionResult] = useState("");
+
+  const permitMutation = useMutation({
+    mutationFn: async (data: Record<string, unknown>) => {
+      return apiRequest("PATCH", `/api/jobs/${jobId}/permit`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({ title: "Permit Updated" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update permit.", variant: "destructive" });
+    },
+  });
+
+  const inspectionMutation = useMutation({
+    mutationFn: async (data: Record<string, unknown>) => {
+      return apiRequest("PATCH", `/api/jobs/${jobId}/inspection`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({ title: "Inspection Updated" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update inspection.", variant: "destructive" });
+    },
+  });
+
+  if (isLoading) return <div className="text-center py-4 text-muted-foreground">Loading...</div>;
+  if (!job) return <div className="text-center py-4 text-muted-foreground">Job not found</div>;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4" />
+            Permit Management
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {job.permitRequired && (
+            <div className="bg-muted/30 rounded-lg p-3 space-y-1 mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Current Status:</span>
+                <Badge className={
+                  job.permitStatus === "approved" ? "bg-green-500/20 text-green-400" :
+                  job.permitStatus === "submitted" ? "bg-blue-500/20 text-blue-400" :
+                  "bg-muted text-muted-foreground"
+                } data-testid="badge-permit-status">
+                  {job.permitStatus || "not_required"}
+                </Badge>
+              </div>
+              {job.permitNumber && <p className="text-sm"><span className="text-muted-foreground">Permit #:</span> {job.permitNumber}</p>}
+              {job.permitJurisdiction && <p className="text-sm"><span className="text-muted-foreground">Jurisdiction:</span> {job.permitJurisdiction}</p>}
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Permit Status</Label>
+              <Select value={permitStatus || job.permitStatus || ""} onValueChange={setPermitStatus}>
+                <SelectTrigger data-testid="select-permit-status"><SelectValue placeholder="Select status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="not_required">Not Required</SelectItem>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="submitted">Submitted</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Permit Number</Label>
+              <Input
+                placeholder="Enter permit #"
+                defaultValue={job.permitNumber || ""}
+                onChange={(e) => setPermitNumber(e.target.value)}
+                data-testid="input-permit-number"
+              />
+            </div>
+            <div className="sm:col-span-2 space-y-1">
+              <Label>Jurisdiction</Label>
+              <Input
+                placeholder="e.g. City of Chicago"
+                defaultValue={job.permitJurisdiction || ""}
+                onChange={(e) => setPermitJurisdiction(e.target.value)}
+                data-testid="input-permit-jurisdiction"
+              />
+            </div>
+          </div>
+          <Button
+            onClick={() => permitMutation.mutate({
+              permitRequired: true,
+              permitStatus: permitStatus || job.permitStatus || "draft",
+              permitNumber: permitNumber || job.permitNumber,
+              permitJurisdiction: permitJurisdiction || job.permitJurisdiction,
+            })}
+            disabled={permitMutation.isPending}
+            data-testid="button-save-permit"
+          >
+            <Save className="w-4 h-4 mr-2" />
+            {permitMutation.isPending ? "Saving..." : "Save Permit Info"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <ClipboardList className="w-4 h-4" />
+            Inspection Management
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {job.inspectionRequired && (
+            <div className="bg-muted/30 rounded-lg p-3 space-y-1 mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Scheduled:</span>
+                <span className="text-sm font-medium" data-testid="text-inspection-date">
+                  {job.inspectionScheduledAt ? format(new Date(job.inspectionScheduledAt), "MMM d, yyyy h:mm a") : "Not scheduled"}
+                </span>
+              </div>
+              {job.inspectionType && <p className="text-sm"><span className="text-muted-foreground">Type:</span> {job.inspectionType}</p>}
+              {job.inspectionResult && (
+                <Badge className={
+                  job.inspectionResult === "passed" ? "bg-green-500/20 text-green-400" :
+                  job.inspectionResult === "failed" ? "bg-destructive/20 text-destructive" :
+                  "bg-amber-500/20 text-amber-400"
+                } data-testid="badge-inspection-result">
+                  {job.inspectionResult}
+                </Badge>
+              )}
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Inspection Type</Label>
+              <Input
+                placeholder="e.g. Plumbing, Sewer"
+                defaultValue={job.inspectionType || ""}
+                onChange={(e) => setInspectionType(e.target.value)}
+                data-testid="input-inspection-type"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Scheduled Date/Time</Label>
+              <Input
+                type="datetime-local"
+                defaultValue={job.inspectionScheduledAt ? format(new Date(job.inspectionScheduledAt), "yyyy-MM-dd'T'HH:mm") : ""}
+                onChange={(e) => setInspectionDate(e.target.value)}
+                data-testid="input-inspection-date"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Result</Label>
+              <Select value={inspectionResult || job.inspectionResult || ""} onValueChange={setInspectionResult}>
+                <SelectTrigger data-testid="select-inspection-result"><SelectValue placeholder="Pending" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="passed">Passed</SelectItem>
+                  <SelectItem value="failed">Failed</SelectItem>
+                  <SelectItem value="rescheduled">Rescheduled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Notes</Label>
+              <Textarea
+                placeholder="Inspector notes..."
+                defaultValue={job.inspectionNotes || ""}
+                onChange={(e) => setInspectionNotes(e.target.value)}
+                data-testid="input-inspection-notes"
+              />
+            </div>
+          </div>
+          <Button
+            onClick={() => inspectionMutation.mutate({
+              inspectionRequired: true,
+              inspectionType: inspectionType || job.inspectionType,
+              inspectionScheduledAt: inspectionDate || (job.inspectionScheduledAt ? new Date(job.inspectionScheduledAt).toISOString() : undefined),
+              inspectionNotes: inspectionNotes || job.inspectionNotes,
+              inspectionResult: inspectionResult || job.inspectionResult,
+            })}
+            disabled={inspectionMutation.isPending}
+            data-testid="button-save-inspection"
+          >
+            <Save className="w-4 h-4 mr-2" />
+            {inspectionMutation.isPending ? "Saving..." : "Save Inspection Info"}
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
 }

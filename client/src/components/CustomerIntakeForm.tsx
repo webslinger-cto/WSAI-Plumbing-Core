@@ -274,7 +274,6 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
         priority: lead.priority || "normal",
       });
       const job = await res.json();
-      await apiRequest("PATCH", `/api/leads/${lead.id}`, { status: "converted", convertedAt: new Date().toISOString() });
       return job;
     },
     onSuccess: () => {
@@ -293,9 +292,6 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
       if (!linkedJobs.length) return;
       const jobId = linkedJobs[0].id;
       await apiRequest("POST", `/api/jobs/${jobId}/assign`, { technicianId: techId });
-      if (lead) {
-        await apiRequest("PATCH", `/api/leads/${lead.id}`, { status: "assigned" });
-      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
@@ -324,11 +320,8 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
   });
 
   const updateJobStatusMutation = useMutation({
-    mutationFn: async ({ jobId, status, leadStatus }: { jobId: string; status: string; leadStatus?: string }) => {
+    mutationFn: async ({ jobId, status }: { jobId: string; status: string }) => {
       await apiRequest("PATCH", `/api/jobs/${jobId}`, { status });
-      if (lead && leadStatus) {
-        await apiRequest("PATCH", `/api/leads/${lead.id}`, { status: leadStatus });
-      }
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
@@ -462,8 +455,7 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
                   size="sm"
                   onClick={() => updateJobStatusMutation.mutate({ 
                     jobId: latestJob.id, 
-                    status: "in_progress", 
-                    leadStatus: "in_progress" 
+                    status: "in_progress" 
                   })}
                   disabled={updateJobStatusMutation.isPending}
                   data-testid="button-start-job"
@@ -477,8 +469,7 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
                   size="sm"
                   onClick={() => updateJobStatusMutation.mutate({ 
                     jobId: latestJob.id, 
-                    status: "completed", 
-                    leadStatus: "completed" 
+                    status: "completed" 
                   })}
                   disabled={updateJobStatusMutation.isPending}
                   data-testid="button-complete-job"

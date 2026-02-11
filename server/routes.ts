@@ -1737,6 +1737,23 @@ export async function registerRoutes(
     }
   });
 
+  // Dispatcher Queue: Jobs needing permit/inspection (must be before :id)
+  app.get("/api/jobs/permit-inspection-queue", async (req, res) => {
+    try {
+      const allJobs = await storage.getJobs();
+      const queue = allJobs.filter(j => 
+        j.status === "awaiting_permit" || 
+        j.status === "awaiting_inspection" ||
+        (j.permitRequired && j.permitStatus !== "approved") ||
+        (j.inspectionRequired && !j.inspectionScheduledAt)
+      );
+      res.json(queue);
+    } catch (error) {
+      console.error("Error fetching permit/inspection queue:", error);
+      res.status(500).json({ error: "Failed to fetch queue" });
+    }
+  });
+
   app.get("/api/jobs/:id", async (req, res) => {
     const job = await storage.getJob(req.params.id);
     if (!job) return res.status(404).json({ error: "Job not found" });
@@ -1781,6 +1798,14 @@ export async function registerRoutes(
         targetRoles: ["dispatcher", "admin"],
       }).catch(err => console.error("Job creation notification error:", err));
       
+      // Server-side Lead→Job sync: mark lead as converted when job is created
+      if (job.leadId) {
+        await storage.updateLead(job.leadId, { 
+          status: "converted", 
+          convertedAt: new Date() 
+        });
+      }
+      
       // Push job to Builder 1 for SEO content tracking
       const lead = job.leadId ? await storage.getLead(job.leadId) : undefined;
       pushJobToBuilder1(job, lead, "job_created").catch(err => {
@@ -1823,6 +1848,28 @@ export async function registerRoutes(
         createRevenueEventForJob(job).catch(err =>
           console.error(`Revenue event creation failed for job ${req.params.id}:`, err)
         );
+      }
+
+      // Server-side Lead↔Job status sync
+      if (body.status && body.status !== oldJob.status && job.leadId) {
+        const jobToLeadMap: Record<string, string> = {
+          assigned: "assigned",
+          confirmed: "assigned",
+          en_route: "in_progress",
+          on_site: "in_progress",
+          in_progress: "in_progress",
+          awaiting_permit: "permit_pending",
+          awaiting_inspection: "permit_pending",
+          completed: "completed",
+          cancelled: "lost",
+        };
+        const newLeadStatus = jobToLeadMap[body.status];
+        if (newLeadStatus) {
+          await storage.updateLead(job.leadId, { 
+            status: newLeadStatus,
+            ...(body.status === "completed" ? { convertedAt: new Date() } : {}),
+          });
+        }
       }
 
       res.json(job);
@@ -1935,6 +1982,11 @@ export async function registerRoutes(
     notifyJobAssigned(updated!, tech.fullName).catch(err => 
       console.error(`Job assignment notification failed for job ${req.params.id}:`, err)
     );
+    
+    // Server-side Lead sync on job assignment
+    if (job.leadId) {
+      await storage.updateLead(job.leadId, { status: "assigned", assignedTo: technicianId });
+    }
     
     res.json(updated);
   });
@@ -2201,6 +2253,147 @@ export async function registerRoutes(
     const event = await storage.createJobTimelineEvent(result.data);
     res.status(201).json(event);
   });
+
+  // === Estimate Submission (technician submits on-site estimate) ===
+  app.post("/api/jobs/:id/submit-estimate", async (req, res) => {
+    try {
+      const job = await storage.getJob(req.params.id);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+
+      const { estimateNotes, estimateAmount, estimateRangeLow, estimateRangeHigh, estimateMedia, technicianId } = req.body;
+      if (!estimateNotes || (!estimateAmount && !estimateRangeLow)) {
+        return res.status(400).json({ error: "estimateNotes and estimateAmount (or estimateRangeLow/High) are required" });
+      }
+
+      const now = new Date();
+      const updated = await storage.updateJob(req.params.id, {
+        estimateNotes,
+        estimateAmount: estimateAmount || null,
+        estimateRangeLow: estimateRangeLow || null,
+        estimateRangeHigh: estimateRangeHigh || null,
+        estimateMedia: estimateMedia ? JSON.stringify(estimateMedia) : null,
+        estimateSubmittedAt: now,
+        estimateSubmittedBy: technicianId || null,
+      });
+
+      await storage.createJobTimelineEvent({
+        jobId: req.params.id,
+        eventType: "note",
+        description: `Estimate submitted: $${estimateAmount || `${estimateRangeLow}-${estimateRangeHigh}`}`,
+        createdBy: technicianId || null,
+      });
+
+      // Server-side Lead sync
+      if (job.leadId) {
+        await storage.updateLead(job.leadId, { 
+          status: "estimate_submitted",
+          estimateAmount: estimateAmount || estimateRangeLow || null,
+        });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error submitting estimate:", error);
+      res.status(500).json({ error: "Failed to submit estimate" });
+    }
+  });
+
+  // === Permit Update (dispatcher manages permit workflow) ===
+  app.patch("/api/jobs/:id/permit", async (req, res) => {
+    try {
+      const job = await storage.getJob(req.params.id);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+
+      const { permitRequired, permitStatus, permitNumber, permitJurisdiction } = req.body;
+
+      const updateData: Record<string, any> = {};
+      if (permitRequired !== undefined) updateData.permitRequired = permitRequired;
+      if (permitStatus !== undefined) updateData.permitStatus = permitStatus;
+      if (permitNumber !== undefined) updateData.permitNumber = permitNumber;
+      if (permitJurisdiction !== undefined) updateData.permitJurisdiction = permitJurisdiction;
+
+      if (permitRequired && permitStatus !== "approved" && !["completed", "cancelled"].includes(job.status)) {
+        updateData.status = "awaiting_permit";
+      }
+      if (permitStatus === "approved" && job.status === "awaiting_permit") {
+        updateData.status = job.inspectionRequired ? "awaiting_inspection" : "in_progress";
+      }
+
+      const updated = await storage.updateJob(req.params.id, updateData);
+
+      await storage.createJobTimelineEvent({
+        jobId: req.params.id,
+        eventType: "note",
+        description: `Permit updated: ${permitStatus}${permitNumber ? ` (#${permitNumber})` : ""}`,
+        createdBy: req.body.userId || null,
+      });
+
+      // Sync lead status
+      if (job.leadId && updateData.status) {
+        const leadStatus = updateData.status === "awaiting_permit" ? "permit_pending" : "in_progress";
+        await storage.updateLead(job.leadId, { status: leadStatus });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating permit:", error);
+      res.status(500).json({ error: "Failed to update permit" });
+    }
+  });
+
+  // === Inspection Update (dispatcher schedules/manages inspection) ===
+  app.patch("/api/jobs/:id/inspection", async (req, res) => {
+    try {
+      const job = await storage.getJob(req.params.id);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+
+      const { inspectionRequired, inspectionType, inspectionRequestedDate, inspectionScheduledAt, inspectionNotes, inspectionResult } = req.body;
+
+      const updateData: Record<string, any> = {};
+      if (inspectionRequired !== undefined) updateData.inspectionRequired = inspectionRequired;
+      if (inspectionType !== undefined) updateData.inspectionType = inspectionType;
+      if (inspectionRequestedDate) updateData.inspectionRequestedDate = new Date(inspectionRequestedDate);
+      if (inspectionScheduledAt) updateData.inspectionScheduledAt = new Date(inspectionScheduledAt);
+      if (inspectionNotes !== undefined) updateData.inspectionNotes = inspectionNotes;
+      if (inspectionResult !== undefined) updateData.inspectionResult = inspectionResult;
+
+      if (inspectionRequired && !["completed", "cancelled"].includes(job.status)) {
+        updateData.status = "awaiting_inspection";
+      }
+      if (inspectionResult === "passed") {
+        updateData.status = "in_progress";
+      }
+      if (inspectionResult === "failed") {
+        updateData.inspectionScheduledAt = null;
+      }
+
+      const updated = await storage.updateJob(req.params.id, updateData);
+
+      const eventDesc = inspectionResult 
+        ? `Inspection result: ${inspectionResult}` 
+        : inspectionScheduledAt 
+          ? `Inspection scheduled: ${new Date(inspectionScheduledAt).toLocaleDateString()}`
+          : "Inspection updated";
+
+      await storage.createJobTimelineEvent({
+        jobId: req.params.id,
+        eventType: "note",
+        description: eventDesc,
+        createdBy: req.body.userId || null,
+      });
+
+      if (job.leadId && updateData.status) {
+        const leadStatus = updateData.status === "awaiting_inspection" ? "permit_pending" : "in_progress";
+        await storage.updateLead(job.leadId, { status: leadStatus });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating inspection:", error);
+      res.status(500).json({ error: "Failed to update inspection" });
+    }
+  });
+
 
   // Quotes
   app.get("/api/quotes", async (req, res) => {
