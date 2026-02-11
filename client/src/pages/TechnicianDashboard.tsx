@@ -53,7 +53,9 @@ import {
   ListChecks,
   Radio,
   WifiOff,
+  FileText,
 } from "lucide-react";
+import WorkOrderForm from "@/components/WorkOrderForm";
 import type { Job, Notification } from "@shared/schema";
 import { formatDistanceToNow, format } from "date-fns";
 
@@ -1050,6 +1052,10 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
                 <TabsTrigger value="timeline" className="text-xs sm:text-sm" data-testid="tab-timeline">Timeline</TabsTrigger>
                 <TabsTrigger value="chat" className="text-xs sm:text-sm" data-testid="tab-chat">Chat</TabsTrigger>
                 <TabsTrigger value="quote" className="text-xs sm:text-sm" data-testid="tab-quote">Quote</TabsTrigger>
+                <TabsTrigger value="workorder" className="text-xs sm:text-sm" data-testid="tab-workorder">
+                  <FileText className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                  Work Order
+                </TabsTrigger>
               </TabsList>
               <TabsContent value="details" className="space-y-4 mt-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
@@ -1149,6 +1155,19 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
                   customerAddress={`${selectedJob.address}${selectedJob.city ? `, ${selectedJob.city}` : ""}`}
                   technicianName={fullName}
                   onQuoteCreated={() => setSelectedJob(null)}
+                />
+              </TabsContent>
+              <TabsContent value="workorder" className="mt-4">
+                <WorkOrderForm
+                  jobId={selectedJob.id}
+                  technicianId={technicianId}
+                  technicianName={fullName}
+                  customerName={selectedJob.customerName}
+                  customerPhone={selectedJob.customerPhone || ""}
+                  customerEmail={selectedJob.customerEmail || ""}
+                  address={selectedJob.address}
+                  city={selectedJob.city || ""}
+                  zip={selectedJob.zipCode || ""}
                 />
               </TabsContent>
             </Tabs>

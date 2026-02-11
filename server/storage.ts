@@ -39,6 +39,7 @@ import {
   type ChatMessage, type InsertChatMessage,
   type ChatMagicSession, type InsertChatMagicSession,
   type AuditLog, type InsertAuditLog,
+  type WorkOrder, type InsertWorkOrder,
   users, technicians, salespersons, salesCommissions, salespersonLocations,
   leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
@@ -46,7 +47,7 @@ import {
   timeEntries, payrollPeriods, payrollRecords, employeePayRates, jobLeadFees, jobRevenueEvents, companySettings, quoteLineItems,
   contentPacks, contentItems, jobMessages,
   chatThreads, chatThreadParticipants, chatMessages, chatMagicSessions, chatEmailNotifications,
-  auditLogs,
+  auditLogs, workOrders,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -415,6 +416,14 @@ export interface IStorage {
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
   getAuditLogsByEntity(entityType: string, entityId: string): Promise<AuditLog[]>;
   getAuditLogs(limit?: number): Promise<AuditLog[]>;
+
+  // Work Orders
+  getWorkOrder(id: string): Promise<WorkOrder | undefined>;
+  getWorkOrdersByJob(jobId: string): Promise<WorkOrder[]>;
+  getWorkOrdersByTechnician(technicianId: string): Promise<WorkOrder[]>;
+  getAllWorkOrders(): Promise<WorkOrder[]>;
+  createWorkOrder(order: InsertWorkOrder): Promise<WorkOrder>;
+  updateWorkOrder(id: string, updates: Partial<WorkOrder>): Promise<WorkOrder | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -1727,6 +1736,13 @@ export class MemStorage implements IStorage {
   async getAuditLogs(limit: number = 100): Promise<AuditLog[]> {
     return [];
   }
+
+  async getWorkOrder(id: string): Promise<WorkOrder | undefined> { return undefined; }
+  async getWorkOrdersByJob(jobId: string): Promise<WorkOrder[]> { return []; }
+  async getWorkOrdersByTechnician(technicianId: string): Promise<WorkOrder[]> { return []; }
+  async getAllWorkOrders(): Promise<WorkOrder[]> { return []; }
+  async createWorkOrder(order: InsertWorkOrder): Promise<WorkOrder> { throw new Error("Not implemented"); }
+  async updateWorkOrder(id: string, updates: Partial<WorkOrder>): Promise<WorkOrder | undefined> { return undefined; }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3621,6 +3637,41 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(auditLogs)
       .orderBy(desc(auditLogs.createdAt))
       .limit(limit);
+  }
+
+  async getWorkOrder(id: string): Promise<WorkOrder | undefined> {
+    const [order] = await db.select().from(workOrders).where(eq(workOrders.id, id));
+    return order;
+  }
+
+  async getWorkOrdersByJob(jobId: string): Promise<WorkOrder[]> {
+    return db.select().from(workOrders)
+      .where(eq(workOrders.jobId, jobId))
+      .orderBy(desc(workOrders.createdAt));
+  }
+
+  async getWorkOrdersByTechnician(technicianId: string): Promise<WorkOrder[]> {
+    return db.select().from(workOrders)
+      .where(eq(workOrders.technicianId, technicianId))
+      .orderBy(desc(workOrders.createdAt));
+  }
+
+  async getAllWorkOrders(): Promise<WorkOrder[]> {
+    return db.select().from(workOrders)
+      .orderBy(desc(workOrders.createdAt));
+  }
+
+  async createWorkOrder(order: InsertWorkOrder): Promise<WorkOrder> {
+    const [created] = await db.insert(workOrders).values(order).returning();
+    return created;
+  }
+
+  async updateWorkOrder(id: string, updates: Partial<WorkOrder>): Promise<WorkOrder | undefined> {
+    const [updated] = await db.update(workOrders)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(workOrders.id, id))
+      .returning();
+    return updated;
   }
 }
 

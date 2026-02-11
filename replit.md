@@ -39,10 +39,23 @@ The system supports distinct dashboards for:
 - **Technician**: Field-focused mobile dashboard for assigned jobs, on-site quoting, chat, and earnings tracking.
 - **Salesperson**: Sales-focused dashboard with pipeline management, quote creation, lead/job/quote management, and commission tracking.
 
+### Digital Work Order Form
+A digital version of the paper work order form used by Emergency Chicago Sewer Experts. Technicians fill this out on-site via the job detail dialog's "Work Order" tab. Features include:
+- Pre-filled customer information from the job record
+- Authorization and Right to Cancel acknowledgment with checkboxes
+- Work description with warranty period selection
+- Pricing section with auto-calculated totals (price - discounts = total, total - deposit = balance)
+- Payment method selection with credit card authorization support
+- Three digital signature capture areas (customer authorization, cardholder, completion)
+- Draft/Submit/Complete workflow states
+- Stored in `work_orders` table, linked to jobs and technicians
+
 ### Key Components
 - **RecordDetailPanel**: A unified tabbed dialog for viewing and editing records (jobs, quotes, customers), including details, linked quotes, customer info, timeline, chat, permits, and audit trail.
 - **Dispatcher Calendar**: An Outlook-style drag-and-drop scheduling calendar for job assignment and visualization.
 - **Quote Builder**: An interactive tool for creating quotes with line items, pricebook integration, templates, and secure customer acceptance links.
+- **WorkOrderForm**: Digital on-site service form with signature capture, mirroring the paper Chicago Sewer Experts work order.
+- **SignatureCanvas**: Touch and mouse-friendly canvas component for capturing digital signatures.
 
 ### Frontend
 Built with React and TypeScript, using Vite, Wouter for routing, TanStack Query for server state, and Radix UI/shadcn/ui with Tailwind CSS for styling. It features a dark-first design with a blue primary and red accent theme.

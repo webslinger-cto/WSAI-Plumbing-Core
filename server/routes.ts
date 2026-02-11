@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { chatMagicSessions, payrollPeriods, payrollRecords } from "@shared/schema";
+import { chatMagicSessions, payrollPeriods, payrollRecords, insertWorkOrderSchema } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import {
   insertLeadSchema,
@@ -7725,6 +7725,64 @@ ${emailContent}
     } catch (error) {
       console.error("Create audit log error:", error);
       res.status(500).json({ error: "Failed to create audit log" });
+    }
+  });
+
+  // ============================================
+  // WORK ORDERS
+  // ============================================
+
+  app.get("/api/work-orders", async (req, res) => {
+    try {
+      const { jobId, technicianId } = req.query;
+      let orders;
+      if (jobId) {
+        orders = await storage.getWorkOrdersByJob(jobId as string);
+      } else if (technicianId) {
+        orders = await storage.getWorkOrdersByTechnician(technicianId as string);
+      } else {
+        orders = await storage.getAllWorkOrders();
+      }
+      res.json(orders);
+    } catch (error) {
+      console.error("Error fetching work orders:", error);
+      res.status(500).json({ error: "Failed to fetch work orders" });
+    }
+  });
+
+  app.get("/api/work-orders/:id", async (req, res) => {
+    try {
+      const order = await storage.getWorkOrder(req.params.id);
+      if (!order) return res.status(404).json({ error: "Work order not found" });
+      res.json(order);
+    } catch (error) {
+      console.error("Error fetching work order:", error);
+      res.status(500).json({ error: "Failed to fetch work order" });
+    }
+  });
+
+  app.post("/api/work-orders", async (req, res) => {
+    try {
+      const validatedData = insertWorkOrderSchema.parse(req.body);
+      const order = await storage.createWorkOrder(validatedData);
+      res.status(201).json(order);
+    } catch (error: any) {
+      if (error?.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid work order data", details: error.errors });
+      }
+      console.error("Error creating work order:", error);
+      res.status(500).json({ error: "Failed to create work order" });
+    }
+  });
+
+  app.patch("/api/work-orders/:id", async (req, res) => {
+    try {
+      const order = await storage.updateWorkOrder(req.params.id, req.body);
+      if (!order) return res.status(404).json({ error: "Work order not found" });
+      res.json(order);
+    } catch (error) {
+      console.error("Error updating work order:", error);
+      res.status(500).json({ error: "Failed to update work order" });
     }
   });
 
