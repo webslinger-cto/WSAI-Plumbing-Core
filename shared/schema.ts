@@ -1451,3 +1451,51 @@ export const auditLogs = pgTable("audit_logs", {
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
+
+// Work Orders - digital version of the on-site service form
+export const workOrderStatuses = ["draft", "pending_signature", "signed", "completed", "voided"] as const;
+export type WorkOrderStatus = typeof workOrderStatuses[number];
+
+export const workOrders = pgTable("work_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").references(() => jobs.id),
+  technicianId: varchar("technician_id").references(() => technicians.id),
+  orderNumber: text("order_number"),
+  status: text("status").notNull().default("draft"),
+  customerName: text("customer_name").notNull(),
+  customerPhone: text("customer_phone"),
+  customerEmail: text("customer_email"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state").default("IL"),
+  zip: text("zip"),
+  datePromised: text("date_promised"),
+  serviceDate: text("service_date"),
+  workDescription: text("work_description"),
+  warrantyYears: text("warranty_years"),
+  price: decimal("price"),
+  discounts: decimal("discounts"),
+  totalPrice: decimal("total_price"),
+  depositAmount: decimal("deposit_amount"),
+  depositCheckNumber: text("deposit_check_number"),
+  balanceAmount: decimal("balance_amount"),
+  balanceCheckNumber: text("balance_check_number"),
+  paymentMethod: text("payment_method"),
+  cardLast4: text("card_last4"),
+  cardExpiration: text("card_expiration"),
+  cardholderName: text("cardholder_name"),
+  serviceTechName: text("service_tech_name"),
+  customerSignature: text("customer_signature"),
+  customerPrintName: text("customer_print_name"),
+  cardholderSignature: text("cardholder_signature"),
+  completionSignature: text("completion_signature"),
+  authorizationAccepted: boolean("authorization_accepted").default(false),
+  rightToCancelAccepted: boolean("right_to_cancel_accepted").default(false),
+  completionAcknowledged: boolean("completion_acknowledged").default(false),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
+export type WorkOrder = typeof workOrders.$inferSelect;
