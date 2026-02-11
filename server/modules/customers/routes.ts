@@ -240,6 +240,46 @@ export function registerCustomerRoutes(app: Express, { isAuthenticatedUser }: { 
     }
   });
 
+  app.get("/api/customers/:id/calls", isAuthenticatedUser, async (req, res) => {
+    try {
+      const callHistory = await customerService.getRelatedCalls(req.params.id);
+      res.json(callHistory);
+    } catch (error) {
+      console.error("Customer calls fetch failed:", error);
+      res.status(500).json({ error: "Failed to load customer calls" });
+    }
+  });
+
+  app.get("/api/customers/:id/messages", isAuthenticatedUser, async (req, res) => {
+    try {
+      const messages = await customerService.getRelatedMessages(req.params.id);
+      res.json(messages);
+    } catch (error) {
+      console.error("Customer messages fetch failed:", error);
+      res.status(500).json({ error: "Failed to load customer messages" });
+    }
+  });
+
+  app.get("/api/customers/:id/media", isAuthenticatedUser, async (req, res) => {
+    try {
+      const media = await customerService.getRelatedMedia(req.params.id);
+      res.json(media);
+    } catch (error) {
+      console.error("Customer media fetch failed:", error);
+      res.status(500).json({ error: "Failed to load customer media" });
+    }
+  });
+
+  app.get("/api/customers/:id/audit-logs", isAuthenticatedUser, async (req, res) => {
+    try {
+      const logs = await customerService.getRelatedAuditLogs(req.params.id);
+      res.json(logs);
+    } catch (error) {
+      console.error("Customer audit logs fetch failed:", error);
+      res.status(500).json({ error: "Failed to load customer audit logs" });
+    }
+  });
+
   app.post("/api/customers/:id/chat-thread", isAuthenticatedUser, async (req: any, res) => {
     try {
       const customerId = req.params.id;

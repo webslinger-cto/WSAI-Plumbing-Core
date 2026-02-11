@@ -1,6 +1,6 @@
 import { db } from "../../db";
-import { customers, customerAddresses, customerPaymentProfiles, leads, jobs, quotes } from "@shared/schema";
-import { eq, and, or, ilike, sql, desc } from "drizzle-orm";
+import { customers, customerAddresses, customerPaymentProfiles, leads, jobs, quotes, calls, contactAttempts, chatThreads, chatMessages, chatThreadParticipants, jobMedia, auditLogs } from "@shared/schema";
+import { eq, and, or, ilike, sql, desc, inArray } from "drizzle-orm";
 import type { InsertCustomer, InsertCustomerAddress, InsertCustomerPaymentProfile, Customer, CustomerAddress, CustomerPaymentProfile } from "@shared/schema";
 
 export interface CustomerListFilters {
@@ -221,5 +221,139 @@ export const customerService = {
       .where(eq(leads.customerId, customerId))
       .orderBy(desc(leads.createdAt))
       .limit(20);
+  },
+
+  async getRelatedCalls(customerId: string) {
+    const customer = await db.select().from(customers).where(eq(customers.id, customerId)).limit(1);
+    if (!customer.length) return [];
+
+    const c = customer[0];
+    const phoneConditions: any[] = [];
+    if (c.phonePrimary) phoneConditions.push(eq(calls.callerPhone, c.phonePrimary));
+    if (c.phoneAlt) phoneConditions.push(eq(calls.callerPhone, c.phoneAlt));
+
+    const relatedJobs = await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.customerId, customerId));
+    const relatedLeads = await db.select({ id: leads.id }).from(leads).where(eq(leads.customerId, customerId));
+    const jobIds = relatedJobs.map(j => j.id);
+    const leadIds = relatedLeads.map(l => l.id);
+
+    const conditions: any[] = [...phoneConditions];
+    if (jobIds.length > 0) conditions.push(inArray(calls.jobId, jobIds));
+    if (leadIds.length > 0) conditions.push(inArray(calls.leadId, leadIds));
+
+    if (conditions.length === 0) return [];
+
+    return db
+      .select()
+      .from(calls)
+      .where(or(...conditions))
+      .orderBy(desc(calls.createdAt))
+      .limit(50);
+  },
+
+  async getRelatedMessages(customerId: string) {
+    const customer = await db.select().from(customers).where(eq(customers.id, customerId)).limit(1);
+    if (!customer.length) return { chatThreads: [], contactAttempts: [] };
+
+    const c = customer[0];
+    const threads = await db
+      .select()
+      .from(chatThreads)
+      .where(eq(chatThreads.customerId, customerId))
+      .orderBy(desc(chatThreads.createdAt))
+      .limit(20);
+
+    const threadIds = threads.map(t => t.id);
+    let messages: any[] = [];
+    if (threadIds.length > 0) {
+      messages = await db
+        .select()
+        .from(chatMessages)
+        .where(inArray(chatMessages.threadId, threadIds))
+        .orderBy(desc(chatMessages.createdAt))
+        .limit(100);
+    }
+
+    const relatedJobs = await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.customerId, customerId));
+    const relatedLeads = await db.select({ id: leads.id }).from(leads).where(eq(leads.customerId, customerId));
+    const jobIds = relatedJobs.map(j => j.id);
+    const leadIds = relatedLeads.map(l => l.id);
+
+    const attemptConditions: any[] = [];
+    if (c.phonePrimary) attemptConditions.push(eq(contactAttempts.recipientPhone, c.phonePrimary));
+    if (c.phoneAlt) attemptConditions.push(eq(contactAttempts.recipientPhone, c.phoneAlt));
+    if (c.email) attemptConditions.push(eq(contactAttempts.recipientEmail, c.email));
+    if (jobIds.length > 0) attemptConditions.push(inArray(contactAttempts.jobId, jobIds));
+    if (leadIds.length > 0) attemptConditions.push(inArray(contactAttempts.leadId, leadIds));
+
+    let attempts: any[] = [];
+    if (attemptConditions.length > 0) {
+      attempts = await db
+        .select()
+        .from(contactAttempts)
+        .where(or(...attemptConditions))
+        .orderBy(desc(contactAttempts.createdAt))
+        .limit(50);
+    }
+
+    return {
+      chatThreads: threads.map(t => ({
+        ...t,
+        messages: messages.filter(m => m.threadId === t.id),
+      })),
+      contactAttempts: attempts,
+    };
+  },
+
+  async getRelatedMedia(customerId: string) {
+    const relatedJobs = await db
+      .select({ id: jobs.id, customerName: jobs.customerName, serviceType: jobs.serviceType, address: jobs.address })
+      .from(jobs)
+      .where(eq(jobs.customerId, customerId));
+
+    const jobIds = relatedJobs.map(j => j.id);
+    if (jobIds.length === 0) return [];
+
+    const media = await db
+      .select()
+      .from(jobMedia)
+      .where(inArray(jobMedia.jobId, jobIds))
+      .orderBy(desc(jobMedia.createdAt));
+
+    return media.map(m => ({
+      ...m,
+      job: relatedJobs.find(j => j.id === m.jobId),
+    }));
+  },
+
+  async getRelatedAuditLogs(customerId: string) {
+    const relatedJobs = await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.customerId, customerId));
+    const relatedQuotes = await db.select({ id: quotes.id }).from(quotes).where(eq(quotes.customerId, customerId));
+    const relatedLeads = await db.select({ id: leads.id }).from(leads).where(eq(leads.customerId, customerId));
+
+    const entityPairs: { type: string; ids: string[] }[] = [
+      { type: "customer", ids: [customerId] },
+      { type: "job", ids: relatedJobs.map(j => j.id) },
+      { type: "quote", ids: relatedQuotes.map(q => q.id) },
+      { type: "lead", ids: relatedLeads.map(l => l.id) },
+    ];
+
+    const conditions: any[] = [];
+    for (const pair of entityPairs) {
+      if (pair.ids.length > 0) {
+        conditions.push(
+          and(eq(auditLogs.entityType, pair.type), inArray(auditLogs.entityId, pair.ids))
+        );
+      }
+    }
+
+    if (conditions.length === 0) return [];
+
+    return db
+      .select()
+      .from(auditLogs)
+      .where(or(...conditions))
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(100);
   },
 };

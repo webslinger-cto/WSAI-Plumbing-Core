@@ -64,6 +64,7 @@ export const technicians = pgTable("technicians", {
   lastLocationLat: decimal("last_location_lat"),
   lastLocationLng: decimal("last_location_lng"),
   lastLocationUpdate: timestamp("last_location_update"),
+  color: text("color"),
 });
 
 export const insertTechnicianSchema = createInsertSchema(technicians).omit({ id: true });

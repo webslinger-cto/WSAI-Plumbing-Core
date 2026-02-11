@@ -36,6 +36,7 @@ import {
   Columns3,
 } from "lucide-react";
 import type { Job, Technician } from "@shared/schema";
+import { getTechColorById, getTechInitials } from "@/lib/technicianColors";
 import {
   format,
   startOfWeek,
@@ -63,17 +64,6 @@ import {
 const HOURS = Array.from({ length: 16 }, (_, i) => i + 6);
 const HOUR_HEIGHT = 64;
 const SLOT_MINUTES = 30;
-
-const statusColors: Record<string, string> = {
-  pending: "bg-yellow-500/80 border-yellow-600 text-white",
-  assigned: "bg-blue-500/80 border-blue-600 text-white",
-  confirmed: "bg-emerald-500/80 border-emerald-600 text-white",
-  en_route: "bg-amber-500/80 border-amber-600 text-white",
-  on_site: "bg-purple-500/80 border-purple-600 text-white",
-  in_progress: "bg-primary/80 border-primary text-primary-foreground",
-  completed: "bg-green-600/80 border-green-700 text-white",
-  cancelled: "bg-muted border-muted-foreground/30 text-muted-foreground line-through",
-};
 
 const priorityDots: Record<string, string> = {
   urgent: "bg-red-500",
@@ -333,12 +323,34 @@ export default function DispatcherCalendar({ jobs, technicians, userId }: Dispat
         </div>
       </div>
 
+      {technicians.length > 0 && (
+        <div className="flex items-center gap-3 mb-3 flex-wrap" data-testid="legend-technicians">
+          {technicians.map((tech, index) => {
+            const color = getTechColorById(tech.id, technicians);
+            return (
+              <div key={tech.id} className="flex items-center gap-1.5" data-testid={`legend-tech-${tech.id}`}>
+                <div
+                  className="w-3 h-3 rounded-full shrink-0"
+                  style={{ backgroundColor: color }}
+                />
+                <span className="text-xs text-muted-foreground">{tech.fullName}</span>
+              </div>
+            );
+          })}
+          <div className="flex items-center gap-1.5" data-testid="legend-tech-unassigned">
+            <div className="w-3 h-3 rounded-full shrink-0 bg-gray-500" />
+            <span className="text-xs text-muted-foreground">Unassigned</span>
+          </div>
+        </div>
+      )}
+
       {view === "month" ? (
         <MonthView
           currentDate={currentDate}
           events={events}
           onClickDate={(d) => { setCurrentDate(d); setView("day"); }}
           onClickEvent={openEditDialog}
+          technicians={technicians}
         />
       ) : (
         <TimeGridView
@@ -520,13 +532,20 @@ function TimeGridView({
                 {dayEvents.map(event => {
                   const pos = getEventPosition(event);
                   const techName = getTechName(event.job.assignedTechnicianId);
-                  const statusClass = statusColors[event.job.status] || statusColors.pending;
+                  const techColor = getTechColorById(event.job.assignedTechnicianId, technicians);
+                  const isCancelled = event.job.status === "cancelled";
                   const priorityDot = priorityDots[event.job.priority || "normal"];
                   return (
                     <div
                       key={event.job.id}
-                      className={`absolute left-0.5 right-0.5 rounded-md border px-1.5 py-0.5 cursor-pointer overflow-hidden transition-shadow hover:shadow-md hover:z-20 ${statusClass}`}
-                      style={{ top: pos.top, height: Math.max(pos.height, 24), zIndex: 10 }}
+                      className={`absolute left-0.5 right-0.5 rounded-md border px-1.5 py-0.5 cursor-pointer overflow-hidden transition-shadow hover:shadow-md hover:z-20 text-white ${isCancelled ? "opacity-40" : ""}`}
+                      style={{
+                        top: pos.top,
+                        height: Math.max(pos.height, 24),
+                        zIndex: 10,
+                        backgroundColor: isCancelled ? "#6B7280" : techColor,
+                        borderColor: isCancelled ? "#6B7280" : techColor,
+                      }}
                       draggable
                       onDragStart={(e) => handleDragStart(e, event)}
                       onClick={(e) => { e.stopPropagation(); onClickEvent(event.job); }}
@@ -572,11 +591,13 @@ function MonthView({
   events,
   onClickDate,
   onClickEvent,
+  technicians,
 }: {
   currentDate: Date;
   events: CalendarEvent[];
   onClickDate: (d: Date) => void;
   onClickEvent: (job: Job) => void;
+  technicians: Technician[];
 }) {
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(currentDate);
@@ -616,17 +637,21 @@ function MonthView({
                     {format(day, "d")}
                   </div>
                   <div className="space-y-0.5">
-                    {dayEvents.slice(0, 3).map(ev => (
-                      <div
-                        key={ev.job.id}
-                        className={`text-[10px] px-1 py-0.5 rounded truncate cursor-pointer ${statusColors[ev.job.status] || statusColors.pending}`}
-                        onClick={(e) => { e.stopPropagation(); onClickEvent(ev.job); }}
-                        data-testid={`month-event-${ev.job.id}`}
-                      >
-                        {ev.job.scheduledTimeStart && <span className="mr-1">{ev.job.scheduledTimeStart}</span>}
-                        {ev.job.customerName}
-                      </div>
-                    ))}
+                    {dayEvents.slice(0, 3).map(ev => {
+                      const evTechColor = getTechColorById(ev.job.assignedTechnicianId, technicians);
+                      return (
+                        <div
+                          key={ev.job.id}
+                          className="text-[10px] px-1 py-0.5 rounded truncate cursor-pointer text-white"
+                          style={{ backgroundColor: evTechColor }}
+                          onClick={(e) => { e.stopPropagation(); onClickEvent(ev.job); }}
+                          data-testid={`month-event-${ev.job.id}`}
+                        >
+                          {ev.job.scheduledTimeStart && <span className="mr-1">{ev.job.scheduledTimeStart}</span>}
+                          {ev.job.customerName}
+                        </div>
+                      );
+                    })}
                     {dayEvents.length > 3 && (
                       <div className="text-[10px] text-muted-foreground pl-1">+{dayEvents.length - 3} more</div>
                     )}

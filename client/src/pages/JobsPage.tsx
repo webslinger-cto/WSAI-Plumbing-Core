@@ -59,6 +59,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { Job, Technician } from "@shared/schema";
+import { getTechColorById, getTechInitials } from "@/lib/technicianColors";
 import { format, formatDistanceToNow } from "date-fns";
 import { JobMediaTab } from "@/components/JobMediaTab";
 
@@ -320,9 +321,13 @@ export default function JobsPage() {
                           <Badge className={priority.color}>{priority.label}</Badge>
                         </TableCell>
                         <TableCell>
-                          <p className="text-sm" data-testid={`text-job-technician-${job.id}`}>
-                            {getTechnicianName(job.assignedTechnicianId)}
-                          </p>
+                          <div className="flex items-center gap-2" data-testid={`text-job-technician-${job.id}`}>
+                            <div
+                              className="w-3 h-3 rounded-full shrink-0"
+                              style={{ backgroundColor: getTechColorById(job.assignedTechnicianId, technicians) }}
+                            />
+                            <span className="text-sm">{getTechnicianName(job.assignedTechnicianId)}</span>
+                          </div>
                         </TableCell>
                         <TableCell>
                           <p className="text-sm text-muted-foreground">

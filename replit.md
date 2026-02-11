@@ -35,6 +35,8 @@ The system features role-based access with tailored dashboards:
 ### Feature Specifications
 - **SEO Content Generation**: Integration with an external API (Builder 1) to generate SEO content using job data and uploaded media.
 - **Master Customer Data List**: Central repository for customer information to facilitate targeted outreach and analytics.
+- **Technician Color Coding**: Each technician has a persistent color (stored in `technicians.color` DB field, or auto-assigned from a deterministic palette). Colors appear on calendar events and job tracking tables. Utility: `client/src/lib/technicianColors.ts`. Calendar includes a color legend showing all technicians.
+- **Enhanced Customer Profiles**: 8-tab profile view (Jobs, Quotes, Leads, Calls, Messages, Media, Audit, Addresses) with collapsible detail cards, outreach actions (SMS/Email), and data aggregated from calls, contact attempts, chat threads, job media, and audit logs.
 
 ## External Dependencies
 
