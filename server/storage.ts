@@ -40,6 +40,7 @@ import {
   type ChatMagicSession, type InsertChatMagicSession,
   type AuditLog, type InsertAuditLog,
   type WorkOrder, type InsertWorkOrder,
+  type JobMedia, type InsertJobMedia,
   users, technicians, salespersons, salesCommissions, salespersonLocations,
   leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
@@ -47,7 +48,7 @@ import {
   timeEntries, payrollPeriods, payrollRecords, employeePayRates, jobLeadFees, jobRevenueEvents, companySettings, quoteLineItems,
   contentPacks, contentItems, jobMessages,
   chatThreads, chatThreadParticipants, chatMessages, chatMagicSessions, chatEmailNotifications,
-  auditLogs, workOrders,
+  auditLogs, workOrders, jobMedia,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -424,6 +425,11 @@ export interface IStorage {
   getAllWorkOrders(): Promise<WorkOrder[]>;
   createWorkOrder(order: InsertWorkOrder): Promise<WorkOrder>;
   updateWorkOrder(id: string, updates: Partial<WorkOrder>): Promise<WorkOrder | undefined>;
+
+  // Job Media
+  getJobMedia(jobId: string): Promise<JobMedia[]>;
+  createJobMedia(media: InsertJobMedia): Promise<JobMedia>;
+  deleteJobMedia(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -1743,6 +1749,9 @@ export class MemStorage implements IStorage {
   async getAllWorkOrders(): Promise<WorkOrder[]> { return []; }
   async createWorkOrder(order: InsertWorkOrder): Promise<WorkOrder> { throw new Error("Not implemented"); }
   async updateWorkOrder(id: string, updates: Partial<WorkOrder>): Promise<WorkOrder | undefined> { return undefined; }
+  async getJobMedia(jobId: string): Promise<JobMedia[]> { return []; }
+  async createJobMedia(media: InsertJobMedia): Promise<JobMedia> { throw new Error("Not implemented"); }
+  async deleteJobMedia(id: string): Promise<boolean> { return false; }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3684,6 +3693,20 @@ export class DatabaseStorage implements IStorage {
       .where(eq(workOrders.id, id))
       .returning();
     return updated;
+  }
+
+  async getJobMedia(jobId: string): Promise<JobMedia[]> {
+    return db.select().from(jobMedia).where(eq(jobMedia.jobId, jobId)).orderBy(desc(jobMedia.createdAt));
+  }
+
+  async createJobMedia(media: InsertJobMedia): Promise<JobMedia> {
+    const [created] = await db.insert(jobMedia).values(media).returning();
+    return created;
+  }
+
+  async deleteJobMedia(id: string): Promise<boolean> {
+    const result = await db.delete(jobMedia).where(eq(jobMedia.id, id)).returning();
+    return result.length > 0;
   }
 }
 

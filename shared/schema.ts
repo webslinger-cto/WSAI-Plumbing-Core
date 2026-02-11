@@ -1511,3 +1511,19 @@ export const workOrders = pgTable("work_orders", {
 export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
 export type WorkOrder = typeof workOrders.$inferSelect;
+
+export const jobMedia = pgTable("job_media", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  uploadedBy: varchar("uploaded_by").notNull(),
+  mediaType: text("media_type").notNull(),
+  fileName: text("file_name").notNull(),
+  fileSize: integer("file_size"),
+  objectPath: text("object_path").notNull(),
+  caption: text("caption"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertJobMediaSchema = createInsertSchema(jobMedia).omit({ id: true, createdAt: true });
+export type InsertJobMedia = z.infer<typeof insertJobMediaSchema>;
+export type JobMedia = typeof jobMedia.$inferSelect;

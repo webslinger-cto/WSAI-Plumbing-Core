@@ -47,7 +47,8 @@ import { format, formatDistanceToNow } from "date-fns";
 import JobTimeline from "@/components/JobTimeline";
 import { JobChat } from "@/components/JobChat";
 import { PermitCenterCard } from "@/features/permits/PermitCenterCard";
-import { MessageSquare, ListChecks, ShieldCheck } from "lucide-react";
+import { MessageSquare, ListChecks, ShieldCheck, Camera } from "lucide-react";
+import { JobMediaTab } from "@/components/JobMediaTab";
 
 const jobStatusConfig: Record<string, { label: string; color: string }> = {
   pending: { label: "Pending", color: "bg-muted text-muted-foreground" },
@@ -139,6 +140,12 @@ export default function RecordDetailPanel({
                 Permits
               </TabsTrigger>
             )}
+            {jobId && (
+              <TabsTrigger value="media" className="text-xs sm:text-sm" data-testid="tab-record-media">
+                <Camera className="w-3.5 h-3.5 mr-1" />
+                Media
+              </TabsTrigger>
+            )}
             <TabsTrigger value="audit" className="text-xs sm:text-sm" data-testid="tab-record-audit">
               <History className="w-3.5 h-3.5 mr-1" />
               Audit Trail
@@ -185,6 +192,12 @@ export default function RecordDetailPanel({
             {jobId && (
               <TabsContent value="permits" className="mt-0">
                 <PermitCenterCard jobId={jobId} />
+              </TabsContent>
+            )}
+
+            {jobId && (
+              <TabsContent value="media" className="mt-0">
+                <JobMediaTab jobId={jobId} />
               </TabsContent>
             )}
 

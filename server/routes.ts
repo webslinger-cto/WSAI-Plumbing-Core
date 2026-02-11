@@ -61,6 +61,8 @@ import { generateApplicationPDF, generateComparisonPDF, generateHouseCallProComp
 import { pushJobToBuilder1 } from "./services/builder1-integration";
 import { registerPermitRoutes } from "./modules/permits";
 import { registerCustomerRoutes } from "./modules/customers/routes";
+import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
+import { insertJobMediaSchema } from "@shared/schema";
 import type { Request } from "express";
 
 function computeFieldDiffs(oldObj: Record<string, unknown>, newUpdates: Record<string, unknown>): Record<string, { old: unknown; new: unknown }> {
@@ -390,6 +392,9 @@ export async function registerRoutes(
   
   // Register customer module routes
   registerCustomerRoutes(app, { isAuthenticatedUser });
+
+  // Register object storage routes
+  registerObjectStorageRoutes(app);
   
   // Health check
   app.get("/api/health", async (req, res) => {
@@ -8219,6 +8224,60 @@ ${emailContent}
     } catch (error) {
       console.error("Error updating work order:", error);
       res.status(500).json({ error: "Failed to update work order" });
+    }
+  });
+
+  // ===================== JOB MEDIA =====================
+
+  app.get("/api/jobs/:jobId/media", async (req, res) => {
+    try {
+      if (!(await isAuthenticatedUser(req))) return res.status(401).json({ error: "Unauthorized" });
+      const media = await storage.getJobMedia(req.params.jobId);
+      res.json(media);
+    } catch (error) {
+      console.error("Error fetching job media:", error);
+      res.status(500).json({ error: "Failed to fetch job media" });
+    }
+  });
+
+  app.post("/api/jobs/:jobId/media", async (req, res) => {
+    try {
+      if (!(await isAuthenticatedUser(req))) return res.status(401).json({ error: "Unauthorized" });
+      const user = (req as any).session?.passport?.user;
+      const userId = (req as any).user?.id || user || "unknown";
+      const parsed = insertJobMediaSchema.safeParse({
+        ...req.body,
+        jobId: req.params.jobId,
+        uploadedBy: userId,
+      });
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten().fieldErrors });
+      }
+      const { objectPath, mediaType } = parsed.data;
+      const allowedTypes = ["image", "video"];
+      if (!allowedTypes.includes(mediaType)) {
+        return res.status(400).json({ error: "mediaType must be 'image' or 'video'" });
+      }
+      if (!objectPath.startsWith("/objects/uploads/")) {
+        return res.status(400).json({ error: "Invalid object path" });
+      }
+      const media = await storage.createJobMedia(parsed.data);
+      res.status(201).json(media);
+    } catch (error) {
+      console.error("Error creating job media:", error);
+      res.status(500).json({ error: "Failed to create job media" });
+    }
+  });
+
+  app.delete("/api/jobs/:jobId/media/:mediaId", async (req, res) => {
+    try {
+      if (!(await isAuthenticatedUser(req))) return res.status(401).json({ error: "Unauthorized" });
+      const deleted = await storage.deleteJobMedia(req.params.mediaId);
+      if (!deleted) return res.status(404).json({ error: "Media not found" });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting job media:", error);
+      res.status(500).json({ error: "Failed to delete job media" });
     }
   });
 

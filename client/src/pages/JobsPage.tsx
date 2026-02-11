@@ -60,6 +60,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { Job, Technician } from "@shared/schema";
 import { format, formatDistanceToNow } from "date-fns";
+import { JobMediaTab } from "@/components/JobMediaTab";
 
 const jobStatusConfig: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   pending: { label: "Pending", color: "bg-muted text-muted-foreground", icon: Clock },
@@ -460,6 +461,7 @@ export default function JobsPage() {
               <TabsList className="flex flex-wrap h-auto gap-1">
                 <TabsTrigger value="edit" className="text-xs sm:text-sm" data-testid="tab-job-edit">Edit</TabsTrigger>
                 <TabsTrigger value="permits" className="text-xs sm:text-sm" data-testid="tab-job-permits">Permits</TabsTrigger>
+                <TabsTrigger value="media" className="text-xs sm:text-sm" data-testid="tab-job-media">Media</TabsTrigger>
               </TabsList>
               <TabsContent value="edit" className="mt-4">
                 <EditJobForm
@@ -472,6 +474,9 @@ export default function JobsPage() {
               </TabsContent>
               <TabsContent value="permits" className="mt-4">
                 <PermitCenterCard jobId={selectedJob.id} />
+              </TabsContent>
+              <TabsContent value="media" className="mt-4">
+                <JobMediaTab jobId={selectedJob.id} />
               </TabsContent>
             </Tabs>
           )}

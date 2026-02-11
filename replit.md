@@ -50,8 +50,16 @@ A digital version of the paper work order form used by Emergency Chicago Sewer E
 - Draft/Submit/Complete workflow states
 - Stored in `work_orders` table, linked to jobs and technicians
 
+### Job Media Upload
+Technicians can upload images and short video clips (max 30 seconds) to each job for use with the SEO content generator (Builder 1). Media is stored in Replit Object Storage (GCS-backed) using presigned URL uploads for production reliability. The feature is accessible via the "Media" tab in the RecordDetailPanel.
+- Supported image formats: JPEG, PNG, WebP (max 10MB)
+- Supported video formats: MP4, MOV, WebM (max 30 seconds, 50MB)
+- Client-side video duration validation before upload
+- Stored in `job_media` table with object paths to GCS
+- API: GET/POST /api/jobs/:jobId/media, DELETE /api/jobs/:jobId/media/:mediaId
+
 ### Key Components
-- **RecordDetailPanel**: A unified tabbed dialog for viewing and editing records (jobs, quotes, customers), including details, linked quotes, customer info, timeline, chat, permits, and audit trail.
+- **RecordDetailPanel**: A unified tabbed dialog for viewing and editing records (jobs, quotes, customers), including details, linked quotes, customer info, timeline, chat, permits, media, and audit trail.
 - **Dispatcher Calendar**: An Outlook-style drag-and-drop scheduling calendar for job assignment and visualization.
 - **Quote Builder**: An interactive tool for creating quotes with line items, pricebook integration, templates, and secure customer acceptance links.
 - **WorkOrderForm**: Digital on-site service form with signature capture, mirroring the paper Chicago Sewer Experts work order.

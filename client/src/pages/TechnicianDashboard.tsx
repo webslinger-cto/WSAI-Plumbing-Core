@@ -6,6 +6,7 @@ import QuoteBuilder from "@/components/QuoteBuilder";
 import JobTimeline from "@/components/JobTimeline";
 import { JobChat } from "@/components/JobChat";
 import JobAttachments from "@/components/JobAttachments";
+import { JobMediaTab } from "@/components/JobMediaTab";
 import JobChecklist from "@/components/JobChecklist";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1128,9 +1129,8 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
                 </div>
               </TabsContent>
               <TabsContent value="photos" className="mt-4">
-                <JobAttachments 
-                  jobId={selectedJob.id} 
-                  technicianId={technicianId} 
+                <JobMediaTab 
+                  jobId={selectedJob.id}
                 />
               </TabsContent>
               <TabsContent value="checklist" className="mt-4">
