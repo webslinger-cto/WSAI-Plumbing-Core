@@ -1069,6 +1069,7 @@ export async function registerRoutes(
   }
 
   app.post("/api/leads", async (req, res) => {
+    try {
     const body = { ...req.body };
     if (body.receivedAt && typeof body.receivedAt === "string") {
       body.receivedAt = new Date(body.receivedAt);
@@ -1081,6 +1082,18 @@ export async function registerRoutes(
     }
     if (body.slaDeadline && typeof body.slaDeadline === "string") {
       body.slaDeadline = new Date(body.slaDeadline);
+    }
+    const numericFields = ["cost", "estimateAmount", "revenue"];
+    for (const field of numericFields) {
+      if (body[field] === "" || body[field] === undefined) {
+        body[field] = null;
+      }
+    }
+    const stringFields = ["customerEmail", "address", "city", "zipCode", "serviceType", "description", "assignedTo", "propertyType", "contactTenantName", "contactTenantPhone", "recipient", "intakeNotes", "state"];
+    for (const field of stringFields) {
+      if (body[field] === "") {
+        body[field] = null;
+      }
     }
     const result = insertLeadSchema.safeParse(body);
     if (!result.success) return res.status(400).json({ error: result.error });
@@ -1142,6 +1155,10 @@ export async function registerRoutes(
     }
     
     res.status(201).json({ ...lead, wasDuplicateDetected: isDuplicate });
+    } catch (error: any) {
+      console.error("Error creating lead:", error);
+      res.status(500).json({ error: error.message || "Failed to create lead" });
+    }
   });
   
   // Check for duplicate leads
@@ -1449,6 +1466,18 @@ export async function registerRoutes(
           body[field] = new Date(body[field]);
         }
       });
+      const numericFields = ["cost", "estimateAmount", "revenue"];
+      for (const field of numericFields) {
+        if (body[field] === "" || body[field] === undefined) {
+          body[field] = null;
+        }
+      }
+      const stringFields = ["customerEmail", "address", "city", "zipCode", "serviceType", "description", "assignedTo", "propertyType", "contactTenantName", "contactTenantPhone", "recipient", "intakeNotes", "state"];
+      for (const field of stringFields) {
+        if (body[field] === "") {
+          body[field] = null;
+        }
+      }
 
       const lead = await storage.updateLead(req.params.id, body);
       if (!lead) return res.status(404).json({ error: "Lead not found" });
@@ -1703,13 +1732,17 @@ export async function registerRoutes(
       if (body.scheduledDate && typeof body.scheduledDate === 'string') {
         body.scheduledDate = new Date(body.scheduledDate);
       }
-      // Handle timestamp fields that might come as strings
       const timestampFields = ['assignedAt', 'confirmedAt', 'enRouteAt', 'arrivedAt', 'startedAt', 'completedAt', 'cancelledAt'];
       timestampFields.forEach(field => {
         if (body[field] && typeof body[field] === 'string') {
           body[field] = new Date(body[field]);
         }
       });
+      for (const field of Object.keys(body)) {
+        if (body[field] === "" && !["customerName", "customerPhone", "status", "serviceType"].includes(field)) {
+          body[field] = null;
+        }
+      }
       
       const result = insertJobSchema.safeParse(body);
       if (!result.success) return res.status(400).json({ error: result.error });
@@ -2169,6 +2202,17 @@ export async function registerRoutes(
           body[field] = new Date(body[field]);
         }
       });
+      const quoteNumericFields = ["subtotal", "taxRate", "taxAmount", "total", "laborTotal", "price", "discounts", "totalPrice", "depositAmount", "balanceAmount"];
+      for (const field of quoteNumericFields) {
+        if (body[field] === "" || body[field] === undefined) {
+          body[field] = null;
+        }
+      }
+      for (const field of Object.keys(body)) {
+        if (body[field] === "" && !["customerName", "customerPhone", "status"].includes(field)) {
+          body[field] = null;
+        }
+      }
       
       const result = insertQuoteSchema.safeParse(body);
       if (!result.success) return res.status(400).json({ error: result.error });
