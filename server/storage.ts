@@ -294,6 +294,7 @@ export interface IStorage {
 
   // Time Entries (clock in/out)
   getTimeEntry(id: string): Promise<TimeEntry | undefined>;
+  getAllTimeEntries(startDate?: Date, endDate?: Date): Promise<TimeEntry[]>;
   getTimeEntriesByUser(userId: string, startDate?: Date, endDate?: Date): Promise<TimeEntry[]>;
   getTimeEntriesByTechnician(technicianId: string, startDate?: Date, endDate?: Date): Promise<TimeEntry[]>;
   createTimeEntry(entry: InsertTimeEntry): Promise<TimeEntry>;
@@ -330,6 +331,7 @@ export interface IStorage {
 
   // Job Revenue Events
   getJobRevenueEvent(id: string): Promise<JobRevenueEvent | undefined>;
+  getAllJobRevenueEvents(): Promise<JobRevenueEvent[]>;
   getJobRevenueEventsByJob(jobId: string): Promise<JobRevenueEvent[]>;
   getJobRevenueEventsByTechnician(technicianId: string): Promise<JobRevenueEvent[]>;
   createJobRevenueEvent(event: InsertJobRevenueEvent): Promise<JobRevenueEvent>;
@@ -2914,6 +2916,19 @@ export class DatabaseStorage implements IStorage {
     return entry;
   }
 
+  async getAllTimeEntries(startDate?: Date, endDate?: Date): Promise<TimeEntry[]> {
+    if (startDate && endDate) {
+      return db.select().from(timeEntries)
+        .where(and(
+          gte(timeEntries.date, startDate),
+          lte(timeEntries.date, endDate)
+        ))
+        .orderBy(desc(timeEntries.date));
+    }
+    return db.select().from(timeEntries)
+      .orderBy(desc(timeEntries.date));
+  }
+
   async getTimeEntriesByUser(userId: string, startDate?: Date, endDate?: Date): Promise<TimeEntry[]> {
     if (startDate && endDate) {
       return db.select().from(timeEntries)
@@ -3095,6 +3110,11 @@ export class DatabaseStorage implements IStorage {
   async getJobRevenueEvent(id: string): Promise<JobRevenueEvent | undefined> {
     const [event] = await db.select().from(jobRevenueEvents).where(eq(jobRevenueEvents.id, id));
     return event;
+  }
+
+  async getAllJobRevenueEvents(): Promise<JobRevenueEvent[]> {
+    return db.select().from(jobRevenueEvents)
+      .orderBy(desc(jobRevenueEvents.recognizedAt));
   }
 
   async getJobRevenueEventsByJob(jobId: string): Promise<JobRevenueEvent[]> {

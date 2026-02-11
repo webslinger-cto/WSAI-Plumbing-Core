@@ -99,11 +99,11 @@ export default function PayrollPage() {
   });
 
   const { data: users = [] } = useQuery<User[]>({
-    queryKey: ["/api/users"],
+    queryKey: ["/api/admin/users"],
   });
 
   const { data: timeEntries = [] } = useQuery<TimeEntry[]>({
-    queryKey: ["/api/payroll/time-entries"],
+    queryKey: ["/api/time-entries/all"],
   });
 
   const { data: revenueEvents = [] } = useQuery<JobRevenueEvent[]>({

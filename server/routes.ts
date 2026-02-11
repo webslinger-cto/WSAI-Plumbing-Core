@@ -5661,7 +5661,21 @@ ${emailContent}
   // ============================================
   // TIME ENTRIES (Clock In/Out)
   // ============================================
-  
+
+  app.get("/api/time-entries/all", async (req, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      const entries = await storage.getAllTimeEntries(
+        startDate ? new Date(startDate as string) : undefined,
+        endDate ? new Date(endDate as string) : undefined
+      );
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching all time entries:", error);
+      res.status(500).json({ error: "Failed to fetch time entries" });
+    }
+  });
+
   app.get("/api/time-entries", async (req, res) => {
     try {
       const { userId, technicianId, startDate, endDate } = req.query;
@@ -6122,7 +6136,7 @@ ${emailContent}
       } else if (technicianId) {
         events = await storage.getJobRevenueEventsByTechnician(technicianId as string);
       } else {
-        return res.status(400).json({ error: "jobId or technicianId required" });
+        events = await storage.getAllJobRevenueEvents();
       }
       res.json(events);
     } catch (error) {
