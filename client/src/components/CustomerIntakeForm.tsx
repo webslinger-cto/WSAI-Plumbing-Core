@@ -1,0 +1,918 @@
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Phone,
+  User,
+  MapPin,
+  Mail,
+  Clock,
+  FileText,
+  DollarSign,
+  Save,
+  ArrowRight,
+  Building2,
+  ClipboardList,
+  Moon,
+  Loader2,
+  ChevronRight,
+  CheckCircle2,
+  X,
+} from "lucide-react";
+import type { Lead, Quote, Job, Technician } from "@shared/schema";
+import { format } from "date-fns";
+
+const intakeFormSchema = z.object({
+  customerName: z.string().min(1, "Customer name is required"),
+  customerPhone: z.string().min(1, "Phone number is required"),
+  customerEmail: z.string().email().optional().or(z.literal("")),
+  contactTenantName: z.string().optional(),
+  contactTenantPhone: z.string().optional(),
+  address: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  zipCode: z.string().optional(),
+  propertyType: z.string().optional(),
+  source: z.string().min(1, "Lead source is required"),
+  serviceType: z.string().optional(),
+  description: z.string().optional(),
+  estimateAmount: z.string().optional(),
+  nightWeekendCall: z.boolean().default(false),
+  rehab: z.boolean().default(false),
+  intakeNotes: z.string().optional(),
+  priority: z.string().default("normal"),
+  recipient: z.string().optional(),
+});
+
+type IntakeFormValues = z.infer<typeof intakeFormSchema>;
+
+const PROPERTY_TYPES = [
+  { value: "SFH", label: "Single Family Home" },
+  { value: "Townhome", label: "Townhome" },
+  { value: "2-3 Flat", label: "2 or 3 Flat" },
+  { value: "Condo/Multi-Unit", label: "Condo / Multi-Unit" },
+  { value: "Business/Commercial", label: "Business / Commercial" },
+];
+
+const LEAD_SOURCES = [
+  { value: "Phone Call", label: "Phone Call" },
+  { value: "Walk-In", label: "Walk-In" },
+  { value: "Referral", label: "Referral" },
+  { value: "Website", label: "Website" },
+  { value: "eLocal", label: "eLocal" },
+  { value: "Networx", label: "Networx" },
+  { value: "Angi", label: "Angi" },
+  { value: "Thumbtack", label: "Thumbtack" },
+  { value: "Google", label: "Google" },
+  { value: "Yelp", label: "Yelp" },
+  { value: "Other", label: "Other" },
+];
+
+const SERVICE_TYPES = [
+  { value: "Sewer Main", label: "Sewer Main" },
+  { value: "Drain Cleaning", label: "Drain Cleaning" },
+  { value: "Sewer Repair", label: "Sewer Repair" },
+  { value: "Sewer Lining", label: "Sewer Lining" },
+  { value: "Camera Inspection", label: "Camera Inspection" },
+  { value: "Water Line", label: "Water Line" },
+  { value: "Plumbing", label: "Plumbing" },
+  { value: "Excavation", label: "Excavation" },
+  { value: "Ejector Pit", label: "Ejector Pit" },
+  { value: "Flood Control", label: "Flood Control" },
+  { value: "Other", label: "Other" },
+];
+
+const WORKFLOW_STAGES = [
+  { key: "new", label: "Intake", description: "Customer information captured" },
+  { key: "estimated", label: "Estimate", description: "Estimate provided" },
+  { key: "quoted", label: "Quote", description: "Quote sent to customer" },
+  { key: "converted", label: "Job", description: "Job created" },
+  { key: "permit_pending", label: "Permit", description: "Permit requested" },
+  { key: "assigned", label: "Assigned", description: "Technician assigned" },
+];
+
+interface CustomerIntakeFormProps {
+  lead?: Lead | null;
+  onClose?: () => void;
+  onLeadCreated?: (lead: Lead) => void;
+}
+
+export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: CustomerIntakeFormProps) {
+  const { toast } = useToast();
+  const [showQuoteDialog, setShowQuoteDialog] = useState(false);
+  const [showJobDialog, setShowJobDialog] = useState(false);
+  const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const isEditing = !!lead;
+
+  const { data: technicians = [] } = useQuery<Technician[]>({
+    queryKey: ["/api/technicians"],
+  });
+
+  const { data: linkedQuotes = [] } = useQuery<Quote[]>({
+    queryKey: ["/api/quotes"],
+    select: (data) => data.filter(q => {
+      if (!lead) return false;
+      return q.customerPhone === lead.customerPhone || q.customerName === lead.customerName;
+    }),
+    enabled: !!lead,
+  });
+
+  const { data: linkedJobs = [] } = useQuery<Job[]>({
+    queryKey: ["/api/jobs"],
+    select: (data) => data.filter(j => {
+      if (!lead) return false;
+      return j.leadId === lead.id;
+    }),
+    enabled: !!lead,
+  });
+
+  const form = useForm<IntakeFormValues>({
+    resolver: zodResolver(intakeFormSchema),
+    defaultValues: {
+      customerName: lead?.customerName || "",
+      customerPhone: lead?.customerPhone || "",
+      customerEmail: lead?.customerEmail || "",
+      contactTenantName: lead?.contactTenantName || "",
+      contactTenantPhone: lead?.contactTenantPhone || "",
+      address: lead?.address || "",
+      city: lead?.city || "",
+      state: lead?.state || "IL",
+      zipCode: lead?.zipCode || "",
+      propertyType: lead?.propertyType || "",
+      source: lead?.source || "Phone Call",
+      serviceType: lead?.serviceType || "",
+      description: lead?.description || "",
+      estimateAmount: lead?.estimateAmount || "",
+      nightWeekendCall: lead?.nightWeekendCall || false,
+      rehab: lead?.rehab || false,
+      intakeNotes: lead?.intakeNotes || "",
+      priority: lead?.priority || "normal",
+      recipient: lead?.recipient || "",
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: IntakeFormValues) => {
+      const payload = {
+        ...data,
+        receivedAt: new Date().toISOString(),
+        status: "new",
+      };
+      const res = await apiRequest("POST", "/api/leads", payload);
+      return res.json();
+    },
+    onSuccess: (newLead: Lead) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({ title: "Customer Intake Created", description: `Lead created for ${newLead.customerName}` });
+      onLeadCreated?.(newLead);
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create intake record", variant: "destructive" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: IntakeFormValues) => {
+      const res = await apiRequest("PATCH", `/api/leads/${lead!.id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({ title: "Intake Updated", description: "Customer intake record updated" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update intake record", variant: "destructive" });
+    },
+  });
+
+  const createQuoteMutation = useMutation({
+    mutationFn: async () => {
+      if (!lead) return;
+      const fullAddress = lead.address ? `${lead.address}${lead.city ? ', ' + lead.city : ''}${lead.state ? ', ' + lead.state : ''} ${lead.zipCode || ''}`.trim() : undefined;
+      const res = await apiRequest("POST", "/api/quotes", {
+        customerName: lead.customerName,
+        customerPhone: lead.customerPhone,
+        customerEmail: lead.customerEmail || undefined,
+        address: fullAddress,
+        status: "draft",
+        subtotal: lead.estimateAmount || "0",
+        total: lead.estimateAmount || "0",
+        notes: `Created from intake - Lead #${lead.id.substring(0, 8)}`,
+      });
+      const quote = await res.json();
+      await apiRequest("PATCH", `/api/leads/${lead.id}`, { status: "quoted" });
+      return quote;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      setShowQuoteDialog(false);
+      toast({ title: "Quote Created", description: `Draft quote created for ${lead?.customerName}` });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create quote", variant: "destructive" });
+    },
+  });
+
+  const createJobMutation = useMutation({
+    mutationFn: async () => {
+      if (!lead) return;
+      const res = await apiRequest("POST", "/api/jobs", {
+        leadId: lead.id,
+        customerName: lead.customerName,
+        customerPhone: lead.customerPhone,
+        customerEmail: lead.customerEmail || undefined,
+        address: lead.address || "Address pending",
+        city: lead.city || undefined,
+        zipCode: lead.zipCode || undefined,
+        serviceType: lead.serviceType || "Sewer Service",
+        description: lead.description || `Job from intake - ${lead.customerName}`,
+        status: "pending",
+        priority: lead.priority || "normal",
+      });
+      const job = await res.json();
+      await apiRequest("PATCH", `/api/leads/${lead.id}`, { status: "converted", convertedAt: new Date().toISOString() });
+      return job;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      setShowJobDialog(false);
+      toast({ title: "Job Created", description: `Job created for ${lead?.customerName}` });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create job", variant: "destructive" });
+    },
+  });
+
+  const assignTechMutation = useMutation({
+    mutationFn: async (techId: string) => {
+      if (!linkedJobs.length) return;
+      const jobId = linkedJobs[0].id;
+      await apiRequest("POST", `/api/jobs/${jobId}/assign`, { technicianId: techId });
+      if (lead) {
+        await apiRequest("PATCH", `/api/leads/${lead.id}`, { status: "assigned" });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      setShowAssignDialog(false);
+      toast({ title: "Technician Assigned", description: "Technician has been assigned to the job" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to assign technician", variant: "destructive" });
+    },
+  });
+
+  const setEstimateMutation = useMutation({
+    mutationFn: async () => {
+      if (!lead) return;
+      const estimateVal = form.getValues("estimateAmount");
+      return apiRequest("PATCH", `/api/leads/${lead.id}`, { 
+        status: "estimated",
+        estimateAmount: estimateVal || "0",
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({ title: "Estimate Set", description: "Lead marked as estimated" });
+    },
+  });
+
+  const onSubmit = (data: IntakeFormValues) => {
+    if (isEditing) {
+      updateMutation.mutate(data);
+    } else {
+      createMutation.mutate(data);
+    }
+  };
+
+  const currentStageIndex = lead ? WORKFLOW_STAGES.findIndex(s => s.key === lead.status) : 0;
+  const hasQuote = linkedQuotes.length > 0;
+  const hasJob = linkedJobs.length > 0;
+  const jobAssigned = linkedJobs.some(j => j.assignedTechnicianId);
+
+  return (
+    <div className="space-y-6">
+      {isEditing && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-4 mb-3 flex-wrap">
+              <h3 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Workflow Progress</h3>
+              {lead && (
+                <Badge variant="outline" data-testid="text-lead-status">
+                  {lead.status?.toUpperCase()}
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-1 overflow-x-auto pb-2" data-testid="section-workflow-stages">
+              {WORKFLOW_STAGES.map((stage, index) => {
+                const isActive = index <= currentStageIndex || 
+                  (stage.key === "quoted" && hasQuote) ||
+                  (stage.key === "converted" && hasJob) ||
+                  (stage.key === "assigned" && jobAssigned);
+                const isCurrent = stage.key === lead?.status;
+                return (
+                  <div key={stage.key} className="flex items-center gap-1 flex-shrink-0">
+                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium ${
+                      isCurrent 
+                        ? "bg-primary text-primary-foreground" 
+                        : isActive 
+                          ? "bg-primary/20 text-primary" 
+                          : "bg-muted text-muted-foreground"
+                    }`}>
+                      {isActive && <CheckCircle2 className="w-3 h-3" />}
+                      {stage.label}
+                    </div>
+                    {index < WORKFLOW_STAGES.length - 1 && (
+                      <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <Separator className="my-3" />
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {lead && lead.status === "new" && (
+                <Button 
+                  size="sm" 
+                  onClick={() => setEstimateMutation.mutate()}
+                  disabled={setEstimateMutation.isPending}
+                  data-testid="button-set-estimate"
+                >
+                  <DollarSign className="w-4 h-4 mr-1" />
+                  Mark as Estimated
+                </Button>
+              )}
+              {lead && (lead.status === "estimated" || lead.status === "new") && !hasQuote && (
+                <Button 
+                  size="sm" 
+                  onClick={() => setShowQuoteDialog(true)}
+                  data-testid="button-create-quote"
+                >
+                  <FileText className="w-4 h-4 mr-1" />
+                  Create Quote
+                </Button>
+              )}
+              {lead && !hasJob && (
+                <Button 
+                  size="sm" 
+                  onClick={() => setShowJobDialog(true)}
+                  data-testid="button-create-job"
+                >
+                  <ClipboardList className="w-4 h-4 mr-1" />
+                  Create Job
+                </Button>
+              )}
+              {hasJob && !jobAssigned && (
+                <Button 
+                  size="sm" 
+                  onClick={() => setShowAssignDialog(true)}
+                  data-testid="button-assign-tech"
+                >
+                  <User className="w-4 h-4 mr-1" />
+                  Assign Technician
+                </Button>
+              )}
+              {hasQuote && linkedQuotes[0] && (
+                <Badge variant="outline" className="text-xs">
+                  Quote: {linkedQuotes[0].status}
+                </Badge>
+              )}
+              {hasJob && linkedJobs[0] && (
+                <Badge variant="outline" className="text-xs">
+                  Job: {linkedJobs[0].status}
+                </Badge>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <ClipboardList className="w-5 h-5" />
+                Emergency Chicago Sewer Experts - Customer Intake
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FormField
+                  control={form.control}
+                  name="recipient"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Received By</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Dispatcher name" {...field} data-testid="input-recipient" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="flex items-end gap-4">
+                  <FormField
+                    control={form.control}
+                    name="nightWeekendCall"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center gap-2 space-y-0">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            data-testid="checkbox-night-weekend"
+                          />
+                        </FormControl>
+                        <FormLabel className="flex items-center gap-1 cursor-pointer">
+                          <Moon className="w-3.5 h-3.5" />
+                          Night/Weekend
+                        </FormLabel>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="rehab"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center gap-2 space-y-0">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            data-testid="checkbox-rehab"
+                          />
+                        </FormControl>
+                        <FormLabel className="cursor-pointer">Rehab</FormLabel>
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <FormField
+                  control={form.control}
+                  name="source"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Lead Source</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-lead-source">
+                            <SelectValue placeholder="Select source" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {LEAD_SOURCES.map(s => (
+                            <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <Separator />
+
+              <div>
+                <h3 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-2">
+                  <User className="w-4 h-4" />
+                  Customer Information
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="customerName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Name *</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Customer name" {...field} data-testid="input-customer-name" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="customerPhone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Phone *</FormLabel>
+                        <FormControl>
+                          <Input placeholder="(xxx) xxx-xxxx" {...field} data-testid="input-customer-phone" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="customerEmail"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email</FormLabel>
+                        <FormControl>
+                          <Input type="email" placeholder="email@example.com" {...field} data-testid="input-customer-email" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="priority"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Priority</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-priority">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="low">Low</SelectItem>
+                            <SelectItem value="normal">Normal</SelectItem>
+                            <SelectItem value="high">High</SelectItem>
+                            <SelectItem value="urgent">Urgent</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-2">
+                  <Phone className="w-4 h-4" />
+                  Contact / Tenant
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="contactTenantName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Contact / Tenant Name</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Tenant or contact name" {...field} data-testid="input-tenant-name" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="contactTenantPhone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Contact / Tenant Phone</FormLabel>
+                        <FormControl>
+                          <Input placeholder="(xxx) xxx-xxxx" {...field} data-testid="input-tenant-phone" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div>
+                <h3 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-2">
+                  <MapPin className="w-4 h-4" />
+                  Service Address
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="md:col-span-2">
+                    <FormField
+                      control={form.control}
+                      name="address"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Address</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Street address" {...field} data-testid="input-address" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <FormField
+                    control={form.control}
+                    name="city"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>City</FormLabel>
+                        <FormControl>
+                          <Input placeholder="City" {...field} data-testid="input-city" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <FormField
+                      control={form.control}
+                      name="state"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>State</FormLabel>
+                          <FormControl>
+                            <Input placeholder="IL" {...field} data-testid="input-state" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="zipCode"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Zip</FormLabel>
+                          <FormControl>
+                            <Input placeholder="60601" {...field} data-testid="input-zip" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <FormField
+                    control={form.control}
+                    name="propertyType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Property Type</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-property-type">
+                              <SelectValue placeholder="Select property type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {PROPERTY_TYPES.map(p => (
+                              <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div>
+                <h3 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  Service Details
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="serviceType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Service Type</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-service-type">
+                              <SelectValue placeholder="Select service" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {SERVICE_TYPES.map(s => (
+                              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="estimateAmount"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Estimate $</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <Input 
+                              type="number" 
+                              step="0.01" 
+                              placeholder="0.00" 
+                              className="pl-8" 
+                              {...field} 
+                              data-testid="input-estimate-amount" 
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <div className="mt-4">
+                  <FormField
+                    control={form.control}
+                    name="description"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Description</FormLabel>
+                        <FormControl>
+                          <Textarea 
+                            placeholder="Describe the service needed..." 
+                            className="resize-none" 
+                            rows={3} 
+                            {...field} 
+                            data-testid="input-description" 
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div>
+                <h3 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground mb-3">Notes</h3>
+                <FormField
+                  control={form.control}
+                  name="intakeNotes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <Textarea 
+                          placeholder="Additional notes..." 
+                          className="resize-none" 
+                          rows={3} 
+                          {...field} 
+                          data-testid="input-notes" 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            {onClose && (
+              <Button type="button" variant="outline" onClick={onClose} data-testid="button-cancel-intake">
+                <X className="w-4 h-4 mr-1" />
+                Cancel
+              </Button>
+            )}
+            <div className="flex items-center gap-2 ml-auto">
+              <Button
+                type="submit"
+                disabled={createMutation.isPending || updateMutation.isPending}
+                data-testid="button-save-intake"
+              >
+                {(createMutation.isPending || updateMutation.isPending) ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4 mr-2" />
+                )}
+                {isEditing ? "Update Intake" : "Save Intake"}
+              </Button>
+            </div>
+          </div>
+        </form>
+      </Form>
+
+      <Dialog open={showQuoteDialog} onOpenChange={setShowQuoteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Quote from Intake</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will create a draft quote for <strong>{lead?.customerName}</strong> using the information from this intake.
+            {lead?.estimateAmount && (
+              <span> Estimate amount: <strong>${lead.estimateAmount}</strong></span>
+            )}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowQuoteDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={() => createQuoteMutation.mutate()}
+              disabled={createQuoteMutation.isPending}
+              data-testid="button-confirm-create-quote"
+            >
+              {createQuoteMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Create Quote
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showJobDialog} onOpenChange={setShowJobDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Job from Intake</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will create a new job for <strong>{lead?.customerName}</strong> at{" "}
+            <strong>{lead?.address || "address pending"}</strong>.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowJobDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={() => createJobMutation.mutate()}
+              disabled={createJobMutation.isPending}
+              data-testid="button-confirm-create-job"
+            >
+              {createJobMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Create Job
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Technician</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {technicians.map(tech => (
+              <Button
+                key={tech.id}
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => assignTechMutation.mutate(tech.id)}
+                disabled={assignTechMutation.isPending}
+                data-testid={`button-assign-tech-${tech.id}`}
+              >
+                <User className="w-4 h-4 mr-2" />
+                {tech.fullName}
+                <Badge variant="outline" className="ml-auto text-xs">{tech.status}</Badge>
+              </Button>
+            ))}
+            {technicians.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">No technicians available</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

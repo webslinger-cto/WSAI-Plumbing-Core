@@ -58,6 +58,7 @@ import { formatDistanceToNow, format } from "date-fns";
 import { DollarSign, Trash2, Save, Send, X, Edit3 } from "lucide-react";
 import DispatcherCalendar from "@/components/DispatcherCalendar";
 import RecordDetailPanel from "@/components/RecordDetailPanel";
+import CustomerIntakeForm from "@/components/CustomerIntakeForm";
 
 const jobStatusConfig: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   pending: { label: "Pending", color: "bg-muted text-muted-foreground", icon: Clock },
@@ -1508,8 +1509,10 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [activeTab, setActiveTab] = useState("dispatch");
+  const [activeTab, setActiveTab] = useState("intake");
   const [showCustomerSnapshot, setShowCustomerSnapshot] = useState(false);
+  const [showIntakeForm, setShowIntakeForm] = useState(false);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
 
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
     queryKey: ["/api/jobs"],
@@ -1590,6 +1593,10 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList>
+          <TabsTrigger value="intake" data-testid="tab-intake">
+            <ClipboardList className="w-4 h-4 mr-2" />
+            Customer Intake
+          </TabsTrigger>
           <TabsTrigger value="dispatch" data-testid="tab-dispatch">
             <Truck className="w-4 h-4 mr-2" />
             Dispatch Board
@@ -1607,6 +1614,120 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
             Calendar
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="intake" className="space-y-6">
+          {showIntakeForm ? (
+            <CustomerIntakeForm
+              lead={selectedLead}
+              onClose={() => {
+                setShowIntakeForm(false);
+                setSelectedLead(null);
+              }}
+              onLeadCreated={(newLead) => {
+                setShowIntakeForm(false);
+                setSelectedLead(newLead);
+                setShowIntakeForm(true);
+              }}
+            />
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <h2 className="text-lg font-semibold">Recent Intakes</h2>
+                <Button onClick={() => { setSelectedLead(null); setShowIntakeForm(true); }} data-testid="button-new-intake">
+                  <Plus className="w-4 h-4 mr-2" />
+                  New Customer Intake
+                </Button>
+              </div>
+              
+              {leadsLoading ? (
+                <div className="text-center py-8 text-muted-foreground">Loading intakes...</div>
+              ) : leads.length === 0 ? (
+                <Card>
+                  <CardContent className="py-8 text-center text-muted-foreground">
+                    <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p className="font-medium">No customer intakes yet</p>
+                    <p className="text-sm mt-1">Click "New Customer Intake" to get started</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-2">
+                  {[...leads]
+                    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                    .map(lead => {
+                      const statusColors: Record<string, string> = {
+                        new: "bg-blue-500/20 text-blue-400",
+                        estimated: "bg-amber-500/20 text-amber-400",
+                        quoted: "bg-purple-500/20 text-purple-400",
+                        converted: "bg-green-500/20 text-green-400",
+                        assigned: "bg-emerald-500/20 text-emerald-400",
+                        contacted: "bg-sky-500/20 text-sky-400",
+                        lost: "bg-destructive/20 text-destructive",
+                      };
+                      return (
+                        <Card
+                          key={lead.id}
+                          className="hover-elevate cursor-pointer"
+                          onClick={() => { setSelectedLead(lead); setShowIntakeForm(true); }}
+                          data-testid={`card-intake-${lead.id}`}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between gap-4 flex-wrap">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="flex-shrink-0 p-2 rounded-md bg-primary/10">
+                                  <User className="w-4 h-4 text-primary" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-medium truncate" data-testid={`text-intake-name-${lead.id}`}>{lead.customerName}</p>
+                                  <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
+                                    <span className="flex items-center gap-1">
+                                      <Phone className="w-3 h-3" />
+                                      {lead.customerPhone}
+                                    </span>
+                                    {lead.address && (
+                                      <span className="flex items-center gap-1">
+                                        <MapPin className="w-3 h-3" />
+                                        {lead.address}{lead.city ? `, ${lead.city}` : ""}
+                                      </span>
+                                    )}
+                                    {lead.serviceType && (
+                                      <span className="flex items-center gap-1">
+                                        <Wrench className="w-3 h-3" />
+                                        {lead.serviceType}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                {lead.nightWeekendCall && (
+                                  <Badge variant="outline" className="text-xs">
+                                    <Moon className="w-3 h-3 mr-1" />
+                                    Night/Wknd
+                                  </Badge>
+                                )}
+                                {lead.estimateAmount && (
+                                  <Badge variant="outline" className="text-xs">
+                                    <DollarSign className="w-3 h-3 mr-0.5" />
+                                    {parseFloat(lead.estimateAmount).toFixed(0)}
+                                  </Badge>
+                                )}
+                                <Badge className={statusColors[lead.status] || "bg-muted text-muted-foreground"}>
+                                  {lead.status}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {formatDistanceToNow(new Date(lead.createdAt), { addSuffix: true })}
+                                </span>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          )}
+        </TabsContent>
 
         <TabsContent value="dispatch" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

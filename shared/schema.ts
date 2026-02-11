@@ -150,7 +150,7 @@ export const leadSources = ["eLocal", "Networx", "Angi", "HomeAdvisor", "Thumbta
 export type LeadSource = typeof leadSources[number];
 
 // Lead statuses
-export const leadStatuses = ["new", "contacted", "qualified", "scheduled", "converted", "lost", "duplicate", "spam"] as const;
+export const leadStatuses = ["new", "contacted", "qualified", "estimated", "quoted", "scheduled", "converted", "permit_pending", "assigned", "lost", "duplicate", "spam"] as const;
 export type LeadStatus = typeof leadStatuses[number];
 
 // Leads table
@@ -180,6 +180,17 @@ export const leads = pgTable("leads", {
   duplicateOfId: varchar("duplicate_of_id"),
   revenue: decimal("revenue"),
   customerId: varchar("customer_id"), // FK to customers table (set after match-or-create)
+  // Intake form fields (from paper Daily Work Order)
+  propertyType: text("property_type"), // SFH, Townhome, 2-3 Flat, Condo/Multi-Unit, Business/Commercial
+  contactTenantName: text("contact_tenant_name"),
+  contactTenantPhone: text("contact_tenant_phone"),
+  receivedAt: timestamp("received_at"),
+  recipient: text("recipient"), // dispatcher who received the call
+  nightWeekendCall: boolean("night_weekend_call").default(false),
+  rehab: boolean("rehab").default(false),
+  estimateAmount: decimal("estimate_amount"),
+  intakeNotes: text("intake_notes"),
+  state: text("state"), // US state (e.g. IL)
 });
 
 export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, createdAt: true, updatedAt: true });
