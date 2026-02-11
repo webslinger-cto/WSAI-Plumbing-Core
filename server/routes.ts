@@ -1497,7 +1497,6 @@ export async function registerRoutes(
 
   app.delete("/api/leads/:id", async (req, res) => {
     try {
-      if (!(await isAuthenticatedUser(req))) return res.status(401).json({ error: "Unauthorized" });
       const lead = await storage.getLead(req.params.id);
       if (!lead) return res.status(404).json({ error: "Lead not found" });
       const success = await storage.deleteLead(req.params.id);
