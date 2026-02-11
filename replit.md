@@ -1,7 +1,7 @@
 # Emergency Chicago Sewer Experts CRM
 
 ## Overview
-The Emergency Chicago Sewer Experts CRM is a specialized lead management and customer relationship management system for a sewer and plumbing services business. Its primary functions include lead tracking from diverse sources, efficient quote generation, and comprehensive commission tracking. The system supports administrators, dispatchers, field technicians, and salespersons with tailored functionalities to manage leads, coordinate jobs, execute on-site work, and handle sales. The overarching goal is to enhance lead conversion, accurately track revenue, and analyze costs.
+The Emergency Chicago Sewer Experts CRM is a comprehensive field service management and customer relationship management system. It supports the full business lifecycle from lead capture to job completion, including quote generation, technician dispatch, payroll processing, and commission tracking. The system serves four distinct user roles (admin, dispatcher, technician, salesperson) and a super admin, each with tailored interfaces and functionalities. Its core purpose is to streamline operations for a sewer and plumbing services business, enhancing efficiency and customer engagement. The project aims to consolidate business processes, automate workflows, and provide robust management tools for a field service company.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -9,111 +9,103 @@ Preferred communication style: Simple, everyday language.
 ## System Architecture
 
 ### Core Business Workflow
-The CRM operates on a "Quote-to-Job" workflow where jobs are automatically created upon customer acceptance of a quote. This includes automated customer notifications for appointment confirmations, reminders, and rescheduling, with TCPA-compliant consent tracking for all communications. A Master Customer Data List aggregates data from various sources for targeted outreach, providing customer metrics, auto-generated tags, and status classifications. The system also features a toggle for enabling/disabling lead API and webhook integrations.
+The CRM follows a "Lead-to-Quote-to-Job" workflow, integrating lead capture (manual, webhooks, API), qualification, quote generation with templates, customer acceptance, job dispatch, and lifecycle management (pending to completed). It includes automated customer notifications and TCPA-compliant communication tracking. A Master Customer Data List centralizes customer information for targeted outreach and metrics.
 
-A thread-based chat system facilitates both internal team coordination and customer communication. Chat threads are automatically initiated with lead creation and persist through lead, quote, and job transitions. There are distinct visibility types for internal discussions and customer-facing interactions. Staff access chat through dedicated pages, while customers use magic links for authenticated access to customer-visible threads.
+### Chat System
+A thread-based chat system facilitates internal team coordination and customer communication. Chats are initiated with lead creation and persist through the workflow. It supports distinct internal and customer-facing visibility, with staff accessing chats via dedicated pages and customers using magic links. A public website chat at `/chat` allows for direct lead capture.
 
-A public website chat feature at `/chat` enables lead capture directly from the website. Customers fill in their name, phone, and initial message to start a conversation without authentication. This automatically creates a lead with source='website_chat', a customer-visible chat thread, and a token-based session for continued conversation. Dispatchers see incoming public chats in their chat page and can respond in real-time.
+### Audit Logging
+The system incorporates a comprehensive audit trail that tracks all user-driven data changes. It records field-level differences (old/new values), user attribution, IP address, and user-agent for changes made to jobs, leads, quotes, and customers. This is accessible via the RecordDetailPanel and a dedicated API.
 
 ### Permit Center Module
-The Permit Center enables automatic detection of required permits based on job location, service type, and description. The system uses jurisdiction-specific rules to identify which permits are needed (plumbing, sewer repair, excavation, right-of-way). Key features include:
-- **Automatic permit detection**: When a dispatcher clicks "Detect" on a job, the system analyzes the job details against jurisdiction rules
-- **PDF packet generation**: Generates pre-filled permit application PDFs with company and job information
-- **Jurisdiction management**: Supports multiple jurisdictions with unique permit requirements
-- **Status tracking**: Tracks permit packets from detection through submission
+This module automates the detection of required permits based on job details, location, and service type, using jurisdiction-specific rules. It generates pre-filled PDF application packets, manages multiple jurisdictions, and tracks permit status.
+Permit Center Automation extends this with:
+- **Storage**: PDF handling via S3/MinIO for secure, scalable storage.
+- **Queue & Workers**: Background processing for PDF generation, email submission, and form checking using BullMQ/Redis.
+- **PDF Form Fill**: Utilizes `pdf-lib` for AcroForm field filling and text overlay.
+- **Filing Methods**: Supports assisted manual submission and automated email submission via Resend API.
+- **Webhooks**: Configurable webhooks for automation triggers with HMAC-SHA256 signature verification.
 
-The module is disabled by default and must be enabled in Settings > Integrations. Database tables include `permit_jurisdictions`, `permit_types`, `permit_rules`, `permit_packets`, `permit_packet_documents`, `permit_templates`, `permit_webhook_endpoints`, and `permit_submissions`. The Permit Center tab appears in the Job Details dialog on the Dispatcher Dashboard when enabled.
+### Customer Management Module
+Provides full lifecycle management for customers, including detailed profiles, multiple addresses, payment profiles, and relationship tracking. It consolidates data into a master list with tags and status classifications.
 
-#### Permit Center Automation
-The automation layer extends the Permit Center with advanced capabilities:
+### Payroll System
+A complete payroll processing system that manages pay periods, time entries (with break/overtime calculations), configurable pay rates, and generates payroll records including tax calculations for Illinois.
 
-**Storage (S3/MinIO)**:
-- PDFs stored in object storage (not base64 in database)
-- Supports S3-compatible storage (AWS S3, MinIO)
-- Signed download URLs for secure document access
+### User Roles & Dashboards
+The system supports distinct dashboards for:
+- **Admin (God Mode)**: Full system access including lead, job, quote, customer, permit, technician, payroll, and settings management.
+- **Dispatcher**: Operations-focused dashboard with dispatch board, calendar, call team management, and access to jobs, quotes, customers, and permits.
+- **Technician**: Field-focused mobile dashboard for assigned jobs, on-site quoting, chat, and earnings tracking.
+- **Salesperson**: Sales-focused dashboard with pipeline management, quote creation, lead/job/quote management, and commission tracking.
 
-**Queue & Workers (BullMQ/Redis)**:
-- Background job processing for PDF generation, email submission, forms checking
-- Automatic retries with exponential backoff (3 attempts)
-- Idempotency keys prevent duplicate processing
-
-**PDF Form Fill**:
-- AcroForm field filling using pdf-lib
-- Overlay text positioning for non-fillable PDFs
-- Customer field policy controls PII handling
-
-**Filing Methods**:
-- **Assisted Submit**: Manual portal submission with confirmation number tracking
-- **Email Submit**: Automated email submission via Resend API
-
-**Webhooks**:
-- Configurable webhook endpoints for automation triggers
-- Events: permit.packet.detected, permit.packet.ready_for_review, permit.packet.submitted, permit.template.updated, permit.error
-- HMAC-SHA256 signature verification
-
-**Required Environment Variables for Automation**:
-- `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION` - Object storage
-- `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE` - For MinIO/self-hosted S3
-- `REDIS_URL` - Queue workers (optional)
-- `PERMITS_WEBHOOK_SECRET` - Webhook signing (optional)
-- `PERMITS_FROM_EMAIL` - Email submission sender address
+### Key Components
+- **RecordDetailPanel**: A unified tabbed dialog for viewing and editing records (jobs, quotes, customers), including details, linked quotes, customer info, timeline, chat, permits, and audit trail.
+- **Dispatcher Calendar**: An Outlook-style drag-and-drop scheduling calendar for job assignment and visualization.
+- **Quote Builder**: An interactive tool for creating quotes with line items, pricebook integration, templates, and secure customer acceptance links.
 
 ### Frontend
-The frontend is built with React and TypeScript, utilizing Vite for tooling and Wouter for client-side routing. State management is handled by TanStack Query for server state and React hooks for local component state. The UI components are constructed using Radix UI primitives, following the shadcn/ui pattern with a "new-york" style variant. Styling is managed with Tailwind CSS, implementing a dark-first design system with a blue primary and red emergency accent theme.
+Built with React and TypeScript, using Vite, Wouter for routing, TanStack Query for server state, and Radix UI/shadcn/ui with Tailwind CSS for styling. It features a dark-first design with a blue primary and red accent theme.
 
 ### Backend
-The backend is an Express.js application built with Node.js and TypeScript. It features a minimal routing setup, static file serving, and custom logging middleware. The storage layer uses an abstract `IStorage` interface, implemented by `DbStorage` for PostgreSQL, supporting CRUD operations across all core entities. Authentication is session-based via Passport.js. An automation service manages lead contact, job creation, technician assignment, and job lifecycle. The system integrates with Resend API for emails and uses Zod for data validation with Drizzle ORM.
+An Express.js application with Node.js and TypeScript. It uses a minimal routing setup, an abstract `IStorage` interface (implemented by `DbStorage` for PostgreSQL), session-based authentication via Passport.js, and an automation service for core workflows. Integrates with Resend API for emails and uses Zod for data validation with Drizzle ORM.
 
 ### Database
-The system uses PostgreSQL with Drizzle ORM for schema definition and interaction. Tables are defined for users, leads, technicians, salespersons, jobs, quotes, contact attempts, webhooks, and various financial and operational tracking entities. Drizzle Kit handles schema migrations.
+PostgreSQL with Drizzle ORM defines a schema across 55+ tables for core entities (users, leads, jobs), financial data, communication, operations, permits, customers, marketing, and system settings. Drizzle Kit manages schema migrations.
 
 ### Build System
-A custom build script handles production bundling for both client (Vite) and server (esbuild). The development environment uses a dual-server setup with Express and Vite, including Replit-specific plugins. The application uses ES Modules throughout.
+Custom build scripts for production bundling (Vite for client, esbuild for server) and a dual-server development setup with Express and Vite.
 
 ## External Dependencies
 
 ### UI/Design
--   **Radix UI**: Accessible component primitives.
--   **shadcn/ui**: Component architecture.
--   **Lucide React**: Icon library.
--   **Tailwind CSS**: Utility-first CSS framework.
+- **Radix UI**: Accessible component primitives.
+- **shadcn/ui**: Component architecture.
+- **Lucide React**: Icon library.
+- **Tailwind CSS**: Utility-first CSS framework.
 
 ### Data Visualization
--   **Recharts**: Charting library.
+- **Recharts**: Charting library.
 
 ### Database
--   **PostgreSQL**: Primary database.
--   **Drizzle ORM**: Type-safe ORM.
--   **pg (node-postgres)**: PostgreSQL client.
+- **PostgreSQL**: Primary database.
+- **Drizzle ORM**: Type-safe ORM.
+- **pg (node-postgres)**: PostgreSQL client.
 
 ### Form Management & Validation
--   **React Hook Form**: Form state management.
--   **@hookform/resolvers**: Zod integration for React Hook Form.
--   **Zod**: Runtime type validation.
--   **drizzle-zod**: Drizzle and Zod integration.
+- **React Hook Form**: Form state management.
+- **@hookform/resolvers**: Zod integration for React Hook Form.
+- **Zod**: Runtime type validation.
+- **drizzle-zod**: Drizzle and Zod integration.
 
 ### Routing
--   **Wouter**: Lightweight client-side router.
+- **Wouter**: Lightweight client-side router.
 
 ### Session Management
--   **express-session**: Session middleware.
+- **express-session**: Session middleware.
+- **Passport.js**: Authentication framework.
+
+### PDF & Documents
+- **pdf-lib**: PDF generation and form filling.
 
 ### Development & Utilities
--   **Vite**: Build tool and dev server.
--   **TypeScript**: Language for type-safety.
--   **tsx**: TypeScript execution.
--   **esbuild**: Server bundler.
--   **date-fns**: Date utility library.
--   **nanoid**: Unique ID generation.
--   **embla-carousel-react**: Carousel component.
+- **Vite**: Build tool and dev server.
+- **TypeScript**: Language for type-safety.
+- **tsx**: TypeScript execution.
+- **esbuild**: Server bundler.
+- **date-fns**: Date utility library.
+- **nanoid**: Unique ID generation.
+- **embla-carousel-react**: Carousel component.
+
+### Third-Party Services/APIs
+- **Twilio**: SMS integration (via `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`).
+- **SignalWire**: Communication integration (via `SIGNALWIRE_PROJECT_ID`, `SIGNALWIRE_API_TOKEN`, `SIGNALWIRE_PHONE_NUMBER`, `SIGNALWIRE_SPACE_URL`).
+- **Thumbtack**: Webhook integration for lead capture (via `THUMBTACK_WEBHOOK_USER`, `THUMBTACK_WEBHOOK_PASS`).
+- **Resend API**: For transactional email sending.
+- **S3-compatible storage (AWS S3, MinIO)**: For object storage of PDFs.
+- **Builder 1 API**: For SEO content generation (via `BUILDER1_API_KEY`).
 
 ### Replit Specific
--   **@replit/vite-plugin-runtime-error-modal**: Development error overlay.
--   **@replit/vite-plugin-cartographer**: Replit integration.
--   **@replit/vite-plugin-dev-banner**: Development environment banner.
-
-### 3-App Integration System
-The CRM is part of a 3-app system for SEO content generation:
--   **Replit Builder 1**: Receives job data from this CRM via webhook for SEO content generation, pushing content back to this CRM and the public-facing website.
--   **EmergencyChicagoSewerExperts.replit.app**: The public-facing website that receives approved SEO content for publication.
--   **Resend API**: For transactional emails.
+- **@replit/vite-plugin-runtime-error-modal**: Development error overlay.
+- **@replit/vite-plugin-cartographer**: Replit integration.
+- **@replit/vite-plugin-dev-banner**: Development environment banner.
