@@ -431,6 +431,11 @@ export interface IStorage {
   getJobMedia(jobId: string): Promise<JobMedia[]>;
   createJobMedia(media: InsertJobMedia): Promise<JobMedia>;
   deleteJobMedia(id: string): Promise<boolean>;
+
+  // Cascading Deletes
+  deleteLead(id: string): Promise<boolean>;
+  deleteJob(id: string): Promise<boolean>;
+  deleteCustomer(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -1753,6 +1758,9 @@ export class MemStorage implements IStorage {
   async getJobMedia(jobId: string): Promise<JobMedia[]> { return []; }
   async createJobMedia(media: InsertJobMedia): Promise<JobMedia> { throw new Error("Not implemented"); }
   async deleteJobMedia(id: string): Promise<boolean> { return false; }
+  async deleteLead(id: string): Promise<boolean> { return false; }
+  async deleteJob(id: string): Promise<boolean> { return false; }
+  async deleteCustomer(id: string): Promise<boolean> { return false; }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3712,6 +3720,94 @@ export class DatabaseStorage implements IStorage {
   async deleteJobMedia(id: string): Promise<boolean> {
     const result = await db.delete(jobMedia).where(eq(jobMedia.id, id)).returning();
     return result.length > 0;
+  }
+
+  async deleteLead(id: string): Promise<boolean> {
+    try {
+      const existing = await this.getLead(id);
+      if (!existing) return false;
+
+      await db.execute(sql`DELETE FROM contact_attempts WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM customer_interactions WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM sales_commissions WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM calls WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM automation_events WHERE entity_type = 'lead' AND entity_id = ${id}`);
+      await db.execute(sql`UPDATE salesperson_locations SET lead_id = NULL WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM chat_thread_participants WHERE thread_id IN (SELECT id FROM chat_threads WHERE related_lead_id = ${id})`);
+      await db.execute(sql`DELETE FROM chat_messages WHERE thread_id IN (SELECT id FROM chat_threads WHERE related_lead_id = ${id})`);
+      await db.execute(sql`DELETE FROM chat_email_notifications WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM chat_magic_sessions WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM chat_threads WHERE related_lead_id = ${id}`);
+      await db.execute(sql`UPDATE quotes SET lead_id = NULL WHERE lead_id = ${id}`);
+      await db.execute(sql`UPDATE jobs SET lead_id = NULL WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM leads WHERE id = ${id}`);
+
+      return true;
+    } catch (error) {
+      console.error("Error in deleteLead:", error);
+      throw error;
+    }
+  }
+
+  async deleteJob(id: string): Promise<boolean> {
+    try {
+      const existing = await this.getJob(id);
+      if (!existing) return false;
+
+      await db.execute(sql`DELETE FROM job_timeline_events WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM job_attachments WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM job_checklists WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM job_messages WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM job_lead_fees WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM job_revenue_events WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM sales_commissions WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM customer_interactions WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM automation_events WHERE entity_type = 'job' AND entity_id = ${id}`);
+      await db.execute(sql`DELETE FROM time_entries WHERE job_id = ${id}`);
+      await db.execute(sql`UPDATE quotes SET job_id = NULL WHERE job_id = ${id}`);
+      await db.execute(sql`UPDATE technicians SET current_job_id = NULL WHERE current_job_id = ${id}`);
+      await db.execute(sql`UPDATE technician_locations SET job_id = NULL WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM chat_thread_participants WHERE thread_id IN (SELECT id FROM chat_threads WHERE related_job_id = ${id})`);
+      await db.execute(sql`DELETE FROM chat_messages WHERE thread_id IN (SELECT id FROM chat_threads WHERE related_job_id = ${id})`);
+      await db.execute(sql`DELETE FROM chat_email_notifications WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM chat_magic_sessions WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM chat_threads WHERE related_job_id = ${id}`);
+      await db.execute(sql`DELETE FROM job_media WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM work_orders WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM permit_packet_documents WHERE packet_id IN (SELECT id FROM permit_packets WHERE job_id = ${id})`);
+      await db.execute(sql`DELETE FROM permit_submissions WHERE packet_id IN (SELECT id FROM permit_packets WHERE job_id = ${id})`);
+      await db.execute(sql`DELETE FROM permit_packets WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM content_items WHERE content_pack_id IN (SELECT id FROM content_packs WHERE job_id = ${id})`);
+      await db.execute(sql`DELETE FROM content_packs WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM jobs WHERE id = ${id}`);
+
+      return true;
+    } catch (error) {
+      console.error("Error in deleteJob:", error);
+      throw error;
+    }
+  }
+
+  async deleteCustomer(id: string): Promise<boolean> {
+    try {
+      const customerCheck = await db.execute(sql`SELECT id FROM customers WHERE id = ${id}`);
+      if (customerCheck.rows.length === 0) return false;
+
+      await db.execute(sql`DELETE FROM customer_addresses WHERE customer_id = ${id}`);
+      await db.execute(sql`DELETE FROM customer_payment_profiles WHERE customer_id = ${id}`);
+      await db.execute(sql`UPDATE leads SET customer_id = NULL WHERE customer_id = ${id}`);
+      await db.execute(sql`UPDATE jobs SET customer_id = NULL WHERE customer_id = ${id}`);
+      await db.execute(sql`UPDATE quotes SET customer_id = NULL WHERE customer_id = ${id}`);
+      await db.execute(sql`DELETE FROM chat_thread_participants WHERE thread_id IN (SELECT id FROM chat_threads WHERE customer_id = ${id})`);
+      await db.execute(sql`DELETE FROM chat_messages WHERE thread_id IN (SELECT id FROM chat_threads WHERE customer_id = ${id})`);
+      await db.execute(sql`DELETE FROM chat_threads WHERE customer_id = ${id}`);
+      await db.execute(sql`DELETE FROM customers WHERE id = ${id}`);
+
+      return true;
+    } catch (error) {
+      console.error("Error in deleteCustomer:", error);
+      throw error;
+    }
   }
 }
 

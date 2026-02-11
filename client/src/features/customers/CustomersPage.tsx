@@ -7,13 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search, Phone, Mail, MapPin, User } from "lucide-react";
+import { Plus, Search, Phone, Mail, MapPin, User, Trash2, AlertTriangle } from "lucide-react";
 import type { Customer } from "@shared/schema";
 
 const customerFormSchema = z.object({
@@ -37,6 +37,8 @@ export default function CustomersPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
   const { toast } = useToast();
 
   const customersQuery = useQuery<Customer[]>({
@@ -60,6 +62,21 @@ export default function CustomersPage() {
       email: "",
       preferredContactMethod: "call",
       notes: "",
+    },
+  });
+
+  const deleteCustomerMutation = useMutation({
+    mutationFn: async (customerId: string) => {
+      return apiRequest("DELETE", `/api/customers/${customerId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      setCustomerToDelete(null);
+      setDeleteConfirmOpen(false);
+      toast({ title: "Customer Deleted", description: "The customer and all related data have been removed." });
+    },
+    onError: () => {
+      toast({ title: "Delete Failed", description: "Could not delete the customer.", variant: "destructive" });
     },
   });
 
@@ -246,6 +263,20 @@ export default function CustomersPage() {
                       {customer.firstName} {customer.lastName}
                     </CardTitle>
                     {getStatusBadge(customer.status)}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-muted-foreground hover:text-destructive shrink-0"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setCustomerToDelete(customer);
+                        setDeleteConfirmOpen(true);
+                      }}
+                      data-testid={`button-delete-customer-${customer.id}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm text-muted-foreground">
@@ -277,6 +308,35 @@ export default function CustomersPage() {
           )}
         </div>
       )}
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              Delete Customer
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete "{customerToDelete?.firstName} {customerToDelete?.lastName}" and unlink all related leads, jobs, and quotes. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (customerToDelete) deleteCustomerMutation.mutate(customerToDelete.id);
+              }}
+              disabled={deleteCustomerMutation.isPending}
+              data-testid="button-confirm-delete-customer"
+            >
+              {deleteCustomerMutation.isPending ? "Deleting..." : "Delete Customer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

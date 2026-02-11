@@ -153,6 +153,45 @@ export function registerCustomerRoutes(app: Express, { isAuthenticatedUser }: { 
     }
   });
 
+  app.delete("/api/customers/:id", isAuthenticatedUser, async (req: any, res) => {
+    try {
+      const customer = await customerService.getById(req.params.id);
+      if (!customer) return res.status(404).json({ error: "Customer not found" });
+      const success = await storage.deleteCustomer(req.params.id);
+      if (success) {
+        try {
+          const userId = req.session?.passport?.user || req.headers['x-user-id'] || null;
+          let userName: string | null = null;
+          let userRole: string | null = null;
+          if (userId) {
+            const u = await storage.getUser(userId);
+            if (u) { userName = u.fullName || u.username; userRole = u.role; }
+          }
+          await storage.createAuditLog({
+            entityType: "customer",
+            entityId: req.params.id,
+            action: "delete",
+            userId,
+            userName,
+            userRole,
+            changedFields: { customerName: { old: `${customer.firstName} ${customer.lastName}`, new: null } },
+            summary: `Deleted customer "${customer.firstName} ${customer.lastName}" and all related data`,
+            ipAddress: req.ip || null,
+            userAgent: req.headers["user-agent"] || null,
+          });
+        } catch (auditErr) {
+          console.error("Customer delete audit log error:", auditErr);
+        }
+        res.json({ success: true, message: `Customer "${customer.firstName} ${customer.lastName}" and all related data deleted` });
+      } else {
+        res.status(500).json({ error: "Failed to delete customer" });
+      }
+    } catch (error: any) {
+      console.error("Error deleting customer:", error);
+      res.status(500).json({ error: error.message || "Failed to delete customer" });
+    }
+  });
+
   app.post("/api/customers/:id/addresses", isAuthenticatedUser, async (req, res) => {
     try {
       const parsed = addressSchema.parse(req.body);

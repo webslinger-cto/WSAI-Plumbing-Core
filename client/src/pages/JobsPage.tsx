@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { PermitCenterCard } from "@/features/permits/PermitCenterCard";
 import {
@@ -49,6 +50,8 @@ import {
   MessageSquare,
   Bell,
   MoreVertical,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -89,6 +92,7 @@ export default function JobsPage() {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedTechnician, setSelectedTechnician] = useState<string>("");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
     queryKey: ["/api/jobs"],
@@ -168,6 +172,22 @@ export default function JobsPage() {
     },
     onError: () => {
       toast({ title: "Send Failed", description: "Could not send SMS.", variant: "destructive" });
+    },
+  });
+
+  const deleteJobMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      return apiRequest("DELETE", `/api/jobs/${jobId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      setSelectedJob(null);
+      setEditDialogOpen(false);
+      setDeleteConfirmOpen(false);
+      toast({ title: "Job Deleted", description: "The job and all related data have been removed." });
+    },
+    onError: () => {
+      toast({ title: "Delete Failed", description: "Could not delete the job.", variant: "destructive" });
     },
   });
 
@@ -387,6 +407,18 @@ export default function JobsPage() {
                                   <CheckCircle2 className="w-4 h-4 mr-2" />
                                   Send Job Complete SMS
                                 </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => {
+                                    setSelectedJob(job);
+                                    setDeleteConfirmOpen(true);
+                                  }}
+                                  data-testid={`button-delete-job-${job.id}`}
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Delete Job
+                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>
@@ -485,6 +517,35 @@ export default function JobsPage() {
               </TabsContent>
             </Tabs>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              Delete Job
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete the job for "{selectedJob?.customerName}" and all related timeline events, attachments, payroll entries, and communications. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (selectedJob) deleteJobMutation.mutate(selectedJob.id);
+              }}
+              disabled={deleteJobMutation.isPending}
+              data-testid="button-confirm-delete-job"
+            >
+              {deleteJobMutation.isPending ? "Deleting..." : "Delete Job"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

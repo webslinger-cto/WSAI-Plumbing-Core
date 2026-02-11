@@ -1495,6 +1495,24 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/leads/:id", async (req, res) => {
+    try {
+      if (!(await isAuthenticatedUser(req))) return res.status(401).json({ error: "Unauthorized" });
+      const lead = await storage.getLead(req.params.id);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+      const success = await storage.deleteLead(req.params.id);
+      if (success) {
+        await logAudit("lead", req.params.id, "delete", { customerName: { old: lead.customerName, new: null } }, req, `Deleted lead "${lead.customerName}" and all related data`);
+        res.json({ success: true, message: `Lead "${lead.customerName}" and all related data deleted` });
+      } else {
+        res.status(500).json({ error: "Failed to delete lead" });
+      }
+    } catch (error: any) {
+      console.error("Error deleting lead:", error);
+      res.status(500).json({ error: error.message || "Failed to delete lead" });
+    }
+  });
+
   // Mark lead as contacted and check SLA
   app.post("/api/leads/:id/contact", async (req, res) => {
     try {
@@ -1811,6 +1829,24 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error updating job:", error);
       res.status(500).json({ error: "Failed to update job" });
+    }
+  });
+
+  app.delete("/api/jobs/:id", async (req, res) => {
+    try {
+      if (!(await isAuthenticatedUser(req))) return res.status(401).json({ error: "Unauthorized" });
+      const job = await storage.getJob(req.params.id);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      const success = await storage.deleteJob(req.params.id);
+      if (success) {
+        await logAudit("job", req.params.id, "delete", { customerName: { old: job.customerName, new: null } }, req, `Deleted job "${job.customerName}" and all related data`);
+        res.json({ success: true, message: `Job "${job.customerName}" and all related data deleted` });
+      } else {
+        res.status(500).json({ error: "Failed to delete job" });
+      }
+    } catch (error: any) {
+      console.error("Error deleting job:", error);
+      res.status(500).json({ error: error.message || "Failed to delete job" });
     }
   });
 

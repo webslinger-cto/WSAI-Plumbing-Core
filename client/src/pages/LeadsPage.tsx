@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -29,7 +30,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History, Wifi, WifiOff, Plus, Building2, Globe, Users } from "lucide-react";
+import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History, Wifi, WifiOff, Plus, Building2, Globe, Users, Trash2, AlertTriangle } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { SlaTimer } from "@/components/SlaTimer";
@@ -208,6 +209,7 @@ export default function LeadsPage() {
   });
 
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const updateLeadStatusMutation = useMutation({
     mutationFn: async ({ leadId, status }: { leadId: string; status: string }) => {
@@ -297,6 +299,21 @@ export default function LeadsPage() {
         description: error.message,
         variant: "destructive",
       });
+    },
+  });
+
+  const deleteLeadMutation = useMutation({
+    mutationFn: async (leadId: string) => {
+      return apiRequest("DELETE", `/api/leads/${leadId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      setSelectedLead(null);
+      setDeleteConfirmOpen(false);
+      toast({ title: "Lead Deleted", description: "The lead and all related data have been removed." });
+    },
+    onError: () => {
+      toast({ title: "Delete Failed", description: "Could not delete the lead.", variant: "destructive" });
     },
   });
 
@@ -618,6 +635,15 @@ export default function LeadsPage() {
                 >
                   Update Status
                 </Button>
+                <Button
+                  variant="outline"
+                  className="text-destructive border-destructive/50"
+                  onClick={() => setDeleteConfirmOpen(true)}
+                  data-testid="button-delete-lead"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete
+                </Button>
               </div>
             </div>
           )}
@@ -647,6 +673,35 @@ export default function LeadsPage() {
               </Button>
             ))}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              Delete Lead
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete "{selectedLead?.name}" and all related quotes, timeline events, and communications. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (selectedLead) deleteLeadMutation.mutate(selectedLead.id);
+              }}
+              disabled={deleteLeadMutation.isPending}
+              data-testid="button-confirm-delete-lead"
+            >
+              {deleteLeadMutation.isPending ? "Deleting..." : "Delete Lead"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
