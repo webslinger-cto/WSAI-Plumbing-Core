@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -97,6 +98,8 @@ export default function EstimateForm({
   const [ccDescription, setCcDescription] = useState("");
 
   const [completionSignature, setCompletionSignature] = useState<string | null>(null);
+
+  const [permitRequired, setPermitRequired] = useState(false);
 
   const [showCreditCard, setShowCreditCard] = useState(false);
   const [showPricebook, setShowPricebook] = useState(false);
@@ -202,6 +205,7 @@ export default function EstimateForm({
         status: data.status,
         notes: ccDescription ? `${workDescription}\n\nCC Description: ${ccDescription}` : workDescription,
         sentAt: data.status === "sent" ? new Date().toISOString() : undefined,
+        permitRequired,
       });
     },
     onSuccess: (_, variables) => {
@@ -591,6 +595,18 @@ body{font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:20px;fon
           />
         </CardContent>
       </Card>
+
+      <div className="flex items-center gap-2 px-1">
+        <Checkbox
+          id="permitRequired"
+          checked={permitRequired}
+          onCheckedChange={(checked) => setPermitRequired(checked === true)}
+          data-testid="checkbox-permit-required"
+        />
+        <Label htmlFor="permitRequired" className="text-sm cursor-pointer">
+          Permit Required - AI will auto-detect, generate, and file permits
+        </Label>
+      </div>
 
       <Card>
         <CardContent className="pt-5 space-y-4">

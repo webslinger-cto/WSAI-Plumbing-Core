@@ -10,6 +10,7 @@ import { finalizePacketWithCustomerInfo } from "./pdfFill";
 import { submitPacketViaEmail, submitPacketAssisted } from "./emailSubmit";
 import { checkJurisdictionForms } from "./formsCheck";
 import { listWebhookEndpoints, createWebhookEndpoint, updateWebhookEndpoint, deleteWebhookEndpoint } from "./webhooks";
+import { analyzeJobForPermits, draftPermitApplication } from "./permitAi";
 import crypto from "crypto";
 import multer from "multer";
 
@@ -401,6 +402,63 @@ export function registerPermitRoutes(app: Express, opts: { isAuthenticatedUser: 
     } catch (error) {
       console.error("Permit status check failed:", error);
       res.status(500).json({ error: "Failed to check permit status" });
+    }
+  });
+
+  app.get("/api/permits/all", async (req: any, res) => {
+    try {
+      if (!(await requireEnabled(req, res))) return;
+      if (!(await requireAuth(req, res))) return;
+      const statusFilter = typeof req.query.status === "string" ? req.query.status : undefined;
+      const items = await permitService.listAll(statusFilter);
+      res.json(items);
+    } catch (error) {
+      console.error("Permit list all failed:", error);
+      res.status(500).json({ error: "Failed to load permits" });
+    }
+  });
+
+  app.get("/api/permits/stats", async (req: any, res) => {
+    try {
+      if (!(await requireEnabled(req, res))) return;
+      if (!(await requireAuth(req, res))) return;
+      const stats = await permitService.getStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Permit stats failed:", error);
+      res.status(500).json({ error: "Failed to load permit stats" });
+    }
+  });
+
+  app.post("/api/permits/ai/analyze", async (req: any, res) => {
+    try {
+      if (!(await requireEnabled(req, res))) return;
+      if (!(await requireAuth(req, res))) return;
+      const { jobId } = req.body;
+      if (!jobId) return res.status(400).json({ error: "jobId is required" });
+      const job = await storage.getJob(jobId);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      const analysis = await analyzeJobForPermits(job);
+      res.json(analysis);
+    } catch (error) {
+      console.error("AI permit analysis failed:", error);
+      res.status(500).json({ error: "Failed to analyze job for permits" });
+    }
+  });
+
+  app.post("/api/permits/ai/draft", async (req: any, res) => {
+    try {
+      if (!(await requireEnabled(req, res))) return;
+      if (!(await requireAuth(req, res))) return;
+      const { jobId, permitType, jurisdictionName } = req.body;
+      if (!jobId || !permitType) return res.status(400).json({ error: "jobId and permitType are required" });
+      const job = await storage.getJob(jobId);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      const draft = await draftPermitApplication(job, permitType, jurisdictionName || "City of Chicago");
+      res.json(draft);
+    } catch (error) {
+      console.error("AI permit draft failed:", error);
+      res.status(500).json({ error: "Failed to draft permit application" });
     }
   });
 }

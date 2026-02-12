@@ -392,6 +392,7 @@ export const quotes = pgTable("quotes", {
   cardholderSignature: text("cardholder_signature"),
   serviceTechName: text("service_tech_name"),
   formType: text("form_type").default("legacy"),
+  permitRequired: boolean("permit_required").default(false),
 });
 
 export const insertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true });

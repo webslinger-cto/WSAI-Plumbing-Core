@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -95,6 +96,7 @@ export default function QuotesPage() {
   const [materialsCost, setMaterialsCost] = useState(0);
   const [taxRate, setTaxRate] = useState(0);
   const [notes, setNotes] = useState("");
+  const [permitRequired, setPermitRequired] = useState(false);
 
   const { data: quotes = [], isLoading: quotesLoading } = useQuery<Quote[]>({
     queryKey: ["/api/quotes"],
@@ -127,6 +129,7 @@ export default function QuotesPage() {
     setMaterialsCost(0);
     setTaxRate(0);
     setNotes("");
+    setPermitRequired(false);
   };
 
   const handleJobSelect = (jobId: string) => {
@@ -191,6 +194,7 @@ export default function QuotesPage() {
         notes,
         status,
         sentAt: status === "sent" ? new Date().toISOString() : undefined,
+        permitRequired,
       };
       return apiRequest("POST", "/api/quotes", quoteData);
     },
@@ -762,6 +766,19 @@ export default function QuotesPage() {
                 <span>Total</span>
                 <span>${total.toFixed(2)}</span>
               </div>
+            </div>
+
+            {/* Permit Required */}
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="permitRequired"
+                checked={permitRequired}
+                onCheckedChange={(checked) => setPermitRequired(checked === true)}
+                data-testid="checkbox-permit-required"
+              />
+              <Label htmlFor="permitRequired" className="text-sm cursor-pointer">
+                Permit Required - AI will auto-detect, generate, and file permits
+              </Label>
             </div>
 
             {/* Notes */}

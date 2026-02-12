@@ -59,6 +59,7 @@ import {
 } from "./services/automation";
 import * as smsService from "./services/sms";
 import { dispatchToClosestTechnician } from "./services/dispatch";
+import { permitService } from "./modules/permits/service";
 import { generateApplicationPDF, generateComparisonPDF, generateHouseCallProComparisonPDF, generateTestResultsPDF, generateThreeWayComparisonPDF, generateReadmePDF, generateChatSystemPDF } from "./services/pdf-generator";
 import { pushJobToBuilder1 } from "./services/builder1-integration";
 import { registerPermitRoutes } from "./modules/permits";
@@ -1918,6 +1919,42 @@ export async function registerRoutes(
         );
       }
 
+      if (body.status === "scheduled" && oldJob.status !== "scheduled") {
+        (async () => {
+          try {
+            let hasDeposit = false;
+            if (job.quoteId) {
+              const quote = await storage.getQuote(job.quoteId);
+              if (quote && parseFloat(String(quote.depositAmount || "0")) > 0) {
+                hasDeposit = true;
+              }
+            }
+            if (!hasDeposit) {
+              const allQuotes = await storage.getQuotesByJob(job.id);
+              hasDeposit = allQuotes.some(q => q.status === "accepted" && parseFloat(String(q.depositAmount || "0")) > 0);
+            }
+
+            if (hasDeposit) {
+              const result = await permitService.autoFilePermitsForJob(
+                job.id,
+                "job_scheduled_with_deposit"
+              );
+              if (result.detected > 0) {
+                console.log(`[AutoPermit] Job ${job.id} scheduled with deposit: ${result.detected} permits detected, ${result.generated} generated, ${result.finalized} ready to submit`);
+                await storage.createJobTimelineEvent({
+                  jobId: job.id,
+                  type: "permit_auto_filed",
+                  title: "Permits Auto-Filed",
+                  description: `${result.detected} permit(s) automatically detected and ${result.finalized} prepared for submission (triggered by job scheduling with customer deposit).`,
+                } as any);
+              }
+            }
+          } catch (err) {
+            console.error(`[AutoPermit] Failed for job ${req.params.id}:`, err);
+          }
+        })();
+      }
+
       // Server-side Lead↔Job status sync
       if (body.status && body.status !== oldJob.status && job.leadId) {
         const jobToLeadMap: Record<string, string> = {
@@ -2737,6 +2774,27 @@ Emergency Chicago Sewer Experts Team
           eventType: 'job_created',
           description: `Job created from accepted quote. Total: $${quote.total}`,
         });
+
+        // Auto-file permits if permitRequired is checked on the quote
+        if (quote.permitRequired) {
+          try {
+            const result = await permitService.autoFilePermitsForJob(
+              newJob.id,
+              "quote_accepted_permit_required"
+            );
+            if (result.detected > 0) {
+              console.log(`[AutoPermit] Internal quote accepted with permitRequired: ${result.detected} permits detected, ${result.generated} generated, ${result.finalized} ready to submit`);
+              await storage.createJobTimelineEvent({
+                jobId: newJob.id,
+                type: "permit_auto_filed",
+                title: "Permits Auto-Filed",
+                description: `${result.detected} permit(s) automatically detected and ${result.finalized} prepared for submission (triggered by quote acceptance with permit required).`,
+              } as any);
+            }
+          } catch (err) {
+            console.error(`[AutoPermit] Failed for internal accepted quote job ${newJob.id}:`, err);
+          }
+        }
         
         return res.json({ quote, job: newJob });
       }
@@ -3036,6 +3094,27 @@ Emergency Chicago Sewer Experts Team
         description: `Job created from accepted quote. Total: $${quote.total}`,
       });
       
+      // Auto-file permits if permitRequired is checked on the quote
+      if (quote.permitRequired) {
+        try {
+          const result = await permitService.autoFilePermitsForJob(
+            newJob.id,
+            "quote_accepted_permit_required"
+          );
+          if (result.detected > 0) {
+            console.log(`[AutoPermit] Quote accepted with permitRequired: ${result.detected} permits detected, ${result.generated} generated, ${result.finalized} ready to submit`);
+            await storage.createJobTimelineEvent({
+              jobId: newJob.id,
+              type: "permit_auto_filed",
+              title: "Permits Auto-Filed",
+              description: `${result.detected} permit(s) automatically detected and ${result.finalized} prepared for submission (triggered by quote acceptance with permit required).`,
+            } as any);
+          }
+        } catch (err) {
+          console.error(`[AutoPermit] Failed for accepted quote job ${newJob.id}:`, err);
+        }
+      }
+
       // In-app notification: Quote accepted
       notifyStaff({
         type: "quote_accepted",

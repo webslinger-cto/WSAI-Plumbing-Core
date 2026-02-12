@@ -1,5 +1,5 @@
 import PDFDocument from "pdfkit";
-import { and, asc, eq, ilike, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, sql, count } from "drizzle-orm";
 import { db } from "../../db";
 import { storage } from "../../storage";
 import {
@@ -383,5 +383,117 @@ export const permitService = {
       .where(eq(permitPackets.id, row.packet.id));
 
     return { packetId: row.packet.id, document: docRow };
+  },
+
+  async autoFilePermitsForJob(jobId: string, triggerReason: string = "auto"): Promise<{ detected: number; generated: number; finalized: number; errors: string[] }> {
+    const enabled = await this.isEnabled();
+    if (!enabled) return { detected: 0, generated: 0, finalized: 0, errors: ["Permit Center is disabled"] };
+
+    const job = await storage.getJob(jobId);
+    if (!job) return { detected: 0, generated: 0, finalized: 0, errors: ["Job not found"] };
+
+    const result = { detected: 0, generated: 0, finalized: 0, errors: [] as string[] };
+
+    try {
+      await this.ensureCatalog();
+      const packets = await this.detectForJob(jobId);
+      result.detected = packets.length;
+
+      for (const pkt of packets) {
+        try {
+          const genResult = await this.generatePacketPdf(pkt.id);
+          result.generated++;
+
+          try {
+            await db.update(permitPackets).set({
+              status: "ready_to_submit",
+              updatedAt: new Date(),
+            }).where(eq(permitPackets.id, pkt.id));
+            result.finalized++;
+          } catch (finalizeErr: any) {
+            result.errors.push(`Finalize failed for packet ${pkt.id}: ${finalizeErr.message}`);
+          }
+        } catch (genErr: any) {
+          result.errors.push(`PDF generation failed for packet ${pkt.id}: ${genErr.message}`);
+        }
+      }
+
+      console.log(`[AutoPermit] ${triggerReason}: Job ${jobId} - detected=${result.detected}, generated=${result.generated}, finalized=${result.finalized}, errors=${result.errors.length}`);
+    } catch (err: any) {
+      result.errors.push(`Detection failed: ${err.message}`);
+      console.error(`[AutoPermit] Detection failed for job ${jobId}:`, err);
+    }
+
+    return result;
+  },
+
+  async listAll(statusFilter?: string): Promise<(PermitPacketListItem & { job: Job })[]> {
+    const conditions = [];
+    if (statusFilter) {
+      conditions.push(eq(permitPackets.status, statusFilter));
+    }
+
+    const packets = await db
+      .select({
+        packet: permitPackets,
+        jurisdiction: permitJurisdictions,
+        permitType: permitTypes,
+        job: jobs,
+      })
+      .from(permitPackets)
+      .innerJoin(permitJurisdictions, eq(permitJurisdictions.id, permitPackets.jurisdictionId))
+      .innerJoin(permitTypes, eq(permitTypes.id, permitPackets.permitTypeId))
+      .innerJoin(jobs, eq(jobs.id, permitPackets.jobId))
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(permitPackets.createdAt));
+
+    const packetIds = packets.map(p => p.packet.id);
+    const docs = packetIds.length
+      ? await db.select().from(permitPacketDocuments).where(inArray(permitPacketDocuments.packetId, packetIds)).orderBy(asc(permitPacketDocuments.createdAt))
+      : [];
+
+    const docsByPacket = new Map<string, Array<typeof permitPacketDocuments.$inferSelect>>();
+    for (const d of docs) {
+      const arr = docsByPacket.get(d.packetId) || [];
+      arr.push(d);
+      docsByPacket.set(d.packetId, arr);
+    }
+
+    return packets.map(p => ({
+      packet: p.packet,
+      jurisdiction: p.jurisdiction,
+      permitType: p.permitType,
+      documents: docsByPacket.get(p.packet.id) || [],
+      job: p.job,
+    }));
+  },
+
+  async getStats(): Promise<Record<string, number>> {
+    const rows = await db
+      .select({
+        status: permitPackets.status,
+        count: count(),
+      })
+      .from(permitPackets)
+      .groupBy(permitPackets.status);
+
+    const stats: Record<string, number> = {
+      detected: 0,
+      generating: 0,
+      needs_customer_info: 0,
+      ready_for_review: 0,
+      ready_to_submit: 0,
+      submitted: 0,
+      closed: 0,
+      error: 0,
+      total: 0,
+    };
+
+    for (const r of rows) {
+      stats[r.status] = r.count;
+      stats.total += r.count;
+    }
+
+    return stats;
   },
 };
