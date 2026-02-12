@@ -41,6 +41,7 @@ import {
   type AuditLog, type InsertAuditLog,
   type WorkOrder, type InsertWorkOrder,
   type JobMedia, type InsertJobMedia,
+  type CallRecording, type InsertCallRecording,
   users, technicians, salespersons, salesCommissions, salespersonLocations,
   leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
@@ -48,7 +49,7 @@ import {
   timeEntries, payrollPeriods, payrollRecords, employeePayRates, jobLeadFees, jobRevenueEvents, companySettings, quoteLineItems,
   contentPacks, contentItems, jobMessages,
   chatThreads, chatThreadParticipants, chatMessages, chatMagicSessions, chatEmailNotifications,
-  auditLogs, workOrders, jobMedia,
+  auditLogs, workOrders, jobMedia, callRecordings,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -431,6 +432,12 @@ export interface IStorage {
   getJobMedia(jobId: string): Promise<JobMedia[]>;
   createJobMedia(media: InsertJobMedia): Promise<JobMedia>;
   deleteJobMedia(id: string): Promise<boolean>;
+
+  // Call Recordings
+  getCallRecordings(filters?: { leadId?: string; jobId?: string }): Promise<CallRecording[]>;
+  getCallRecording(id: string): Promise<CallRecording | undefined>;
+  createCallRecording(recording: InsertCallRecording): Promise<CallRecording>;
+  updateCallRecording(id: string, updates: Partial<CallRecording>): Promise<CallRecording | undefined>;
 
   // Cascading Deletes
   deleteLead(id: string): Promise<boolean>;
@@ -1758,6 +1765,10 @@ export class MemStorage implements IStorage {
   async getJobMedia(jobId: string): Promise<JobMedia[]> { return []; }
   async createJobMedia(media: InsertJobMedia): Promise<JobMedia> { throw new Error("Not implemented"); }
   async deleteJobMedia(id: string): Promise<boolean> { return false; }
+  async getCallRecordings(filters?: { leadId?: string; jobId?: string }): Promise<CallRecording[]> { return []; }
+  async getCallRecording(id: string): Promise<CallRecording | undefined> { return undefined; }
+  async createCallRecording(recording: InsertCallRecording): Promise<CallRecording> { throw new Error("Not implemented"); }
+  async updateCallRecording(id: string, updates: Partial<CallRecording>): Promise<CallRecording | undefined> { return undefined; }
   async deleteLead(id: string): Promise<boolean> { return false; }
   async deleteJob(id: string): Promise<boolean> { return false; }
   async deleteCustomer(id: string): Promise<boolean> { return false; }
@@ -3720,6 +3731,31 @@ export class DatabaseStorage implements IStorage {
   async deleteJobMedia(id: string): Promise<boolean> {
     const result = await db.delete(jobMedia).where(eq(jobMedia.id, id)).returning();
     return result.length > 0;
+  }
+
+  async getCallRecordings(filters?: { leadId?: string; jobId?: string }): Promise<CallRecording[]> {
+    const conditions = [];
+    if (filters?.leadId) conditions.push(eq(callRecordings.leadId, filters.leadId));
+    if (filters?.jobId) conditions.push(eq(callRecordings.jobId, filters.jobId));
+    if (conditions.length > 0) {
+      return db.select().from(callRecordings).where(and(...conditions)).orderBy(desc(callRecordings.createdAt));
+    }
+    return db.select().from(callRecordings).orderBy(desc(callRecordings.createdAt));
+  }
+
+  async getCallRecording(id: string): Promise<CallRecording | undefined> {
+    const [recording] = await db.select().from(callRecordings).where(eq(callRecordings.id, id));
+    return recording;
+  }
+
+  async createCallRecording(recording: InsertCallRecording): Promise<CallRecording> {
+    const [created] = await db.insert(callRecordings).values(recording).returning();
+    return created;
+  }
+
+  async updateCallRecording(id: string, updates: Partial<CallRecording>): Promise<CallRecording | undefined> {
+    const [updated] = await db.update(callRecordings).set(updates).where(eq(callRecordings.id, id)).returning();
+    return updated;
   }
 
   async deleteLead(id: string): Promise<boolean> {

@@ -59,6 +59,7 @@ import { DollarSign, Trash2, Save, Send, X, Edit3 } from "lucide-react";
 import DispatcherCalendar from "@/components/DispatcherCalendar";
 import RecordDetailPanel from "@/components/RecordDetailPanel";
 import CustomerIntakeForm from "@/components/CustomerIntakeForm";
+import { CallRecorder } from "@/components/CallRecorder";
 
 const jobStatusConfig: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   pending: { label: "Pending", color: "bg-muted text-muted-foreground", icon: Clock },
@@ -1647,6 +1648,15 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
             />
           ) : (
             <div className="space-y-4">
+              <CallRecorder
+                userId={userId || "dispatcher"}
+                userName="Dispatcher"
+                onLeadCreated={(newLead) => {
+                  setSelectedLead(newLead);
+                  setShowIntakeForm(true);
+                }}
+              />
+
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <h2 className="text-lg font-semibold">Recent Intakes</h2>
                 <Button onClick={() => { setSelectedLead(null); setShowIntakeForm(true); }} data-testid="button-new-intake">

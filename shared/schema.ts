@@ -1570,3 +1570,27 @@ export const jobMedia = pgTable("job_media", {
 export const insertJobMediaSchema = createInsertSchema(jobMedia).omit({ id: true, createdAt: true });
 export type InsertJobMedia = z.infer<typeof insertJobMediaSchema>;
 export type JobMedia = typeof jobMedia.$inferSelect;
+
+// ============================================
+// CALL RECORDINGS
+// ============================================
+export const callRecordings = pgTable("call_recordings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id"),
+  jobId: varchar("job_id"),
+  recordedBy: varchar("recorded_by").notNull(),
+  recordedByName: text("recorded_by_name"),
+  duration: integer("duration"),
+  transcript: text("transcript"),
+  aiAnalysis: text("ai_analysis"),
+  aiRecommendations: text("ai_recommendations"),
+  status: text("status").notNull().default("recording"),
+  customerName: text("customer_name"),
+  customerPhone: text("customer_phone"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertCallRecordingSchema = createInsertSchema(callRecordings).omit({ id: true, createdAt: true });
+export type InsertCallRecording = z.infer<typeof insertCallRecordingSchema>;
+export type CallRecording = typeof callRecordings.$inferSelect;

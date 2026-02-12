@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
@@ -33,6 +34,7 @@ import {
   insertJobLeadFeeSchema,
   insertJobRevenueEventSchema,
   insertQuoteLineItemSchema,
+  insertCallRecordingSchema,
   type InsertLead,
 } from "@shared/schema";
 import { sendEmail, generateLeadAcknowledgmentEmail } from "./services/email";
@@ -8787,6 +8789,198 @@ ${emailContent}
     } catch (error: any) {
       console.error("Agent tools error:", error);
       res.status(500).json({ error: "Failed to get tools" });
+    }
+  });
+
+  // ============================================
+  // CALL RECORDINGS - Transcribe & Auto-Create Intake
+  // ============================================
+  const audioBodyParser = express.json({ limit: "50mb" });
+
+  app.get("/api/call-recordings", async (req, res) => {
+    try {
+      const { leadId, jobId } = req.query;
+      const recordings = await storage.getCallRecordings({
+        leadId: leadId as string,
+        jobId: jobId as string,
+      });
+      res.json(recordings);
+    } catch (error: any) {
+      console.error("Error fetching call recordings:", error);
+      res.status(500).json({ error: "Failed to fetch call recordings" });
+    }
+  });
+
+  app.get("/api/call-recordings/:id", async (req, res) => {
+    try {
+      const recording = await storage.getCallRecording(req.params.id);
+      if (!recording) return res.status(404).json({ error: "Recording not found" });
+      res.json(recording);
+    } catch (error: any) {
+      console.error("Error fetching call recording:", error);
+      res.status(500).json({ error: "Failed to fetch call recording" });
+    }
+  });
+
+  app.post("/api/call-recordings", async (req, res) => {
+    try {
+      const parsed = insertCallRecordingSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid recording data", details: parsed.error.errors });
+      }
+      const recording = await storage.createCallRecording(parsed.data);
+      res.status(201).json(recording);
+    } catch (error: any) {
+      console.error("Error creating call recording:", error);
+      res.status(500).json({ error: "Failed to create call recording" });
+    }
+  });
+
+  app.patch("/api/call-recordings/:id", async (req, res) => {
+    try {
+      const updated = await storage.updateCallRecording(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: "Recording not found" });
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating call recording:", error);
+      res.status(500).json({ error: "Failed to update call recording" });
+    }
+  });
+
+  app.post("/api/call-recordings/transcribe", audioBodyParser, async (req, res) => {
+    try {
+      const { audio, recordingId } = req.body;
+      if (!audio) {
+        return res.status(400).json({ error: "Audio data (base64) required" });
+      }
+
+      const { speechToText, ensureCompatibleFormat } = await import("./replit_integrations/audio/client");
+      const rawBuffer = Buffer.from(audio, "base64");
+      const { buffer: audioBuffer, format: inputFormat } = await ensureCompatibleFormat(rawBuffer);
+      const transcript = await speechToText(audioBuffer, inputFormat);
+
+      if (recordingId) {
+        await storage.updateCallRecording(recordingId, {
+          transcript,
+          status: "transcribed",
+        });
+      }
+
+      res.json({ transcript });
+    } catch (error: any) {
+      console.error("Error transcribing audio:", error);
+      res.status(500).json({ error: "Failed to transcribe audio" });
+    }
+  });
+
+  app.post("/api/call-recordings/analyze", async (req, res) => {
+    try {
+      const { transcript, recordingId } = req.body;
+      if (!transcript) {
+        return res.status(400).json({ error: "Transcript is required" });
+      }
+
+      const { openai } = await import("./replit_integrations/audio/client");
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are an AI assistant for Emergency Chicago Sewer Experts, a sewer and plumbing services company in Chicago, IL. Analyze the following phone call transcript between a dispatcher and a customer. Extract the customer intake information and return it as a JSON object with these fields:
+{
+  "customerName": "Full name of the customer",
+  "customerPhone": "Phone number mentioned",
+  "customerEmail": "Email if mentioned, or empty string",
+  "address": "Street address of the service location",
+  "city": "City (default to Chicago if not mentioned but address is in Chicago area)",
+  "zipCode": "ZIP code if mentioned",
+  "serviceType": "One of: sewer_main, drain_cleaning, plumbing, water_heater, sump_pump, ejector_pit, rodding, camera_inspection, hydro_jetting, excavation, other",
+  "description": "Detailed description of the problem as described by the customer",
+  "priority": "One of: low, normal, high, urgent - based on severity described",
+  "propertyType": "One of: SFH, Townhome, 2-3 Flat, Condo/Multi-Unit, Business/Commercial - if mentioned",
+  "contactTenantName": "If someone other than the property owner is the contact, their name",
+  "contactTenantPhone": "If a different contact phone was given",
+  "notes": "Any other important details from the call like scheduling preferences, access instructions, previous work done, etc.",
+  "aiRecommendations": "Your recommendations for the dispatcher: suggested service approach, estimated urgency, any questions to follow up on"
+}
+Return ONLY the JSON object, no other text.`
+          },
+          {
+            role: "user",
+            content: transcript,
+          },
+        ],
+        response_format: { type: "json_object" },
+      });
+
+      const analysisText = completion.choices[0]?.message?.content || "{}";
+      let analysis;
+      try {
+        analysis = JSON.parse(analysisText);
+      } catch {
+        analysis = { error: "Failed to parse AI response", raw: analysisText };
+      }
+
+      if (recordingId) {
+        await storage.updateCallRecording(recordingId, {
+          aiAnalysis: JSON.stringify(analysis),
+          aiRecommendations: analysis.aiRecommendations || "",
+          customerName: analysis.customerName || null,
+          customerPhone: analysis.customerPhone || null,
+          status: "analyzed",
+        });
+      }
+
+      res.json({ analysis });
+    } catch (error: any) {
+      console.error("Error analyzing transcript:", error);
+      res.status(500).json({ error: "Failed to analyze transcript" });
+    }
+  });
+
+  app.post("/api/call-recordings/create-lead", async (req, res) => {
+    try {
+      const { analysis, recordingId, recordedBy } = req.body;
+      if (!analysis || typeof analysis !== "object") {
+        return res.status(400).json({ error: "Analysis data is required and must be an object" });
+      }
+      if (!analysis.customerName || typeof analysis.customerName !== "string" || analysis.customerName.trim().length === 0) {
+        return res.status(400).json({ error: "Customer name is required" });
+      }
+
+      const safeStr = (val: any): string | undefined => (typeof val === "string" && val.trim() ? val.trim() : undefined);
+
+      const leadData: InsertLead = {
+        source: "phone_call",
+        customerName: String(analysis.customerName).trim(),
+        customerPhone: safeStr(analysis.customerPhone) || "",
+        customerEmail: safeStr(analysis.customerEmail),
+        address: safeStr(analysis.address),
+        city: safeStr(analysis.city) || "Chicago",
+        zipCode: safeStr(analysis.zipCode),
+        serviceType: safeStr(analysis.serviceType) || "other",
+        description: safeStr(analysis.description) || "",
+        priority: safeStr(analysis.priority) || "normal",
+        propertyType: safeStr(analysis.propertyType),
+        contactTenantName: safeStr(analysis.contactTenantName),
+        contactTenantPhone: safeStr(analysis.contactTenantPhone),
+        assignedTo: safeStr(recordedBy),
+      };
+
+      const lead = await storage.createLead(leadData);
+
+      if (recordingId) {
+        await storage.updateCallRecording(recordingId, {
+          leadId: lead.id,
+          status: "lead_created",
+        });
+      }
+
+      res.status(201).json({ lead });
+    } catch (error: any) {
+      console.error("Error creating lead from recording:", error);
+      res.status(500).json({ error: "Failed to create lead" });
     }
   });
 
