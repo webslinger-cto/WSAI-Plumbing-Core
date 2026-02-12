@@ -9130,5 +9130,254 @@ Return ONLY the JSON object, no other text.`
     }
   });
 
+  // Follow-Up Assistant - Get stale/open quotes needing follow-up
+  app.get("/api/follow-up/stale-quotes", async (req, res) => {
+    try {
+      const allQuotes = await storage.getAllQuotes();
+      const now = new Date();
+      const staleQuotes = allQuotes
+        .filter((q: any) => ["draft", "sent", "viewed"].includes(q.status))
+        .map((q: any) => {
+          const createdDate = new Date(q.createdAt);
+          const daysSinceCreated = Math.floor((now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+          const lastActivity = q.viewedAt || q.sentAt || q.createdAt;
+          const lastActivityDate = new Date(lastActivity);
+          const daysSinceLastActivity = Math.floor((now.getTime() - lastActivityDate.getTime()) / (1000 * 60 * 60 * 24));
+          let urgency: "low" | "medium" | "high" | "critical" = "low";
+          if (daysSinceLastActivity >= 14) urgency = "critical";
+          else if (daysSinceLastActivity >= 7) urgency = "high";
+          else if (daysSinceLastActivity >= 3) urgency = "medium";
+          return {
+            ...q,
+            daysSinceCreated,
+            daysSinceLastActivity,
+            lastActivityType: q.viewedAt ? "viewed" : q.sentAt ? "sent" : "created",
+            lastActivityDate: lastActivity,
+            urgency,
+          };
+        })
+        .sort((a: any, b: any) => b.daysSinceLastActivity - a.daysSinceLastActivity);
+      res.json(staleQuotes);
+    } catch (error) {
+      console.error("Error fetching stale quotes:", error);
+      res.status(500).json({ error: "Failed to fetch stale quotes" });
+    }
+  });
+
+  // Follow-Up Assistant - Get unconverted leads needing follow-up
+  app.get("/api/follow-up/unconverted-leads", async (req, res) => {
+    try {
+      const allLeads = await storage.getLeads();
+      const now = new Date();
+      const unconvertedLeads = allLeads
+        .filter((l: any) => ["new", "contacted", "qualified", "estimated", "quoted"].includes(l.status))
+        .map((l: any) => {
+          const createdDate = new Date(l.createdAt);
+          const daysSinceCreated = Math.floor((now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+          const lastUpdated = l.updatedAt || l.createdAt;
+          const lastUpdatedDate = new Date(lastUpdated);
+          const daysSinceLastUpdate = Math.floor((now.getTime() - lastUpdatedDate.getTime()) / (1000 * 60 * 60 * 24));
+          let urgency: "low" | "medium" | "high" | "critical" = "low";
+          if (daysSinceLastUpdate >= 14) urgency = "critical";
+          else if (daysSinceLastUpdate >= 7) urgency = "high";
+          else if (daysSinceLastUpdate >= 3) urgency = "medium";
+          return {
+            ...l,
+            daysSinceCreated,
+            daysSinceLastUpdate,
+            urgency,
+          };
+        })
+        .sort((a: any, b: any) => b.daysSinceLastUpdate - a.daysSinceLastUpdate);
+      res.json(unconvertedLeads);
+    } catch (error) {
+      console.error("Error fetching unconverted leads:", error);
+      res.status(500).json({ error: "Failed to fetch unconverted leads" });
+    }
+  });
+
+  // Follow-Up Assistant - Get follow-up history for a lead or quote
+  app.get("/api/follow-up/history", async (req, res) => {
+    try {
+      const { leadId, jobId } = req.query;
+      let contacts: any[] = [];
+      if (leadId && typeof leadId === "string") {
+        contacts = await storage.getContactAttemptsByLead(leadId);
+      } else if (jobId && typeof jobId === "string") {
+        contacts = await storage.getContactAttemptsByJob(jobId);
+      }
+      res.json(contacts);
+    } catch (error) {
+      console.error("Error fetching follow-up history:", error);
+      res.status(500).json({ error: "Failed to fetch follow-up history" });
+    }
+  });
+
+  // Follow-Up Assistant - AI-generate a follow-up message
+  app.post("/api/follow-up/generate-message", async (req, res) => {
+    try {
+      const { type, customerName, customerPhone, customerEmail, address, serviceType, description, quoteTotal, status, daysSinceLastActivity, channel } = req.body;
+      if (!customerName || !type) {
+        return res.status(400).json({ error: "Customer name and type required" });
+      }
+
+      const openai = new (await import("openai")).default({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const channelInstructions = channel === "email"
+        ? "Write a professional but warm follow-up email. Include a subject line on the first line formatted as 'Subject: ...' followed by the email body. Use HTML formatting for the body."
+        : "Write a concise, friendly SMS follow-up message. Keep it under 160 characters if possible, max 320 characters. Do not include a subject line.";
+
+      const prompt = `You are a customer follow-up specialist for Emergency Chicago Sewer Experts, a sewer and plumbing services company in Chicago.
+
+Generate a personalized ${channel || "sms"} follow-up message for a customer.
+
+Customer Details:
+- Name: ${customerName}
+- Type: ${type === "quote" ? "Open Quote" : "Unconverted Lead"}
+- Status: ${status}
+- Service: ${serviceType || "Sewer/Plumbing Service"}
+- Address: ${address || "Not specified"}
+${description ? `- Description: ${description}` : ""}
+${quoteTotal ? `- Quote Amount: $${quoteTotal}` : ""}
+- Days since last activity: ${daysSinceLastActivity || "Unknown"}
+
+${channelInstructions}
+
+Important guidelines:
+- Be professional but friendly and conversational
+- Reference their specific service need
+- Create urgency without being pushy
+- Offer to answer questions or schedule a visit
+- Include a call-to-action
+- Sign off as Emergency Chicago Sewer Experts
+- Do NOT include any placeholder text like [Your Name]`;
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 500,
+        temperature: 0.7,
+      });
+
+      const message = completion.choices[0]?.message?.content || "";
+      let subject = "";
+      let body = message;
+
+      if (channel === "email") {
+        const subjectMatch = message.match(/^Subject:\s*(.+?)[\n\r]/i);
+        if (subjectMatch) {
+          subject = subjectMatch[1].trim();
+          body = message.replace(/^Subject:\s*.+?[\n\r]+/i, "").trim();
+        }
+      }
+
+      res.json({ message: body, subject, channel: channel || "sms" });
+    } catch (error) {
+      console.error("Error generating follow-up message:", error);
+      res.status(500).json({ error: "Failed to generate follow-up message" });
+    }
+  });
+
+  // Follow-Up Assistant - Send follow-up and log contact attempt
+  app.post("/api/follow-up/send", async (req, res) => {
+    try {
+      const { channel, to, message, subject, leadId, jobId, customerName } = req.body;
+      if (!channel || !to || !message) {
+        return res.status(400).json({ error: "Channel, recipient, and message required" });
+      }
+
+      let result: { success: boolean; messageId?: string; error?: string };
+
+      if (channel === "sms") {
+        result = await smsService.sendSMS(to, message);
+      } else if (channel === "email") {
+        result = await sendEmail({
+          to,
+          subject: subject || "Follow-up from Emergency Chicago Sewer Experts",
+          html: message,
+          text: message.replace(/<[^>]*>/g, ""),
+        });
+      } else {
+        return res.status(400).json({ error: "Invalid channel. Use 'sms' or 'email'" });
+      }
+
+      await storage.createContactAttempt({
+        leadId: leadId || null,
+        jobId: jobId || null,
+        type: channel,
+        direction: "outbound",
+        status: result.success ? "sent" : "failed",
+        subject: subject || null,
+        content: message,
+        templateId: "ai_followup",
+        externalId: result.messageId || null,
+        recipientEmail: channel === "email" ? to : null,
+        recipientPhone: channel === "sms" ? to : null,
+        sentBy: "ai_followup_assistant",
+        sentAt: result.success ? new Date() : null,
+        failedReason: result.error || null,
+      });
+
+      if (result.success && leadId) {
+        const lead = await storage.getLead(leadId);
+        if (lead && lead.status === "new") {
+          await storage.updateLead(leadId, { status: "contacted" });
+        }
+      }
+
+      res.json({ success: result.success, messageId: result.messageId, error: result.error });
+    } catch (error: any) {
+      console.error("Error sending follow-up:", error);
+      res.status(500).json({ error: "Failed to send follow-up" });
+    }
+  });
+
+  // Follow-Up Assistant - Get follow-up metrics/stats
+  app.get("/api/follow-up/metrics", async (req, res) => {
+    try {
+      const allQuotes = await storage.getAllQuotes();
+      const allLeads = await storage.getLeads();
+      const now = new Date();
+
+      const openQuotes = allQuotes.filter((q: any) => ["draft", "sent", "viewed"].includes(q.status));
+      const unconvertedLeads = allLeads.filter((l: any) => ["new", "contacted", "qualified", "estimated", "quoted"].includes(l.status));
+      const criticalQuotes = openQuotes.filter((q: any) => {
+        const lastActivity = q.viewedAt || q.sentAt || q.createdAt;
+        const days = Math.floor((now.getTime() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24));
+        return days >= 14;
+      });
+      const criticalLeads = unconvertedLeads.filter((l: any) => {
+        const lastUpdated = l.updatedAt || l.createdAt;
+        const days = Math.floor((now.getTime() - new Date(lastUpdated).getTime()) / (1000 * 60 * 60 * 24));
+        return days >= 14;
+      });
+
+      const totalQuoteValue = openQuotes.reduce((sum: number, q: any) => sum + (parseFloat(q.total) || 0), 0);
+      const recentlyConverted = allQuotes.filter((q: any) => {
+        if (q.status !== "accepted") return false;
+        const acceptedDate = new Date(q.acceptedAt || q.createdAt);
+        const daysSince = Math.floor((now.getTime() - acceptedDate.getTime()) / (1000 * 60 * 60 * 24));
+        return daysSince <= 30;
+      });
+
+      res.json({
+        openQuotes: openQuotes.length,
+        unconvertedLeads: unconvertedLeads.length,
+        criticalQuotes: criticalQuotes.length,
+        criticalLeads: criticalLeads.length,
+        totalQuoteValue: totalQuoteValue.toFixed(2),
+        recentConversions: recentlyConverted.length,
+        totalQuotes: allQuotes.length,
+        conversionRate: allQuotes.length > 0 ? ((recentlyConverted.length / allQuotes.length) * 100).toFixed(1) : "0",
+      });
+    } catch (error) {
+      console.error("Error fetching follow-up metrics:", error);
+      res.status(500).json({ error: "Failed to fetch metrics" });
+    }
+  });
+
   return httpServer;
 }

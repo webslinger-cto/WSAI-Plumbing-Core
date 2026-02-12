@@ -45,6 +45,7 @@ import MarketingROIPage from "@/pages/MarketingROIPage";
 import SEOContentPage from "@/pages/seo-content";
 import EarningsPage from "@/pages/EarningsPage";
 import CallsPage from "@/pages/CallsPage";
+import FollowUpAssistantPage from "@/pages/FollowUpAssistantPage";
 import DispatchChatPage from "@/pages/DispatchChatPage";
 import TechnicianChatPage from "@/pages/TechnicianChatPage";
 import CustomerChatPage from "@/pages/CustomerChatPage";
@@ -89,6 +90,7 @@ function AdminRouter({ userId, fullName }: { userId: string; fullName: string })
       <Route path="/pay-tracker" component={PayTrackerPage} />
       <Route path="/import" component={ImportPage} />
       <Route path="/outreach" component={OutreachPage} />
+      <Route path="/follow-up" component={FollowUpAssistantPage} />
       <Route path="/export" component={ExportPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/chat">{() => <DispatchChatPage userId={userId} fullName={fullName} />}</Route>
@@ -111,6 +113,7 @@ function DispatcherRouter({ userId, fullName }: { userId: string; fullName: stri
       <Route path="/staffing" component={StaffingPool} />
       <Route path="/calls" component={CallsPage} />
       <Route path="/leads" component={LeadsPage} />
+      <Route path="/follow-up" component={FollowUpAssistantPage} />
       <Route path="/chat">{() => <DispatchChatPage userId={userId} fullName={fullName} />}</Route>
       <Route path="/operations">{() => <OperationsMenuPage role="dispatcher" />}</Route>
       <Route component={NotFound} />

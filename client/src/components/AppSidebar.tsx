@@ -38,6 +38,7 @@ import {
   MessageSquare,
   UserCheck,
   FileStack,
+  Sparkles,
 } from "lucide-react";
 const cseLogo = "/cse-logo.png";
 
@@ -56,6 +57,7 @@ const adminMenuItems = [
   { title: "Customers", url: "/customers", icon: UserCheck },
   { title: "Technician Map", url: "/map", icon: MapPin },
   { title: "Outreach", url: "/outreach", icon: Megaphone },
+  { title: "Follow-Up AI", url: "/follow-up", icon: Sparkles },
   { title: "Technicians", url: "/technicians", icon: Wrench },
   { title: "Quote Templates", url: "/quote-templates", icon: FileText },
   { title: "Pricebook", url: "/pricebook", icon: Tag },
@@ -75,6 +77,7 @@ const dispatcherMenuItems = [
   { title: "Calls", url: "/calls", icon: Phone },
   { title: "Messages", url: "/chat", icon: MessageSquare },
   { title: "Leads", url: "/leads", icon: Users },
+  { title: "Follow-Up AI", url: "/follow-up", icon: Sparkles },
   { title: "Permit Center", url: "/permits", icon: FileStack },
 ];
 

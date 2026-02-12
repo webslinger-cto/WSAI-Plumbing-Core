@@ -6,6 +6,8 @@ import { calculateTaxes } from "../taxCalculation";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
+import { sendEmail } from "./email";
+import * as smsService from "./sms";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -705,6 +707,214 @@ registerTool({
   },
 });
 
+registerTool({
+  name: "get_stale_quotes",
+  description: "Get open/stale quotes that haven't been accepted or declined, with aging information. Includes quotes with status: draft, sent, viewed. Returns urgency levels based on days since last activity.",
+  requiredRole: "dispatcher",
+  type: "read",
+  parameters: z.object({
+    urgency: z.enum(["all", "low", "medium", "high", "critical"]).optional(),
+  }),
+  execute: async (params) => {
+    const allQuotes = await storage.getAllQuotes();
+    const now = new Date();
+    const stale = allQuotes
+      .filter((q: any) => ["draft", "sent", "viewed"].includes(q.status))
+      .map((q: any) => {
+        const lastActivity = q.viewedAt || q.sentAt || q.createdAt;
+        const days = Math.floor((now.getTime() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24));
+        let urgency: string = "low";
+        if (days >= 14) urgency = "critical";
+        else if (days >= 7) urgency = "high";
+        else if (days >= 3) urgency = "medium";
+        return {
+          id: q.id, customerName: q.customerName, customerPhone: q.customerPhone,
+          customerEmail: q.customerEmail, address: q.address, status: q.status,
+          total: q.total, daysSinceLastActivity: days, urgency,
+          lastActivityType: q.viewedAt ? "viewed" : q.sentAt ? "sent" : "created",
+          serviceType: q.serviceType || null,
+        };
+      })
+      .filter((q: any) => !params.urgency || params.urgency === "all" || q.urgency === params.urgency)
+      .sort((a: any, b: any) => b.daysSinceLastActivity - a.daysSinceLastActivity);
+    return { total: stale.length, quotes: stale.slice(0, 25) };
+  },
+});
+
+registerTool({
+  name: "get_unconverted_leads",
+  description: "Get leads that haven't been converted to jobs yet, with aging information. Includes leads with status: new, contacted, qualified, estimated, quoted. Returns urgency levels based on days since last update.",
+  requiredRole: "dispatcher",
+  type: "read",
+  parameters: z.object({
+    urgency: z.enum(["all", "low", "medium", "high", "critical"]).optional(),
+    status: z.string().optional(),
+  }),
+  execute: async (params) => {
+    const allLeads = await storage.getLeads();
+    const now = new Date();
+    const unconverted = allLeads
+      .filter((l: any) => {
+        const validStatuses = ["new", "contacted", "qualified", "estimated", "quoted"];
+        if (params.status) return l.status === params.status;
+        return validStatuses.includes(l.status);
+      })
+      .map((l: any) => {
+        const lastUpdated = l.updatedAt || l.createdAt;
+        const days = Math.floor((now.getTime() - new Date(lastUpdated).getTime()) / (1000 * 60 * 60 * 24));
+        let urgency: string = "low";
+        if (days >= 14) urgency = "critical";
+        else if (days >= 7) urgency = "high";
+        else if (days >= 3) urgency = "medium";
+        return {
+          id: l.id, customerName: l.customerName, phone: l.phone,
+          email: l.customerEmail, address: l.address, status: l.status,
+          source: l.source, serviceType: l.serviceType, priority: l.priority,
+          description: l.description, daysSinceLastUpdate: days, urgency,
+        };
+      })
+      .filter((l: any) => !params.urgency || params.urgency === "all" || l.urgency === params.urgency)
+      .sort((a: any, b: any) => b.daysSinceLastUpdate - a.daysSinceLastUpdate);
+    return { total: unconverted.length, leads: unconverted.slice(0, 25) };
+  },
+});
+
+registerTool({
+  name: "generate_followup_message",
+  description: "Generate an AI-powered personalized follow-up message for a customer with an open quote or unconverted lead. Returns the message text for review before sending.",
+  requiredRole: "dispatcher",
+  type: "read",
+  parameters: z.object({
+    customerName: z.string(),
+    channel: z.enum(["sms", "email"]),
+    type: z.enum(["quote", "lead"]),
+    serviceType: z.string().optional(),
+    address: z.string().optional(),
+    description: z.string().optional(),
+    quoteTotal: z.string().optional(),
+    status: z.string().optional(),
+    daysSinceLastActivity: z.number().optional(),
+  }),
+  execute: async (params) => {
+    const channelInstructions = params.channel === "email"
+      ? "Write a professional but warm follow-up email. Include a subject line on the first line formatted as 'Subject: ...' followed by the email body."
+      : "Write a concise, friendly SMS follow-up message. Keep it under 300 characters. Do not include a subject line.";
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{
+        role: "user",
+        content: `You are a customer follow-up specialist for Emergency Chicago Sewer Experts, a sewer and plumbing company in Chicago.
+Generate a ${params.channel} follow-up for:
+- Name: ${params.customerName}
+- Type: ${params.type === "quote" ? "Open Quote" : "Unconverted Lead"}
+- Status: ${params.status || "unknown"}
+- Service: ${params.serviceType || "Sewer/Plumbing"}
+${params.address ? `- Address: ${params.address}` : ""}
+${params.description ? `- Issue: ${params.description}` : ""}
+${params.quoteTotal ? `- Quote: $${params.quoteTotal}` : ""}
+- Days idle: ${params.daysSinceLastActivity || "unknown"}
+
+${channelInstructions}
+Be professional, reference their service need, create gentle urgency, and sign off as Emergency Chicago Sewer Experts.`,
+      }],
+      max_tokens: 400,
+      temperature: 0.7,
+    });
+
+    const message = completion.choices[0]?.message?.content || "";
+    let subject = "";
+    let body = message;
+    if (params.channel === "email") {
+      const subjectMatch = message.match(/^Subject:\s*(.+?)[\n\r]/i);
+      if (subjectMatch) {
+        subject = subjectMatch[1].trim();
+        body = message.replace(/^Subject:\s*.+?[\n\r]+/i, "").trim();
+      }
+    }
+    return { message: body, subject, channel: params.channel };
+  },
+});
+
+registerTool({
+  name: "send_followup_sms",
+  description: "Send a follow-up SMS to a customer and log the contact attempt. Use generate_followup_message first to create the message, then propose this action for approval.",
+  requiredRole: "dispatcher",
+  type: "write",
+  parameters: z.object({
+    to: z.string(),
+    message: z.string(),
+    leadId: z.string().optional(),
+    customerName: z.string().optional(),
+  }),
+  execute: async (params) => {
+    const result = await smsService.sendSMS(params.to, params.message);
+    await storage.createContactAttempt({
+      leadId: params.leadId || null,
+      type: "sms",
+      direction: "outbound",
+      status: result.success ? "sent" : "failed",
+      content: params.message,
+      templateId: "ai_followup",
+      recipientPhone: params.to,
+      sentBy: "ai_followup_assistant",
+      sentAt: result.success ? new Date() : null,
+      externalId: result.messageId || null,
+      failedReason: result.error || null,
+    });
+    if (result.success && params.leadId) {
+      const lead = await storage.getLead(params.leadId);
+      if (lead && lead.status === "new") {
+        await storage.updateLead(params.leadId, { status: "contacted" });
+      }
+    }
+    return { success: result.success, messageId: result.messageId, error: result.error };
+  },
+});
+
+registerTool({
+  name: "send_followup_email",
+  description: "Send a follow-up email to a customer and log the contact attempt. Use generate_followup_message first to create the message, then propose this action for approval.",
+  requiredRole: "dispatcher",
+  type: "write",
+  parameters: z.object({
+    to: z.string(),
+    subject: z.string(),
+    message: z.string(),
+    leadId: z.string().optional(),
+    customerName: z.string().optional(),
+  }),
+  execute: async (params) => {
+    const result = await sendEmail({
+      to: params.to,
+      subject: params.subject,
+      html: params.message,
+      text: params.message.replace(/<[^>]*>/g, ""),
+    });
+    await storage.createContactAttempt({
+      leadId: params.leadId || null,
+      type: "email",
+      direction: "outbound",
+      status: result.success ? "sent" : "failed",
+      subject: params.subject,
+      content: params.message,
+      templateId: "ai_followup",
+      recipientEmail: params.to,
+      sentBy: "ai_followup_assistant",
+      sentAt: result.success ? new Date() : null,
+      externalId: result.messageId || null,
+      failedReason: result.error || null,
+    });
+    if (result.success && params.leadId) {
+      const lead = await storage.getLead(params.leadId);
+      if (lead && lead.status === "new") {
+        await storage.updateLead(params.leadId, { status: "contacted" });
+      }
+    }
+    return { success: result.success, messageId: result.messageId, error: result.error };
+  },
+});
+
 function getToolsForRole(role: string): ToolDefinition[] {
   const tools: ToolDefinition[] = [];
   toolRegistry.forEach((tool) => {
@@ -734,6 +944,15 @@ CRITICAL RULES:
 5. When proposing actions, explain what each action will do and why.
 6. For payroll processing, always show the date range and estimated number of employees that will be affected before proposing the action. Mark payroll actions as "high" risk since they involve financial calculations.
 7. For permit operations, explain which permits will be detected/filed and for which jobs.
+
+FOLLOW-UP ASSISTANT:
+- Use get_stale_quotes to find open quotes that haven't been accepted. Filter by urgency (low/medium/high/critical).
+- Use get_unconverted_leads to find leads that haven't become jobs yet. Filter by urgency or status.
+- When a user asks to follow up with customers, first use the read tools to identify who needs follow-up.
+- Use generate_followup_message to create a personalized SMS or email for a specific customer. Always review the generated message before proposing to send it.
+- For sending, propose send_followup_sms or send_followup_email as write actions. Always include the leadId when available.
+- Prioritize critical and high urgency items first - these are customers who haven't been contacted in 7+ days.
+- When the user asks "who needs follow-up?" or "show me stale quotes", use the read tools to gather data and present a summary with actionable recommendations.
 
 CALENDAR & SCHEDULING:
 - You have full access to the calendar. Use get_todays_schedule to quickly see today's workload.
