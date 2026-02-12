@@ -19,6 +19,9 @@ import {
   ClipboardList,
   KeyRound,
   ShieldCheck,
+  Mic,
+  MicOff,
+  AudioLines,
 } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 
@@ -70,6 +73,12 @@ export default function CopilotPanel({ userId, role, isOpen, onClose }: CopilotP
   const [input, setInput] = useState("");
   const [licenseKeyInput, setLicenseKeyInput] = useState("");
   const [executingActionId, setExecutingActionId] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -208,6 +217,141 @@ export default function CopilotPanel({ userId, role, isOpen, onClose }: CopilotP
       setExecutingActionId(null);
     },
   });
+
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+    };
+  }, []);
+
+  const startRecording = async () => {
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "Voice input is not supported in this browser. Please use a modern browser like Chrome, Firefox, or Edge.",
+          timestamp: new Date(),
+        },
+      ]);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let recorderOptions: MediaRecorderOptions = {};
+      if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+        recorderOptions = { mimeType: "audio/webm;codecs=opus" };
+      } else if (MediaRecorder.isTypeSupported("audio/webm")) {
+        recorderOptions = { mimeType: "audio/webm" };
+      } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+        recorderOptions = { mimeType: "audio/mp4" };
+      }
+      const recorder = new MediaRecorder(stream, recorderOptions);
+      const mimeType = recorder.mimeType || "audio/webm";
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        if (recordingTimerRef.current) {
+          clearInterval(recordingTimerRef.current);
+          recordingTimerRef.current = null;
+        }
+        setRecordingDuration(0);
+        setIsRecording(false);
+
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        if (blob.size < 1000) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: "Recording was too short. Please hold the microphone button a bit longer and speak clearly.",
+              timestamp: new Date(),
+            },
+          ]);
+          return;
+        }
+
+        setIsTranscribing(true);
+        try {
+          const reader = new FileReader();
+          const base64 = await new Promise<string>((resolve, reject) => {
+            reader.onloadend = () => {
+              const result = reader.result as string;
+              resolve(result.split(",")[1]);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+
+          const res = await fetch("/api/call-recordings/transcribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-User-Id": userId },
+            body: JSON.stringify({ audio: base64 }),
+          });
+
+          if (!res.ok) throw new Error("Transcription failed");
+          const data = await res.json();
+          if (data.transcript && data.transcript.trim()) {
+            handleSend(data.transcript.trim());
+          }
+        } catch (err) {
+          console.error("Voice transcription error:", err);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: "Sorry, I couldn't understand the audio. Please try again or type your message.",
+              timestamp: new Date(),
+            },
+          ]);
+        } finally {
+          setIsTranscribing(false);
+        }
+      };
+
+      recorder.start(250);
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      setRecordingDuration(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration((d) => d + 1);
+      }, 1000);
+    } catch (err: any) {
+      console.error("Microphone access error:", err);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "Microphone access was denied. Please allow microphone access in your browser to use voice input.",
+          timestamp: new Date(),
+        },
+      ]);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const formatDuration = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
 
   const handleSend = (text?: string) => {
     const msg = text || input.trim();
@@ -430,22 +574,55 @@ export default function CopilotPanel({ userId, role, isOpen, onClose }: CopilotP
       </div>
 
       <div className="p-3 border-t">
+        {isRecording && (
+          <div className="flex items-center justify-between gap-2 mb-2 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
+              <span className="text-xs font-medium text-destructive">Recording</span>
+              <span className="text-xs text-muted-foreground font-mono">{formatDuration(recordingDuration)}</span>
+            </div>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={stopRecording}
+              data-testid="button-stop-voice"
+            >
+              <MicOff className="w-3 h-3 mr-1" />
+              Stop
+            </Button>
+          </div>
+        )}
+        {isTranscribing && (
+          <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-md bg-primary/10 border border-primary/20">
+            <AudioLines className="w-3 h-3 text-primary animate-pulse" />
+            <span className="text-xs text-primary">Transcribing your voice...</span>
+          </div>
+        )}
         <div className="flex gap-2">
           <textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask me anything..."
+            placeholder={isRecording ? "Listening..." : "Ask me anything..."}
             rows={1}
             className="flex-1 resize-none bg-muted rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-            disabled={planMutation.isPending}
+            disabled={planMutation.isPending || isRecording || isTranscribing}
             data-testid="input-copilot-message"
           />
           <Button
             size="icon"
+            variant={isRecording ? "destructive" : "ghost"}
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={planMutation.isPending || isTranscribing}
+            data-testid="button-voice-copilot"
+          >
+            {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+          </Button>
+          <Button
+            size="icon"
             onClick={() => handleSend()}
-            disabled={!input.trim() || planMutation.isPending}
+            disabled={!input.trim() || planMutation.isPending || isRecording || isTranscribing}
             data-testid="button-send-copilot"
           >
             <Send className="w-4 h-4" />
