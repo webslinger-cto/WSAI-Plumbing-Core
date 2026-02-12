@@ -8636,5 +8636,62 @@ ${emailContent}
     }
   });
 
+  // ============================================
+  // AI COPILOT AGENT ROUTES
+  // ============================================
+  const { generatePlan, executeAction, getAvailableTools } = await import("./services/agent");
+
+  app.post("/api/agent/plan", async (req, res) => {
+    try {
+      const user = await getChatUser(req);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      if (user.role !== "admin" && user.role !== "dispatcher") {
+        return res.status(403).json({ error: "Copilot is only available to admins and dispatchers" });
+      }
+      const { message, history } = req.body;
+      if (!message || typeof message !== "string") {
+        return res.status(400).json({ error: "message is required" });
+      }
+      const plan = await generatePlan(message, user.role, history || []);
+      res.json(plan);
+    } catch (error: any) {
+      console.error("Agent plan error:", error);
+      res.status(500).json({ error: "Failed to generate plan", details: error.message });
+    }
+  });
+
+  app.post("/api/agent/execute", async (req, res) => {
+    try {
+      const user = await getChatUser(req);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      if (user.role !== "admin" && user.role !== "dispatcher") {
+        return res.status(403).json({ error: "Copilot is only available to admins and dispatchers" });
+      }
+      const { action } = req.body;
+      if (!action || !action.toolName) {
+        return res.status(400).json({ error: "action with toolName is required" });
+      }
+      const result = await executeAction(action, user.role, user.id);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Agent execute error:", error);
+      res.status(500).json({ error: "Failed to execute action", details: error.message });
+    }
+  });
+
+  app.get("/api/agent/tools", async (req, res) => {
+    try {
+      const user = await getChatUser(req);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      if (user.role !== "admin" && user.role !== "dispatcher") {
+        return res.status(403).json({ error: "Copilot is only available to admins and dispatchers" });
+      }
+      res.json(getAvailableTools(user.role));
+    } catch (error: any) {
+      console.error("Agent tools error:", error);
+      res.status(500).json({ error: "Failed to get tools" });
+    }
+  });
+
   return httpServer;
 }

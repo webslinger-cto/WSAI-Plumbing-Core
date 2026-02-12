@@ -10,12 +10,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Crown, Eye, User, Bell, CheckCheck } from "lucide-react";
+import { Crown, Eye, User, Bell, CheckCheck, Sparkles } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import type { Notification } from "@shared/schema";
 import AppSidebar from "@/components/AppSidebar";
 import LoginPage from "@/components/LoginPage";
 import PasswordSetupPage from "@/components/PasswordSetupPage";
+import CopilotPanel from "@/components/CopilotPanel";
 
 export const YELP_REVIEW_URL = "https://www.yelp.com/biz/chicago-sewer-experts-lyons-3?adjust_creative=microsoft&utm_campaign=yelp_feed&utm_medium=feed_v2&utm_source=microsoft";
 import AdminDashboard from "@/pages/AdminDashboard";
@@ -434,6 +435,8 @@ function App() {
     isSuperAdmin: false,
   });
   
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  
   // Super admin role switching - allows viewing the app as different roles
   const [viewAsRole, setViewAsRole] = useState<"admin" | "dispatcher" | "technician" | "salesperson" | null>(null);
   // Selected person when viewing as technician or salesperson
@@ -631,6 +634,17 @@ function App() {
                   />
                 )}
                 
+                {(effectiveRole === "admin" || effectiveRole === "dispatcher") && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setCopilotOpen(!copilotOpen)}
+                    className={copilotOpen ? "text-primary" : ""}
+                    data-testid="button-copilot-toggle"
+                  >
+                    <Sparkles className="w-5 h-5" />
+                  </Button>
+                )}
                 <NotificationsBell userId={auth.userId} />
               </header>
               <main className="flex-1 overflow-auto p-6">
@@ -659,6 +673,13 @@ function App() {
               </footer>
             </div>
           </div>
+          {(effectiveRole === "admin" || effectiveRole === "dispatcher") && (
+            <CopilotPanel
+              userId={auth.userId}
+              isOpen={copilotOpen}
+              onClose={() => setCopilotOpen(false)}
+            />
+          )}
         </SidebarProvider>
         <Toaster />
       </TooltipProvider>
