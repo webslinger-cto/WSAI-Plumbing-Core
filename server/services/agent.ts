@@ -1,11 +1,11 @@
 import OpenAI from "openai";
 import { storage } from "../storage";
 import { db } from "../db";
-import { payrollPeriods, payrollRecords } from "@shared/schema";
+import { payrollPeriods, payrollRecords, customers, chatThreads as chatThreadsTable } from "@shared/schema";
 import { calculateTaxes } from "../taxCalculation";
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { sendEmail } from "./email";
 import * as smsService from "./sms";
 
@@ -872,6 +872,272 @@ registerTool({
   },
 });
 
+// === IN-APP MESSAGING TOOLS ===
+
+registerTool({
+  name: "get_chat_threads",
+  description: "Get chat threads, optionally filtered by jobId, leadId, visibility (internal/customer_visible), or status (active/closed). Returns threads with participant info and last message preview.",
+  requiredRole: "dispatcher",
+  type: "read",
+  parameters: z.object({
+    jobId: z.string().optional(),
+    leadId: z.string().optional(),
+    visibility: z.enum(["internal", "customer_visible"]).optional(),
+    status: z.enum(["active", "closed"]).optional(),
+    limit: z.number().optional().default(20),
+  }),
+  execute: async (params) => {
+    if (params.jobId) {
+      const vis = params.visibility || "internal";
+      const thread = await storage.getChatThreadByJob(params.jobId, vis as any);
+      if (!thread) return { threads: [], message: "No thread found for this job" };
+      const participants = await storage.getChatThreadParticipants(thread.id);
+      const messages = await storage.getChatMessages(thread.id, { limit: 1 });
+      return { threads: [{ ...thread, participants, lastMessage: messages[messages.length - 1] || null }] };
+    }
+    if (params.leadId) {
+      const vis = params.visibility || "internal";
+      const thread = await storage.getChatThreadByLead(params.leadId, vis as any);
+      if (!thread) return { threads: [], message: "No thread found for this lead" };
+      const participants = await storage.getChatThreadParticipants(thread.id);
+      const messages = await storage.getChatMessages(thread.id, { limit: 1 });
+      return { threads: [{ ...thread, participants, lastMessage: messages[messages.length - 1] || null }] };
+    }
+    let allDbThreads = await db.select().from(chatThreadsTable)
+      .orderBy(desc(chatThreadsTable.lastMessageAt));
+    if (params.status) {
+      allDbThreads = allDbThreads.filter((t: any) => t.status === params.status);
+    }
+    if (params.visibility) {
+      allDbThreads = allDbThreads.filter((t: any) => t.visibility === params.visibility);
+    }
+    const limited = allDbThreads.slice(0, params.limit);
+    const enriched = await Promise.all(limited.map(async (thread: any) => {
+      const participants = await storage.getChatThreadParticipants(thread.id);
+      const messages = await storage.getChatMessages(thread.id, { limit: 1 });
+      return { ...thread, participants, lastMessage: messages[messages.length - 1] || null };
+    }));
+    return { threads: enriched };
+  },
+});
+
+registerTool({
+  name: "get_thread_messages",
+  description: "Get messages from a specific chat thread. Returns the most recent messages with sender info.",
+  requiredRole: "dispatcher",
+  type: "read",
+  parameters: z.object({
+    threadId: z.string(),
+    limit: z.number().optional().default(50),
+  }),
+  execute: async (params) => {
+    const thread = await storage.getChatThread(params.threadId);
+    if (!thread) return { error: "Thread not found" };
+    const messages = await storage.getChatMessages(params.threadId, { limit: params.limit });
+    const participants = await storage.getChatThreadParticipants(params.threadId);
+    return { thread, participants, messages };
+  },
+});
+
+registerTool({
+  name: "send_chat_message",
+  description: "Send a message to a chat thread. Can target an existing thread by threadId, or automatically find/create a thread by jobId or leadId. Set audience to 'internal' for staff-only or 'customer_visible' for customer-facing threads. The AI sends as 'AI Assistant'.",
+  requiredRole: "dispatcher",
+  type: "write",
+  parameters: z.object({
+    threadId: z.string().optional(),
+    jobId: z.string().optional(),
+    leadId: z.string().optional(),
+    message: z.string(),
+    audience: z.enum(["internal", "customer_visible"]).default("internal"),
+  }),
+  execute: async (params) => {
+    let threadId = params.threadId;
+
+    if (!threadId && params.jobId) {
+      let thread = await storage.getChatThreadByJob(params.jobId, params.audience as any);
+      if (!thread) {
+        const job = await storage.getJob(params.jobId);
+        if (!job) return { error: "Job not found" };
+        thread = await storage.createChatThread({
+          relatedJobId: params.jobId,
+          visibility: params.audience,
+          status: "active",
+          subject: `Job #${job.id.slice(0, 8)} - ${job.serviceType} - ${job.customerName}`,
+          createdByType: "user",
+          createdById: "ai_assistant",
+        });
+        const users = await storage.getUsers();
+        const assignedTech = job.assignedTechnicianId ? await storage.getTechnician(job.assignedTechnicianId) : null;
+        const staffToAdd = users.filter(u => 
+          u.role === "admin" || u.role === "dispatcher" || 
+          (u.role === "technician" && assignedTech?.userId && u.id === assignedTech.userId)
+        );
+        for (const user of staffToAdd) {
+          await storage.addChatThreadParticipant({
+            threadId: thread.id,
+            participantType: "user",
+            participantId: user.id,
+            roleAtTime: user.role,
+            displayName: user.fullName || user.username,
+          });
+        }
+        if (params.audience === "customer_visible" && job.customerPhone) {
+          await storage.addChatThreadParticipant({
+            threadId: thread.id,
+            participantType: "customer",
+            participantId: job.customerPhone,
+            roleAtTime: "customer",
+            displayName: job.customerName,
+          });
+        }
+      }
+      threadId = thread.id;
+    }
+
+    if (!threadId && params.leadId) {
+      let thread = await storage.getChatThreadByLead(params.leadId, params.audience as any);
+      if (!thread) {
+        const lead = await storage.getLead(params.leadId);
+        if (!lead) return { error: "Lead not found" };
+        thread = await storage.createChatThread({
+          relatedLeadId: params.leadId,
+          visibility: params.audience,
+          status: "active",
+          subject: `Lead #${lead.id.slice(0, 8)} - ${lead.serviceType || "Inquiry"} - ${lead.customerName}`,
+          createdByType: "user",
+          createdById: "ai_assistant",
+        });
+        const users = await storage.getUsers();
+        for (const user of users.filter(u => u.role === "admin" || u.role === "dispatcher")) {
+          await storage.addChatThreadParticipant({
+            threadId: thread.id,
+            participantType: "user",
+            participantId: user.id,
+            roleAtTime: user.role,
+            displayName: user.fullName || user.username,
+          });
+        }
+        if (params.audience === "customer_visible" && lead.customerPhone) {
+          await storage.addChatThreadParticipant({
+            threadId: thread.id,
+            participantType: "customer",
+            participantId: lead.customerPhone,
+            roleAtTime: "customer",
+            displayName: lead.customerName,
+          });
+        }
+      }
+      threadId = thread.id;
+    }
+
+    if (!threadId) return { error: "Must provide threadId, jobId, or leadId" };
+
+    const msg = await storage.createChatMessage({
+      threadId,
+      senderType: "user",
+      senderId: "ai_assistant",
+      senderDisplayName: "AI Assistant",
+      body: params.message,
+      meta: { source: "ai_copilot" },
+    });
+
+    return { success: true, threadId, messageId: msg.id, message: "Message sent successfully" };
+  },
+});
+
+// === CUSTOMER PROFILE TOOL ===
+
+registerTool({
+  name: "get_customer_profile",
+  description: "Get comprehensive customer profile data by phone number or customer name. Returns customer info, addresses, related jobs, leads, quotes, call history, contact attempts, and recent chat threads. Use this to understand a customer's full history before taking action.",
+  requiredRole: "dispatcher",
+  type: "read",
+  parameters: z.object({
+    phone: z.string().optional(),
+    customerName: z.string().optional(),
+    customerId: z.string().optional(),
+  }),
+  execute: async (params) => {
+    let customerPhone = params.phone;
+    let profile: any = {};
+
+    if (params.customerId) {
+      const result = await db.select().from(customers).where(eq(customers.id, params.customerId));
+      if (result.length > 0) {
+        profile.customer = result[0];
+        customerPhone = result[0].phonePrimary;
+      }
+    }
+
+    if (!customerPhone && params.customerName) {
+      const allLeads = await storage.getLeads();
+      const matchingLead = allLeads.find(l => 
+        l.customerName.toLowerCase().includes(params.customerName!.toLowerCase())
+      );
+      if (matchingLead) {
+        customerPhone = matchingLead.customerPhone;
+      } else {
+        const allJobs = await storage.getJobs();
+        const matchingJob = allJobs.find(j => 
+          j.customerName.toLowerCase().includes(params.customerName!.toLowerCase())
+        );
+        if (matchingJob) customerPhone = matchingJob.customerPhone;
+      }
+    }
+
+    if (!customerPhone) {
+      return { error: "Could not find customer. Provide a phone number, customer name, or customer ID." };
+    }
+
+    const timeline = await storage.getCustomerTimeline(customerPhone);
+    profile.phone = customerPhone;
+    profile.leads = timeline.leads.map(l => ({
+      id: l.id, customerName: l.customerName, status: l.status, source: l.source,
+      serviceType: l.serviceType, address: l.address, city: l.city, zipCode: l.zipCode,
+      createdAt: l.createdAt, priority: l.priority, description: l.description,
+    }));
+    profile.jobs = timeline.jobs.map(j => ({
+      id: j.id, customerName: j.customerName, status: j.status, serviceType: j.serviceType,
+      address: j.address, city: j.city, scheduledDate: j.scheduledDate,
+      assignedTechnicianId: j.assignedTechnicianId, priority: j.priority,
+      totalCost: j.totalCost, completedAt: j.completedAt, createdAt: j.createdAt,
+    }));
+    profile.quotes = timeline.quotes.map(q => ({
+      id: q.id, customerName: q.customerName, status: q.status, total: q.total,
+      createdAt: q.createdAt, sentAt: q.sentAt, acceptedAt: q.acceptedAt,
+    }));
+    profile.calls = timeline.calls.map(c => ({
+      id: c.id, direction: c.direction, outcome: c.outcome, duration: c.duration,
+      notes: c.notes, createdAt: c.createdAt,
+    }));
+
+    const contactAttempts: any[] = [];
+    for (const lead of timeline.leads) {
+      const attempts = await storage.getContactAttemptsByLead(lead.id);
+      contactAttempts.push(...attempts.map(a => ({
+        id: a.id, type: a.type, direction: a.direction, status: a.status,
+        content: a.content?.slice(0, 200), sentAt: a.sentAt, leadId: a.leadId,
+      })));
+    }
+    profile.contactAttempts = contactAttempts.slice(0, 20);
+
+    profile.summary = {
+      totalLeads: profile.leads.length,
+      totalJobs: profile.jobs.length,
+      totalQuotes: profile.quotes.length,
+      totalCalls: profile.calls.length,
+      totalContactAttempts: contactAttempts.length,
+      activeJobs: profile.jobs.filter((j: any) => !["completed", "cancelled"].includes(j.status)).length,
+      openQuotes: profile.quotes.filter((q: any) => !["accepted", "declined", "expired"].includes(q.status)).length,
+      customerName: profile.leads[0]?.customerName || profile.jobs[0]?.customerName || params.customerName || "Unknown",
+      email: timeline.leads[0]?.customerEmail || timeline.jobs[0]?.customerEmail || null,
+    };
+
+    return profile;
+  },
+});
+
 registerTool({
   name: "send_followup_email",
   description: "Send a follow-up email to a customer and log the contact attempt. Use generate_followup_message first to create the message, then propose this action for approval.",
@@ -953,6 +1219,21 @@ FOLLOW-UP ASSISTANT:
 - For sending, propose send_followup_sms or send_followup_email as write actions. Always include the leadId when available.
 - Prioritize critical and high urgency items first - these are customers who haven't been contacted in 7+ days.
 - When the user asks "who needs follow-up?" or "show me stale quotes", use the read tools to gather data and present a summary with actionable recommendations.
+
+IN-APP MESSAGING:
+- You have full access to the in-app messaging system. Use get_chat_threads to view active threads, filtered by jobId, leadId, visibility, or status.
+- Use get_thread_messages to read conversation history in any thread.
+- Use send_chat_message to send messages. You can target a specific threadId, or provide a jobId or leadId to auto-find or create the right thread.
+- Set audience to "internal" for staff-only discussions, or "customer_visible" for messages the customer will see.
+- When sending customer-facing messages, be professional and friendly. Use the company name "Emergency Chicago Sewer Experts".
+- Job status changes automatically post updates to relevant chat threads, so you don't need to manually notify about status changes.
+- When proposing to send a message, always show the user what will be sent and to which audience before executing.
+
+CUSTOMER PROFILES:
+- Use get_customer_profile to look up comprehensive customer data by phone number, customer name, or customer ID.
+- This returns the full customer history: leads, jobs, quotes, calls, contact attempts, and a summary with counts.
+- Always check the customer profile before taking action on a customer to understand their history and current status.
+- Use customer profile data to personalize follow-ups and make informed decisions about service recommendations.
 
 CALENDAR & SCHEDULING:
 - You have full access to the calendar. Use get_todays_schedule to quickly see today's workload.

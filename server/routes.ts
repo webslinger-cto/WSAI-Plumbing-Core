@@ -248,6 +248,118 @@ async function notifyUser(userId: string, config: {
   }
 }
 
+// Helper: Post job status update to chat threads (internal + customer-visible if exists)
+async function postJobStatusChatUpdate(job: any, newStatus: string, actorName?: string) {
+  try {
+    const statusMessages: Record<string, { internal: string; customer: string }> = {
+      assigned: {
+        internal: `Job assigned to ${actorName || "a technician"}. Status: Assigned.`,
+        customer: `Great news! A technician has been assigned to your ${job.serviceType || "service"} job. We'll keep you updated on their arrival.`,
+      },
+      confirmed: {
+        internal: `Technician ${actorName || ""} confirmed the assignment.`,
+        customer: `Your technician has confirmed the job assignment and will be with you as scheduled.`,
+      },
+      en_route: {
+        internal: `Technician ${actorName || ""} is en route to ${job.address || "the job site"}.`,
+        customer: `Your technician is on the way! They should arrive at your location shortly.`,
+      },
+      on_site: {
+        internal: `Technician ${actorName || ""} has arrived on site at ${job.address || "the job location"}.`,
+        customer: `Your technician has arrived at your location and will begin work shortly.`,
+      },
+      in_progress: {
+        internal: `Work has started on the job at ${job.address || "the site"}.`,
+        customer: `Work has begun on your ${job.serviceType || "service"} job. We'll update you when it's complete.`,
+      },
+      completed: {
+        internal: `Job completed by ${actorName || "the technician"} at ${job.address || "the site"}.`,
+        customer: `Your ${job.serviceType || "service"} job has been completed! Thank you for choosing Emergency Chicago Sewer Experts. If you have any questions, don't hesitate to reach out.`,
+      },
+      cancelled: {
+        internal: `Job at ${job.address || "the site"} has been cancelled.`,
+        customer: `Your scheduled ${job.serviceType || "service"} job has been cancelled. Please contact us if you'd like to reschedule.`,
+      },
+    };
+
+    const msgs = statusMessages[newStatus];
+    if (!msgs) return;
+
+    const isDuplicateMessage = async (threadId: string, status: string): Promise<boolean> => {
+      const recentMsgs = await storage.getChatMessages(threadId, { limit: 3 });
+      return recentMsgs.some((m: any) => {
+        if (m.meta && typeof m.meta === "object" && (m.meta as any).source === "job_status_update" && (m.meta as any).newStatus === status) {
+          const msgTime = new Date(m.createdAt).getTime();
+          return Date.now() - msgTime < 30000;
+        }
+        return false;
+      });
+    };
+
+    const internalThread = await storage.getChatThreadByJob(job.id, "internal");
+    if (internalThread && internalThread.status === "active") {
+      const isDupe = await isDuplicateMessage(internalThread.id, newStatus);
+      if (!isDupe) {
+        await storage.createChatMessage({
+          threadId: internalThread.id,
+          senderType: "user",
+          senderId: "system",
+          senderDisplayName: "System",
+          body: msgs.internal,
+          meta: { source: "job_status_update", newStatus },
+        });
+      }
+    }
+
+    const customerThread = await storage.getChatThreadByJob(job.id, "customer_visible");
+    if (customerThread && customerThread.status === "active") {
+      const isDupe = await isDuplicateMessage(customerThread.id, newStatus);
+      if (!isDupe) {
+        await storage.createChatMessage({
+          threadId: customerThread.id,
+          senderType: "user",
+          senderId: "system",
+          senderDisplayName: "Emergency Chicago Sewer Experts",
+          body: msgs.customer,
+          meta: { source: "job_status_update", newStatus },
+        });
+      }
+    }
+
+    if (job.assignedTechnicianId && ["assigned", "cancelled", "completed"].includes(newStatus)) {
+      const tech = await storage.getTechnician(job.assignedTechnicianId);
+      if (tech?.userId) {
+        await notifyUser(tech.userId, {
+          type: "job_status_update",
+          title: `Job Status: ${newStatus.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}`,
+          message: msgs.internal,
+          jobId: job.id,
+          actionUrl: `/jobs/${job.id}`,
+        });
+      }
+    }
+
+    const dispatcherIds = new Set<string>();
+    if (job.dispatcherId) dispatcherIds.add(job.dispatcherId);
+    if (["en_route", "on_site", "completed", "cancelled"].includes(newStatus)) {
+      const users = await storage.getUsers();
+      users.filter(u => u.role === "dispatcher" || u.role === "admin").forEach(u => dispatcherIds.add(u.id));
+    }
+    for (const uid of dispatcherIds) {
+      if (uid === "system") continue;
+      await notifyUser(uid, {
+        type: "job_status_update",
+        title: `Job Status: ${newStatus.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}`,
+        message: msgs.internal,
+        jobId: job.id,
+        actionUrl: `/jobs/${job.id}`,
+      });
+    }
+  } catch (error) {
+    console.error(`Failed to post job status chat update for job ${job.id}:`, error);
+  }
+}
+
 // Helper: Create revenue event for a completed job (idempotent - checks for existing)
 async function createRevenueEventForJob(job: any) {
   try {
@@ -1979,6 +2091,17 @@ export async function registerRoutes(
         }
       }
 
+      if (body.status && body.status !== oldJob.status) {
+        let actorName: string | undefined;
+        if (job.assignedTechnicianId) {
+          const tech = await storage.getTechnician(job.assignedTechnicianId);
+          if (tech) actorName = tech.fullName;
+        }
+        postJobStatusChatUpdate(job, body.status, actorName).catch(err =>
+          console.error(`Chat update failed for job ${req.params.id}:`, err)
+        );
+      }
+
       res.json(job);
     } catch (error) {
       console.error("Error updating job:", error);
@@ -2094,6 +2217,10 @@ export async function registerRoutes(
       await storage.updateLead(job.leadId, { status: "assigned", assignedTo: technicianId });
     }
     
+    postJobStatusChatUpdate(updated!, "assigned", tech.fullName).catch(err =>
+      console.error(`Chat update failed for job ${req.params.id}:`, err)
+    );
+    
     res.json(updated);
   });
 
@@ -2146,6 +2273,11 @@ export async function registerRoutes(
       createdBy: technicianId,
     });
     
+    const confirmTech = technicianId ? await storage.getTechnician(technicianId) : null;
+    postJobStatusChatUpdate(updated!, "confirmed", confirmTech?.fullName).catch(err =>
+      console.error(`Chat update failed for job ${req.params.id}:`, err)
+    );
+    
     res.json(updated);
   });
 
@@ -2183,6 +2315,10 @@ export async function registerRoutes(
     }
     notifyDispatchersOfStatusChange(req.params.id, job, techName, "en_route").catch(err =>
       console.error(`Dispatcher notification failed for job ${req.params.id} en_route:`, err)
+    );
+    
+    postJobStatusChatUpdate(updated!, "en_route", techName).catch(err =>
+      console.error(`Chat update failed for job ${req.params.id}:`, err)
     );
     
     res.json(updated);
@@ -2253,6 +2389,10 @@ export async function registerRoutes(
       console.error(`Dispatcher notification failed for job ${req.params.id} arrived:`, err)
     );
     
+    postJobStatusChatUpdate(updated!, "on_site", techName).catch(err =>
+      console.error(`Chat update failed for job ${req.params.id}:`, err)
+    );
+    
     res.json(updated);
   });
 
@@ -2279,6 +2419,13 @@ export async function registerRoutes(
       const tech = await storage.getTechnician(technicianId);
       notifyJobApproved(updated!, tech?.fullName).catch(err => 
         console.error(`Job in-progress notification failed for job ${req.params.id}:`, err)
+      );
+      postJobStatusChatUpdate(updated!, "in_progress", tech?.fullName).catch(err =>
+        console.error(`Chat update failed for job ${req.params.id}:`, err)
+      );
+    } else {
+      postJobStatusChatUpdate(updated!, "in_progress").catch(err =>
+        console.error(`Chat update failed for job ${req.params.id}:`, err)
       );
     }
     
@@ -2334,6 +2481,9 @@ export async function registerRoutes(
       if (job) {
         notifyDispatchersOfStatusChange(id, job, techName, "completed").catch(err =>
           console.error(`Dispatcher notification failed for job ${id} completed:`, err)
+        );
+        postJobStatusChatUpdate(job, "completed", techName).catch(err =>
+          console.error(`Chat update failed for job ${id}:`, err)
         );
       }
       
