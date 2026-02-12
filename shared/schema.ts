@@ -1044,6 +1044,7 @@ export const companySettings = pgTable("company_settings", {
   permitCenterEnabled: boolean("permit_center_enabled").notNull().default(false), // Enable/disable Permit Center module
   copilotLicenseKey: text("copilot_license_key"),
   copilotLicenseActive: boolean("copilot_license_active").notNull().default(false),
+  copilotOverrideEnabled: boolean("copilot_override_enabled").notNull().default(false),
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
 

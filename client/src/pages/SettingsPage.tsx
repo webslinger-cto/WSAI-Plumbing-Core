@@ -603,15 +603,16 @@ function LeadApiIntegrationCard() {
 function CopilotLicenseCard() {
   const { toast } = useToast();
   const [keyInput, setKeyInput] = useState("");
+  const [overridePassword, setOverridePassword] = useState("");
 
-  const { data: licenseStatus, isLoading } = useQuery<{ active: boolean; hasKey: boolean }>({
+  const { data: licenseStatus, isLoading } = useQuery<{ active: boolean; hasKey: boolean; overrideEnabled: boolean }>({
     queryKey: ["/api/agent/license"],
     queryFn: async () => {
       const userId = localStorage.getItem("userId") || "";
       const res = await fetch("/api/agent/license", {
         headers: { "X-User-Id": userId },
       });
-      if (!res.ok) return { active: false, hasKey: false };
+      if (!res.ok) return { active: false, hasKey: false, overrideEnabled: false };
       return res.json();
     },
   });
@@ -656,6 +657,35 @@ function CopilotLicenseCard() {
     },
   });
 
+  const overrideMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const userId = localStorage.getItem("userId") || "";
+      const res = await fetch("/api/agent/license/override", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-User-Id": userId },
+        body: JSON.stringify({ password: overridePassword, enabled }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Override failed");
+      }
+      return res.json();
+    },
+    onSuccess: (_, enabled) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/agent/license"] });
+      setOverridePassword("");
+      toast({
+        title: enabled ? "Override Enabled" : "Override Disabled",
+        description: enabled
+          ? "AI Copilot is now active via override."
+          : "Override has been disabled.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Override Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   return (
     <Card>
       <CardHeader>
@@ -667,7 +697,7 @@ function CopilotLicenseCard() {
           Manage the WebSlingerAI software license for the AI Copilot assistant
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-6">
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium">Status:</span>
           {isLoading ? (
@@ -675,7 +705,7 @@ function CopilotLicenseCard() {
           ) : licenseStatus?.active ? (
             <Badge variant="default" className="gap-1" data-testid="badge-license-active">
               <ShieldCheck className="w-3 h-3" />
-              Active
+              Active{licenseStatus.overrideEnabled ? " (Override)" : ""}
             </Badge>
           ) : (
             <Badge variant="secondary" className="gap-1" data-testid="badge-license-inactive">
@@ -704,7 +734,7 @@ function CopilotLicenseCard() {
           </div>
         )}
 
-        {licenseStatus?.active && (
+        {licenseStatus?.active && !licenseStatus?.overrideEnabled && (
           <Button
             variant="outline"
             onClick={() => deactivateMutation.mutate()}
@@ -714,6 +744,37 @@ function CopilotLicenseCard() {
             Deactivate License
           </Button>
         )}
+
+        <Separator />
+
+        <div className="space-y-3">
+          <div>
+            <Label className="text-sm font-medium">Admin Override</Label>
+            <p className="text-sm text-muted-foreground">
+              {licenseStatus?.overrideEnabled
+                ? "Override is currently enabled. Enter password to disable it."
+                : "Bypass the license requirement with an admin password."}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Input
+              type="password"
+              placeholder="Enter override password"
+              value={overridePassword}
+              onChange={(e) => setOverridePassword(e.target.value)}
+              disabled={overrideMutation.isPending}
+              data-testid="input-override-password"
+            />
+            <Button
+              variant={licenseStatus?.overrideEnabled ? "outline" : "default"}
+              onClick={() => overrideMutation.mutate(!licenseStatus?.overrideEnabled)}
+              disabled={!overridePassword.trim() || overrideMutation.isPending}
+              data-testid="button-toggle-override"
+            >
+              {licenseStatus?.overrideEnabled ? "Disable Override" : "Enable Override"}
+            </Button>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

@@ -8641,8 +8641,11 @@ ${emailContent}
   // ============================================
   const { generatePlan, executeAction, getAvailableTools } = await import("./services/agent");
 
+  const COPILOT_OVERRIDE_PASSWORD = "131381";
+
   const checkCopilotLicense = async (): Promise<boolean> => {
     const settings = await storage.getCompanySettings();
+    if (settings?.copilotOverrideEnabled === true) return true;
     return settings?.copilotLicenseActive === true && !!settings?.copilotLicenseKey;
   };
 
@@ -8651,13 +8654,37 @@ ${emailContent}
       const user = await getChatUser(req);
       if (!user) return res.status(401).json({ error: "Unauthorized" });
       const settings = await storage.getCompanySettings();
+      const overrideEnabled = settings?.copilotOverrideEnabled === true;
+      const licenseActive = settings?.copilotLicenseActive === true && !!settings?.copilotLicenseKey;
       res.json({
-        active: settings?.copilotLicenseActive === true && !!settings?.copilotLicenseKey,
+        active: overrideEnabled || licenseActive,
         hasKey: !!settings?.copilotLicenseKey,
+        overrideEnabled,
       });
     } catch (error: any) {
       console.error("License check error:", error);
       res.status(500).json({ error: "Failed to check license" });
+    }
+  });
+
+  app.post("/api/agent/license/override", async (req, res) => {
+    try {
+      const user = await getChatUser(req);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      if (user.role !== "admin") {
+        return res.status(403).json({ error: "Only admins can manage the override" });
+      }
+      const { password, enabled } = req.body;
+      if (password !== COPILOT_OVERRIDE_PASSWORD) {
+        return res.status(403).json({ error: "Incorrect override password" });
+      }
+      await storage.updateCompanySettings({
+        copilotOverrideEnabled: enabled === true,
+      });
+      res.json({ success: true, overrideEnabled: enabled === true });
+    } catch (error: any) {
+      console.error("Override toggle error:", error);
+      res.status(500).json({ error: "Failed to update override" });
     }
   });
 
