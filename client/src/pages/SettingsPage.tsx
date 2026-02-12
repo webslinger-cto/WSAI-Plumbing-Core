@@ -608,9 +608,8 @@ function CopilotLicenseCard() {
   const { data: licenseStatus, isLoading } = useQuery<{ active: boolean; hasKey: boolean; overrideEnabled: boolean }>({
     queryKey: ["/api/agent/license"],
     queryFn: async () => {
-      const userId = localStorage.getItem("userId") || "";
       const res = await fetch("/api/agent/license", {
-        headers: { "X-User-Id": userId },
+        credentials: "include",
       });
       if (!res.ok) return { active: false, hasKey: false, overrideEnabled: false };
       return res.json();
@@ -619,10 +618,10 @@ function CopilotLicenseCard() {
 
   const activateMutation = useMutation({
     mutationFn: async (licenseKey: string) => {
-      const userId = localStorage.getItem("userId") || "";
       const res = await fetch("/api/agent/license/activate", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-User-Id": userId },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ licenseKey }),
       });
       if (!res.ok) {
@@ -643,10 +642,10 @@ function CopilotLicenseCard() {
 
   const deactivateMutation = useMutation({
     mutationFn: async () => {
-      const userId = localStorage.getItem("userId") || "";
       const res = await fetch("/api/agent/license/deactivate", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-User-Id": userId },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Deactivation failed");
       return res.json();
@@ -659,10 +658,10 @@ function CopilotLicenseCard() {
 
   const overrideMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
-      const userId = localStorage.getItem("userId") || "";
       const res = await fetch("/api/agent/license/override", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-User-Id": userId },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ password: overridePassword, enabled }),
       });
       if (!res.ok) {

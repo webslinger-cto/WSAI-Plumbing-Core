@@ -8649,9 +8649,20 @@ ${emailContent}
     return settings?.copilotLicenseActive === true && !!settings?.copilotLicenseKey;
   };
 
+  const getAgentUser = async (req: any): Promise<User | null> => {
+    const headerUser = await getChatUser(req);
+    if (headerUser) return headerUser;
+    const sessionUserId = req.session?.passport?.user;
+    if (sessionUserId) {
+      const user = await storage.getUser(sessionUserId);
+      return user as User | null;
+    }
+    return null;
+  };
+
   app.get("/api/agent/license", async (req, res) => {
     try {
-      const user = await getChatUser(req);
+      const user = await getAgentUser(req);
       if (!user) return res.status(401).json({ error: "Unauthorized" });
       const settings = await storage.getCompanySettings();
       const overrideEnabled = settings?.copilotOverrideEnabled === true;
@@ -8669,7 +8680,7 @@ ${emailContent}
 
   app.post("/api/agent/license/override", async (req, res) => {
     try {
-      const user = await getChatUser(req);
+      const user = await getAgentUser(req);
       if (!user) return res.status(401).json({ error: "Unauthorized" });
       if (user.role !== "admin") {
         return res.status(403).json({ error: "Only admins can manage the override" });
@@ -8690,7 +8701,7 @@ ${emailContent}
 
   app.post("/api/agent/license/activate", async (req, res) => {
     try {
-      const user = await getChatUser(req);
+      const user = await getAgentUser(req);
       if (!user) return res.status(401).json({ error: "Unauthorized" });
       if (user.role !== "admin") {
         return res.status(403).json({ error: "Only admins can activate the AI Copilot license" });
@@ -8717,7 +8728,7 @@ ${emailContent}
 
   app.post("/api/agent/license/deactivate", async (req, res) => {
     try {
-      const user = await getChatUser(req);
+      const user = await getAgentUser(req);
       if (!user) return res.status(401).json({ error: "Unauthorized" });
       if (user.role !== "admin") {
         return res.status(403).json({ error: "Only admins can deactivate the AI Copilot license" });
