@@ -235,20 +235,264 @@ registerTool({
 
 registerTool({
   name: "schedule_job",
-  description: "Schedule a job by setting its scheduled date and time.",
+  description: "Schedule a job by setting its scheduled date, start time, and optional end time. Use ISO date format (YYYY-MM-DD) for scheduledDate and 24h format (HH:MM) for times.",
   requiredRole: "dispatcher",
   type: "write",
   parameters: z.object({
     jobId: z.string(),
     scheduledDate: z.string(),
     scheduledTime: z.string().optional(),
+    scheduledTimeEnd: z.string().optional(),
+    technicianId: z.string().optional(),
   }),
   execute: async (params) => {
-    return storage.updateJob(params.jobId, {
+    const existing = await storage.getJob(params.jobId);
+    if (!existing) return { error: "Job not found" };
+    const updates: Record<string, any> = {
       scheduledDate: new Date(params.scheduledDate),
       scheduledTimeStart: params.scheduledTime || null,
+      scheduledTimeEnd: params.scheduledTimeEnd || null,
       status: "scheduled",
+    };
+    if (params.technicianId) {
+      updates.assignedTechnicianId = params.technicianId;
+    }
+    const job = await storage.updateJob(params.jobId, updates);
+    await storage.createJobTimelineEvent({
+      jobId: params.jobId,
+      eventType: "scheduled",
+      description: `Job scheduled for ${params.scheduledDate}${params.scheduledTime ? ` at ${params.scheduledTime}` : ""}${params.technicianId ? ` (technician assigned)` : ""}`,
     });
+    return job;
+  },
+});
+
+registerTool({
+  name: "get_calendar_schedule",
+  description: "Get all scheduled jobs for a date range to see the calendar. Returns jobs with their scheduled dates, times, assigned technicians, and customer info. Use ISO date format (YYYY-MM-DD).",
+  requiredRole: "dispatcher",
+  type: "read",
+  parameters: z.object({
+    startDate: z.string(),
+    endDate: z.string(),
+    technicianId: z.string().optional(),
+  }),
+  execute: async (params) => {
+    const allJobs = await storage.getJobs();
+    const start = new Date(params.startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(params.endDate);
+    end.setHours(23, 59, 59, 999);
+
+    const scheduledJobs = allJobs.filter((j: any) => {
+      if (!j.scheduledDate) return false;
+      const jobDate = new Date(j.scheduledDate);
+      if (jobDate < start || jobDate > end) return false;
+      if (params.technicianId && j.assignedTechnicianId !== params.technicianId) return false;
+      return true;
+    });
+
+    const technicians = await storage.getTechnicians();
+    const techMap = new Map(technicians.map((t: any) => [t.id, t.fullName || t.name]));
+
+    return scheduledJobs.map((j: any) => ({
+      jobId: j.id,
+      customerName: j.customerName,
+      address: j.address,
+      serviceType: j.serviceType,
+      status: j.status,
+      priority: j.priority,
+      scheduledDate: j.scheduledDate,
+      scheduledTimeStart: j.scheduledTimeStart,
+      scheduledTimeEnd: j.scheduledTimeEnd,
+      assignedTechnicianId: j.assignedTechnicianId,
+      assignedTechnicianName: j.assignedTechnicianId ? techMap.get(j.assignedTechnicianId) || "Unknown" : "Unassigned",
+      description: j.description,
+    }));
+  },
+});
+
+registerTool({
+  name: "get_todays_schedule",
+  description: "Get today's full schedule showing all jobs, technician assignments, and time slots. Quick view of the current day's calendar.",
+  requiredRole: "dispatcher",
+  type: "read",
+  parameters: z.object({}),
+  execute: async () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(today);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const allJobs = await storage.getJobs();
+    const todaysJobs = allJobs.filter((j: any) => {
+      if (!j.scheduledDate) return false;
+      const jobDate = new Date(j.scheduledDate);
+      return jobDate >= today && jobDate <= endOfDay;
+    });
+
+    const technicians = await storage.getTechnicians();
+    const techMap = new Map(technicians.map((t: any) => [t.id, { name: t.fullName || t.name, status: t.status }]));
+
+    const schedule = todaysJobs
+      .sort((a: any, b: any) => (a.scheduledTimeStart || "00:00").localeCompare(b.scheduledTimeStart || "00:00"))
+      .map((j: any) => {
+        const tech = j.assignedTechnicianId ? techMap.get(j.assignedTechnicianId) : null;
+        return {
+          jobId: j.id,
+          time: j.scheduledTimeStart ? `${j.scheduledTimeStart}${j.scheduledTimeEnd ? `-${j.scheduledTimeEnd}` : ""}` : "No time set",
+          customerName: j.customerName,
+          address: j.address,
+          serviceType: j.serviceType,
+          status: j.status,
+          priority: j.priority,
+          technician: tech ? tech.name : "Unassigned",
+          technicianStatus: tech ? tech.status : null,
+        };
+      });
+
+    const availableTechs = technicians.filter((t: any) => t.status === "available").map((t: any) => ({
+      id: t.id,
+      name: t.fullName || t.name,
+      status: t.status,
+    }));
+
+    return {
+      date: today.toISOString().split("T")[0],
+      totalJobs: schedule.length,
+      schedule,
+      availableTechnicians: availableTechs,
+    };
+  },
+});
+
+registerTool({
+  name: "check_technician_availability",
+  description: "Check a technician's availability on a specific date by looking at their scheduled jobs and current status. Returns open time slots.",
+  requiredRole: "dispatcher",
+  type: "read",
+  parameters: z.object({
+    technicianId: z.string(),
+    date: z.string(),
+  }),
+  execute: async (params) => {
+    const tech = await storage.getTechnician(params.technicianId);
+    if (!tech) return { error: "Technician not found" };
+
+    const targetDate = new Date(params.date);
+    targetDate.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const allJobs = await storage.getJobs();
+    const techJobs = allJobs.filter((j: any) => {
+      if (j.assignedTechnicianId !== params.technicianId) return false;
+      if (!j.scheduledDate) return false;
+      const jobDate = new Date(j.scheduledDate);
+      return jobDate >= targetDate && jobDate <= endOfDay;
+    });
+
+    const scheduledSlots = techJobs.map((j: any) => ({
+      jobId: j.id,
+      timeStart: j.scheduledTimeStart || "Unknown",
+      timeEnd: j.scheduledTimeEnd || "Unknown",
+      customerName: j.customerName,
+      serviceType: j.serviceType,
+      status: j.status,
+    })).sort((a: any, b: any) => (a.timeStart || "").localeCompare(b.timeStart || ""));
+
+    return {
+      technicianId: params.technicianId,
+      technicianName: tech.fullName || tech.name,
+      currentStatus: tech.status,
+      date: params.date,
+      scheduledJobs: scheduledSlots,
+      jobCount: scheduledSlots.length,
+      isAvailable: tech.status === "available" || tech.status === "off_duty",
+    };
+  },
+});
+
+registerTool({
+  name: "reschedule_job",
+  description: "Reschedule an existing job to a new date and/or time. Optionally reassign to a different technician.",
+  requiredRole: "dispatcher",
+  type: "write",
+  parameters: z.object({
+    jobId: z.string(),
+    newDate: z.string(),
+    newTimeStart: z.string().optional(),
+    newTimeEnd: z.string().optional(),
+    technicianId: z.string().optional(),
+    reason: z.string().optional(),
+  }),
+  execute: async (params) => {
+    const job = await storage.getJob(params.jobId);
+    if (!job) return { error: "Job not found" };
+
+    const updates: Record<string, any> = {
+      scheduledDate: new Date(params.newDate),
+      scheduledTimeStart: params.newTimeStart || job.scheduledTimeStart || null,
+      scheduledTimeEnd: params.newTimeEnd || job.scheduledTimeEnd || null,
+    };
+    if (params.technicianId) {
+      updates.assignedTechnicianId = params.technicianId;
+    }
+
+    const updated = await storage.updateJob(params.jobId, updates);
+    const oldDate = job.scheduledDate ? new Date(job.scheduledDate).toISOString().split("T")[0] : "unscheduled";
+    await storage.createJobTimelineEvent({
+      jobId: params.jobId,
+      eventType: "rescheduled",
+      description: `Job rescheduled from ${oldDate} to ${params.newDate}${params.reason ? `. Reason: ${params.reason}` : ""}`,
+    });
+    return updated;
+  },
+});
+
+registerTool({
+  name: "create_and_schedule_job",
+  description: "Create a new job AND schedule it in one step. Use this when you have customer info from a call recording or intake and want to immediately put it on the calendar. Requires customer name, phone, address, service type, and scheduling details.",
+  requiredRole: "dispatcher",
+  type: "write",
+  parameters: z.object({
+    customerName: z.string(),
+    customerPhone: z.string(),
+    customerEmail: z.string().optional(),
+    address: z.string(),
+    serviceType: z.string(),
+    description: z.string().optional(),
+    priority: z.enum(["low", "normal", "high", "emergency"]).optional(),
+    scheduledDate: z.string(),
+    scheduledTimeStart: z.string().optional(),
+    scheduledTimeEnd: z.string().optional(),
+    technicianId: z.string().optional(),
+  }),
+  execute: async (params) => {
+    const jobData: Record<string, any> = {
+      customerName: params.customerName,
+      customerPhone: params.customerPhone,
+      customerEmail: params.customerEmail || null,
+      address: params.address,
+      serviceType: params.serviceType,
+      description: params.description || null,
+      priority: params.priority || "normal",
+      status: "scheduled",
+      scheduledDate: new Date(params.scheduledDate),
+      scheduledTimeStart: params.scheduledTimeStart || null,
+      scheduledTimeEnd: params.scheduledTimeEnd || null,
+    };
+    if (params.technicianId) {
+      jobData.assignedTechnicianId = params.technicianId;
+    }
+
+    const job = await storage.createJob(jobData as any);
+    await storage.createJobTimelineEvent({
+      jobId: job.id,
+      eventType: "job_created",
+      description: `Job created and scheduled for ${params.scheduledDate}${params.scheduledTimeStart ? ` at ${params.scheduledTimeStart}` : ""}`,
+    });
+    return job;
   },
 });
 
@@ -490,6 +734,17 @@ CRITICAL RULES:
 5. When proposing actions, explain what each action will do and why.
 6. For payroll processing, always show the date range and estimated number of employees that will be affected before proposing the action. Mark payroll actions as "high" risk since they involve financial calculations.
 7. For permit operations, explain which permits will be detected/filed and for which jobs.
+
+CALENDAR & SCHEDULING:
+- You have full access to the calendar. Use get_todays_schedule to quickly see today's workload.
+- Use get_calendar_schedule with a date range to view any period on the calendar.
+- Use check_technician_availability to find open time slots before scheduling.
+- When scheduling from a call recording or customer intake, use create_and_schedule_job to create and schedule in one step.
+- Use reschedule_job to move jobs to different dates/times, always include a reason.
+- When scheduling, always check technician availability first to avoid double-booking.
+- Use 24-hour format for times (e.g., "09:00", "14:30") and ISO format for dates (e.g., "2026-02-15").
+- For estimates/inspections, schedule 1-2 hour windows. For full jobs, schedule 2-4 hour windows depending on service type.
+- If a customer from a call recording wants to schedule, extract their preferred date/time, check availability, then propose creating and scheduling the job.
 
 Available tools:
 ${toolDescriptions}
