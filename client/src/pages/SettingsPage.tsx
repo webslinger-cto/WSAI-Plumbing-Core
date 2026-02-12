@@ -84,7 +84,7 @@ const initialEmployees: EmployeeAccess[] = [];
 
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Key, RefreshCw, UserPlus, Crown, EyeOff } from "lucide-react";
+import { Key, RefreshCw, UserPlus, Crown, EyeOff, Sparkles, ShieldCheck, ShieldX } from "lucide-react";
 
 interface SystemUser {
   id: string;
@@ -595,6 +595,125 @@ function LeadApiIntegrationCard() {
             <Badge variant="outline">Zapier</Badge>
           </div>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CopilotLicenseCard() {
+  const { toast } = useToast();
+  const [keyInput, setKeyInput] = useState("");
+
+  const { data: licenseStatus, isLoading } = useQuery<{ active: boolean; hasKey: boolean }>({
+    queryKey: ["/api/agent/license"],
+    queryFn: async () => {
+      const userId = localStorage.getItem("userId") || "";
+      const res = await fetch("/api/agent/license", {
+        headers: { "X-User-Id": userId },
+      });
+      if (!res.ok) return { active: false, hasKey: false };
+      return res.json();
+    },
+  });
+
+  const activateMutation = useMutation({
+    mutationFn: async (licenseKey: string) => {
+      const userId = localStorage.getItem("userId") || "";
+      const res = await fetch("/api/agent/license/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-User-Id": userId },
+        body: JSON.stringify({ licenseKey }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Activation failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/agent/license"] });
+      setKeyInput("");
+      toast({ title: "License Activated", description: "AI Copilot is now active." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Activation Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deactivateMutation = useMutation({
+    mutationFn: async () => {
+      const userId = localStorage.getItem("userId") || "";
+      const res = await fetch("/api/agent/license/deactivate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-User-Id": userId },
+      });
+      if (!res.ok) throw new Error("Deactivation failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/agent/license"] });
+      toast({ title: "License Deactivated", description: "AI Copilot has been deactivated." });
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Sparkles className="w-5 h-5" />
+          AI Copilot License
+        </CardTitle>
+        <CardDescription>
+          Manage the WebSlingerAI software license for the AI Copilot assistant
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium">Status:</span>
+          {isLoading ? (
+            <Badge variant="secondary">Checking...</Badge>
+          ) : licenseStatus?.active ? (
+            <Badge variant="default" className="gap-1" data-testid="badge-license-active">
+              <ShieldCheck className="w-3 h-3" />
+              Active
+            </Badge>
+          ) : (
+            <Badge variant="secondary" className="gap-1" data-testid="badge-license-inactive">
+              <ShieldX className="w-3 h-3" />
+              Not Activated
+            </Badge>
+          )}
+        </div>
+
+        {!licenseStatus?.active && (
+          <div className="flex gap-2">
+            <Input
+              placeholder="Enter license key (WSA-...)"
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              disabled={activateMutation.isPending}
+              data-testid="input-settings-license-key"
+            />
+            <Button
+              onClick={() => activateMutation.mutate(keyInput)}
+              disabled={!keyInput.trim() || activateMutation.isPending}
+              data-testid="button-settings-activate-license"
+            >
+              Activate
+            </Button>
+          </div>
+        )}
+
+        {licenseStatus?.active && (
+          <Button
+            variant="outline"
+            onClick={() => deactivateMutation.mutate()}
+            disabled={deactivateMutation.isPending}
+            data-testid="button-settings-deactivate-license"
+          >
+            Deactivate License
+          </Button>
+        )}
       </CardContent>
     </Card>
   );
@@ -1366,6 +1485,7 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="integrations" className="space-y-6">
+          <CopilotLicenseCard />
           <LeadApiIntegrationCard />
           <PermitCenterSettingsCard />
           <Card>

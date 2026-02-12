@@ -1042,6 +1042,8 @@ export const companySettings = pgTable("company_settings", {
   leadApiEnabled: boolean("lead_api_enabled").notNull().default(true), // Enable/disable lead API and webhooks (Thumbtack, Angi, etc.)
   // Permit Center settings
   permitCenterEnabled: boolean("permit_center_enabled").notNull().default(false), // Enable/disable Permit Center module
+  copilotLicenseKey: text("copilot_license_key"),
+  copilotLicenseActive: boolean("copilot_license_active").notNull().default(false),
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
 

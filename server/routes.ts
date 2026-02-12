@@ -8641,12 +8641,80 @@ ${emailContent}
   // ============================================
   const { generatePlan, executeAction, getAvailableTools } = await import("./services/agent");
 
+  const checkCopilotLicense = async (): Promise<boolean> => {
+    const settings = await storage.getCompanySettings();
+    return settings?.copilotLicenseActive === true && !!settings?.copilotLicenseKey;
+  };
+
+  app.get("/api/agent/license", async (req, res) => {
+    try {
+      const user = await getChatUser(req);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      const settings = await storage.getCompanySettings();
+      res.json({
+        active: settings?.copilotLicenseActive === true && !!settings?.copilotLicenseKey,
+        hasKey: !!settings?.copilotLicenseKey,
+      });
+    } catch (error: any) {
+      console.error("License check error:", error);
+      res.status(500).json({ error: "Failed to check license" });
+    }
+  });
+
+  app.post("/api/agent/license/activate", async (req, res) => {
+    try {
+      const user = await getChatUser(req);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      if (user.role !== "admin") {
+        return res.status(403).json({ error: "Only admins can activate the AI Copilot license" });
+      }
+      const { licenseKey } = req.body;
+      if (!licenseKey || typeof licenseKey !== "string" || licenseKey.trim().length < 8) {
+        return res.status(400).json({ error: "A valid license key is required (minimum 8 characters)" });
+      }
+      const trimmedKey = licenseKey.trim();
+      const isValid = trimmedKey.startsWith("WSA-") && trimmedKey.length >= 12;
+      if (!isValid) {
+        return res.status(400).json({ error: "Invalid license key format. Keys should start with WSA- and be at least 12 characters." });
+      }
+      await storage.updateCompanySettings({
+        copilotLicenseKey: trimmedKey,
+        copilotLicenseActive: true,
+      });
+      res.json({ success: true, message: "AI Copilot license activated successfully" });
+    } catch (error: any) {
+      console.error("License activation error:", error);
+      res.status(500).json({ error: "Failed to activate license" });
+    }
+  });
+
+  app.post("/api/agent/license/deactivate", async (req, res) => {
+    try {
+      const user = await getChatUser(req);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      if (user.role !== "admin") {
+        return res.status(403).json({ error: "Only admins can deactivate the AI Copilot license" });
+      }
+      await storage.updateCompanySettings({
+        copilotLicenseKey: null,
+        copilotLicenseActive: false,
+      });
+      res.json({ success: true, message: "AI Copilot license deactivated" });
+    } catch (error: any) {
+      console.error("License deactivation error:", error);
+      res.status(500).json({ error: "Failed to deactivate license" });
+    }
+  });
+
   app.post("/api/agent/plan", async (req, res) => {
     try {
       const user = await getChatUser(req);
       if (!user) return res.status(401).json({ error: "Unauthorized" });
       if (user.role !== "admin" && user.role !== "dispatcher") {
         return res.status(403).json({ error: "Copilot is only available to admins and dispatchers" });
+      }
+      if (!(await checkCopilotLicense())) {
+        return res.status(403).json({ error: "AI Copilot requires an active WebSlingerAI license. Please contact your administrator." });
       }
       const { message, history } = req.body;
       if (!message || typeof message !== "string") {
@@ -8667,6 +8735,9 @@ ${emailContent}
       if (user.role !== "admin" && user.role !== "dispatcher") {
         return res.status(403).json({ error: "Copilot is only available to admins and dispatchers" });
       }
+      if (!(await checkCopilotLicense())) {
+        return res.status(403).json({ error: "AI Copilot requires an active WebSlingerAI license." });
+      }
       const { action } = req.body;
       if (!action || !action.toolName) {
         return res.status(400).json({ error: "action with toolName is required" });
@@ -8685,6 +8756,9 @@ ${emailContent}
       if (!user) return res.status(401).json({ error: "Unauthorized" });
       if (user.role !== "admin" && user.role !== "dispatcher") {
         return res.status(403).json({ error: "Copilot is only available to admins and dispatchers" });
+      }
+      if (!(await checkCopilotLicense())) {
+        return res.status(403).json({ error: "AI Copilot requires an active WebSlingerAI license." });
       }
       res.json(getAvailableTools(user.role));
     } catch (error: any) {

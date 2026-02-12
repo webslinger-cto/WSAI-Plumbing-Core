@@ -676,6 +676,7 @@ function App() {
           {(effectiveRole === "admin" || effectiveRole === "dispatcher") && (
             <CopilotPanel
               userId={auth.userId}
+              role={effectiveRole || "dispatcher"}
               isOpen={copilotOpen}
               onClose={() => setCopilotOpen(false)}
             />

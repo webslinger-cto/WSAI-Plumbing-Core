@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
 import {
-  Bot,
   X,
   Send,
   Sparkles,
@@ -13,11 +13,12 @@ import {
   XCircle,
   Loader2,
   AlertTriangle,
-  ChevronDown,
   Search,
   UserPlus,
   Calendar,
   ClipboardList,
+  KeyRound,
+  ShieldCheck,
 } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 
@@ -52,6 +53,7 @@ interface ExecuteResponse {
 
 interface CopilotPanelProps {
   userId: string;
+  role: string;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -63,18 +65,50 @@ const quickActions = [
   { label: "Today's schedule", prompt: "What jobs are scheduled for today?", icon: Calendar },
 ];
 
-export default function CopilotPanel({ userId, isOpen, onClose }: CopilotPanelProps) {
+export default function CopilotPanel({ userId, role, isOpen, onClose }: CopilotPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [licenseKeyInput, setLicenseKeyInput] = useState("");
   const [executingActionId, setExecutingActionId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  const { data: licenseStatus, isLoading: licenseLoading } = useQuery<{ active: boolean; hasKey: boolean }>({
+    queryKey: ["/api/agent/license"],
+    queryFn: async () => {
+      const res = await fetch("/api/agent/license", {
+        headers: { "X-User-Id": userId },
+      });
+      if (!res.ok) throw new Error("Failed to check license");
+      return res.json();
+    },
+    enabled: isOpen,
+  });
+
+  const activateMutation = useMutation({
+    mutationFn: async (key: string) => {
+      const res = await fetch("/api/agent/license/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-User-Id": userId },
+        body: JSON.stringify({ licenseKey: key }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Activation failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/agent/license"] });
+      setLicenseKeyInput("");
+    },
+  });
+
   useEffect(() => {
-    if (isOpen && inputRef.current) {
+    if (isOpen && inputRef.current && licenseStatus?.active) {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [isOpen]);
+  }, [isOpen, licenseStatus?.active]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -240,6 +274,60 @@ export default function CopilotPanel({ userId, isOpen, onClose }: CopilotPanelPr
         </Button>
       </div>
 
+      {licenseLoading && (
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {!licenseLoading && !licenseStatus?.active && (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 space-y-4" data-testid="copilot-license-gate">
+          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+            <KeyRound className="w-6 h-6 text-muted-foreground" />
+          </div>
+          <div className="text-center space-y-1">
+            <h3 className="font-semibold text-sm">License Required</h3>
+            <p className="text-xs text-muted-foreground">
+              The AI Copilot requires a valid software license from WebSlingerAI to activate.
+            </p>
+          </div>
+          {role === "admin" ? (
+            <div className="w-full space-y-2">
+              <Input
+                placeholder="Enter license key (WSA-...)"
+                value={licenseKeyInput}
+                onChange={(e) => setLicenseKeyInput(e.target.value)}
+                disabled={activateMutation.isPending}
+                data-testid="input-license-key"
+              />
+              {activateMutation.isError && (
+                <p className="text-xs text-destructive" data-testid="text-license-error">
+                  {(activateMutation.error as Error).message}
+                </p>
+              )}
+              <Button
+                className="w-full gap-2"
+                onClick={() => activateMutation.mutate(licenseKeyInput)}
+                disabled={!licenseKeyInput.trim() || activateMutation.isPending}
+                data-testid="button-activate-license"
+              >
+                {activateMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ShieldCheck className="w-4 h-4" />
+                )}
+                Activate License
+              </Button>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground text-center">
+              Please ask your administrator to activate the AI Copilot license in Settings.
+            </p>
+          )}
+        </div>
+      )}
+
+      {!licenseLoading && licenseStatus?.active && (<>
       <div className="flex-1 overflow-hidden" ref={scrollRef}>
         <ScrollArea className="h-full">
           <div className="p-3 space-y-3">
@@ -364,6 +452,7 @@ export default function CopilotPanel({ userId, isOpen, onClose }: CopilotPanelPr
           </Button>
         </div>
       </div>
+      </>)}
     </div>
   );
 }
