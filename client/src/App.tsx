@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Crown, Eye, User, Bell, CheckCheck, Sparkles } from "lucide-react";
+import { Crown, Eye, User, Bell, CheckCheck, Sparkles, Code } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import type { Notification } from "@shared/schema";
 import AppSidebar from "@/components/AppSidebar";
@@ -436,6 +436,13 @@ function App() {
   });
   
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [devMode, setDevMode] = useState(() => localStorage.getItem("cse-developer-mode") === "true");
+
+  useEffect(() => {
+    const handler = (e: Event) => setDevMode((e as CustomEvent).detail);
+    window.addEventListener("devModeChange", handler);
+    return () => window.removeEventListener("devModeChange", handler);
+  }, []);
   
   // Super admin role switching - allows viewing the app as different roles
   const [viewAsRole, setViewAsRole] = useState<"admin" | "dispatcher" | "technician" | "salesperson" | null>(null);
@@ -608,6 +615,12 @@ function App() {
             <div className="flex flex-col flex-1 min-w-0 bg-background/90 backdrop-blur-sm">
               <header className="flex items-center gap-4 px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
+                {devMode && (
+                  <Badge variant="outline" className="bg-green-500/10 text-green-400 border-green-500/30 gap-1" data-testid="badge-developer-mode">
+                    <Code className="w-3 h-3" />
+                    DEV
+                  </Badge>
+                )}
                 <div className="flex-1" />
                 
                 {auth.isSuperAdmin && (

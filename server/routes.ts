@@ -689,6 +689,73 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/admin/users/:userId", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { fullName, email, phone, role, isActive } = req.body;
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const updates: Partial<User> = {};
+      if (fullName !== undefined) updates.fullName = fullName || null;
+      if (email !== undefined) updates.email = email || null;
+      if (phone !== undefined) updates.phone = phone || null;
+      if (isActive !== undefined) {
+        if (user.isSuperAdmin && !isActive) {
+          return res.status(403).json({ error: "Cannot deactivate super admin account" });
+        }
+        updates.isActive = isActive;
+      }
+      if (role !== undefined && !user.isSuperAdmin) {
+        const oldRole = user.role;
+        updates.role = role;
+
+        if (oldRole === "technician" && role !== "technician") {
+          await storage.deleteTechnicianByUserId(userId);
+        } else if (oldRole === "salesperson" && role !== "salesperson") {
+          await storage.deleteSalespersonByUserId(userId);
+        }
+
+        if (role === "technician" && oldRole !== "technician") {
+          await storage.createTechnician({
+            userId,
+            fullName: fullName || user.fullName || user.username,
+            phone: phone || user.phone || "",
+            email: email || user.email || null,
+            status: "off_duty",
+            skillLevel: "standard",
+          });
+        } else if (role === "salesperson" && oldRole !== "salesperson") {
+          await storage.createSalesperson({
+            userId,
+            fullName: fullName || user.fullName || user.username,
+            phone: phone || user.phone || "",
+            email: email || user.email || null,
+            status: "off_duty",
+          });
+        }
+      }
+
+      const updated = await storage.updateUser(userId, updates);
+      res.json({
+        id: updated!.id,
+        username: updated!.username,
+        fullName: updated!.fullName,
+        role: updated!.role,
+        email: updated!.email,
+        phone: updated!.phone,
+        isActive: updated!.isActive,
+        isSuperAdmin: updated!.isSuperAdmin,
+      });
+    } catch (error) {
+      console.error("Error updating user:", error);
+      res.status(500).json({ error: "Failed to update user" });
+    }
+  });
+
   // Delete user
   app.delete("/api/admin/users/:userId", async (req, res) => {
     try {

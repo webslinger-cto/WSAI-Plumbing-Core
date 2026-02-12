@@ -40,6 +40,8 @@ The system features role-based access with tailored dashboards:
 - **Master Customer Data List**: Central repository for customer information to facilitate targeted outreach and analytics.
 - **Technician Color Coding**: Each technician has a persistent color (stored in `technicians.color` DB field, or auto-assigned from a deterministic palette). Colors appear on calendar events and job tracking tables. Utility: `client/src/lib/technicianColors.ts`. Calendar includes a color legend showing all technicians.
 - **Enhanced Customer Profiles**: 8-tab profile view (Jobs, Quotes, Leads, Calls, Messages, Media, Audit, Addresses) with collapsible detail cards, outreach actions (SMS/Email), and data aggregated from calls, contact attempts, chat threads, job media, and audit logs.
+- **God Mode User Management**: Full CRUD for all user accounts from Settings > Users tab. Edit any user's name, email, phone, role. Change password for any user including the godmode super admin account. Delete non-superadmin users with confirmation dialog. Server-side protection prevents deactivating or changing the role of super admin accounts. Routes: PATCH /api/admin/users/:userId (edit), POST /api/admin/users/:userId/reset-password (password change), DELETE /api/admin/users/:userId (delete).
+- **Developer Mode**: Toggle in Settings > General tab. Persisted in localStorage (`cse-developer-mode`). When enabled: shows "DEV" badge in header, unlocks beta feature toggles (Advanced Analytics, AI Auto-Dispatch, Customer Portal, Inventory Management), and debug tools (API timing, component boundaries, verbose logging). Uses CustomEvent `devModeChange` for cross-component sync.
 
 ## External Dependencies
 
