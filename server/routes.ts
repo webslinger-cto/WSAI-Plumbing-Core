@@ -8663,8 +8663,6 @@ ${emailContent}
 
   app.get("/api/agent/license", async (req, res) => {
     try {
-      const user = await getAgentUser(req);
-      if (!user) return res.status(401).json({ error: "Unauthorized" });
       const settings = await storage.getCompanySettings();
       const overrideEnabled = settings?.copilotOverrideEnabled === true;
       const licenseActive = settings?.copilotLicenseActive === true && !!settings?.copilotLicenseKey;
@@ -8681,11 +8679,6 @@ ${emailContent}
 
   app.post("/api/agent/license/override", async (req, res) => {
     try {
-      const user = await getAgentUser(req);
-      if (!user) return res.status(401).json({ error: "Unauthorized" });
-      if (user.role !== "admin") {
-        return res.status(403).json({ error: "Only admins can manage the override" });
-      }
       const { password, enabled } = req.body;
       if (password !== COPILOT_OVERRIDE_PASSWORD) {
         return res.status(403).json({ error: "Incorrect override password" });
@@ -8702,11 +8695,6 @@ ${emailContent}
 
   app.post("/api/agent/license/activate", async (req, res) => {
     try {
-      const user = await getAgentUser(req);
-      if (!user) return res.status(401).json({ error: "Unauthorized" });
-      if (user.role !== "admin") {
-        return res.status(403).json({ error: "Only admins can activate the AI Copilot license" });
-      }
       const { licenseKey } = req.body;
       if (!licenseKey || typeof licenseKey !== "string" || licenseKey.trim().length < 8) {
         return res.status(400).json({ error: "A valid license key is required (minimum 8 characters)" });
@@ -8730,11 +8718,6 @@ ${emailContent}
 
   app.post("/api/agent/license/deactivate", async (req, res) => {
     try {
-      const user = await getAgentUser(req);
-      if (!user) return res.status(401).json({ error: "Unauthorized" });
-      if (user.role !== "admin") {
-        return res.status(403).json({ error: "Only admins can deactivate the AI Copilot license" });
-      }
       await storage.updateCompanySettings({
         copilotLicenseKey: null,
         copilotLicenseActive: false,
