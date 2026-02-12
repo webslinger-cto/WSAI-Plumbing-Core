@@ -9529,5 +9529,245 @@ Important guidelines:
     }
   });
 
+  app.get("/api/docs/pdf/:docName", async (req, res) => {
+    try {
+      const { docName } = req.params;
+      const fs = await import("fs");
+      const path = await import("path");
+      const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
+
+      let filePath: string;
+      let title: string;
+
+      if (docName === "ai-capabilities") {
+        filePath = path.resolve("AI_INTEGRATION_AND_CAPABILITIES.md");
+        title = "AI Integration and Capabilities";
+      } else if (docName === "system-readme") {
+        filePath = path.resolve("replit.md");
+        title = "Emergency Chicago Sewer Experts CRM - System Documentation";
+      } else {
+        return res.status(404).json({ error: "Document not found" });
+      }
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "Document file not found" });
+      }
+
+      const mdContent = fs.readFileSync(filePath, "utf-8");
+      const lines = mdContent.split("\n");
+
+      const pdf = await PDFDocument.create();
+      const helvetica = await pdf.embedFont(StandardFonts.Helvetica);
+      const helveticaBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+      const courier = await pdf.embedFont(StandardFonts.Courier);
+
+      const PAGE_WIDTH = 612;
+      const PAGE_HEIGHT = 792;
+      const MARGIN_LEFT = 50;
+      const MARGIN_RIGHT = 50;
+      const MARGIN_TOP = 50;
+      const MARGIN_BOTTOM = 50;
+      const CONTENT_WIDTH = PAGE_WIDTH - MARGIN_LEFT - MARGIN_RIGHT;
+
+      let currentPage = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+      let yPos = PAGE_HEIGHT - MARGIN_TOP;
+
+      const ensureSpace = (needed: number) => {
+        if (yPos - needed < MARGIN_BOTTOM) {
+          currentPage = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+          yPos = PAGE_HEIGHT - MARGIN_TOP;
+        }
+      };
+
+      const wrapText = (text: string, font: any, fontSize: number, maxWidth: number): string[] => {
+        const words = text.split(/\s+/);
+        const wrappedLines: string[] = [];
+        let currentLine = "";
+        for (const word of words) {
+          const test = currentLine ? `${currentLine} ${word}` : word;
+          const width = font.widthOfTextAtSize(test, fontSize);
+          if (width > maxWidth && currentLine) {
+            wrappedLines.push(currentLine);
+            currentLine = word;
+          } else {
+            currentLine = test;
+          }
+        }
+        if (currentLine) wrappedLines.push(currentLine);
+        return wrappedLines.length ? wrappedLines : [""];
+      };
+
+      const drawText = (text: string, font: any, fontSize: number, color = rgb(0.1, 0.1, 0.1), indent = 0) => {
+        const wrapped = wrapText(text, font, fontSize, CONTENT_WIDTH - indent);
+        for (const line of wrapped) {
+          ensureSpace(fontSize + 4);
+          currentPage.drawText(line, { x: MARGIN_LEFT + indent, y: yPos, size: fontSize, font, color });
+          yPos -= fontSize + 4;
+        }
+      };
+
+      const brandBlue = rgb(0.11, 0.42, 0.73);
+      const darkGray = rgb(0.2, 0.2, 0.2);
+      const medGray = rgb(0.4, 0.4, 0.4);
+      const lightGray = rgb(0.85, 0.85, 0.85);
+
+      currentPage.drawRectangle({ x: 0, y: PAGE_HEIGHT - 100, width: PAGE_WIDTH, height: 100, color: rgb(0.08, 0.15, 0.27) });
+      currentPage.drawText("Emergency Chicago Sewer Experts", { x: MARGIN_LEFT, y: PAGE_HEIGHT - 45, size: 18, font: helveticaBold, color: rgb(1, 1, 1) });
+      currentPage.drawText(title, { x: MARGIN_LEFT, y: PAGE_HEIGHT - 70, size: 12, font: helvetica, color: rgb(0.7, 0.8, 0.95) });
+      currentPage.drawText("February 2026", { x: MARGIN_LEFT, y: PAGE_HEIGHT - 88, size: 10, font: helvetica, color: rgb(0.6, 0.7, 0.85) });
+      yPos = PAGE_HEIGHT - 120;
+
+      let inCodeBlock = false;
+      let codeLines: string[] = [];
+      let inTable = false;
+      let tableRows: string[][] = [];
+
+      const flushTable = () => {
+        if (tableRows.length === 0) return;
+        const colCount = tableRows[0]?.length || 1;
+        const colWidth = CONTENT_WIDTH / colCount;
+        for (let r = 0; r < tableRows.length; r++) {
+          const row = tableRows[r];
+          const rowHeight = 16;
+          ensureSpace(rowHeight + 2);
+          if (r === 0) {
+            currentPage.drawRectangle({ x: MARGIN_LEFT, y: yPos - 3, width: CONTENT_WIDTH, height: rowHeight, color: rgb(0.12, 0.2, 0.35) });
+          } else if (r % 2 === 0) {
+            currentPage.drawRectangle({ x: MARGIN_LEFT, y: yPos - 3, width: CONTENT_WIDTH, height: rowHeight, color: rgb(0.95, 0.95, 0.97) });
+          }
+          for (let c = 0; c < row.length; c++) {
+            const cellText = row[c].trim();
+            const truncated = cellText.length > 40 ? cellText.substring(0, 37) + "..." : cellText;
+            const font = r === 0 ? helveticaBold : helvetica;
+            const color = r === 0 ? rgb(1, 1, 1) : darkGray;
+            currentPage.drawText(truncated, { x: MARGIN_LEFT + c * colWidth + 4, y: yPos, size: 7.5, font, color });
+          }
+          yPos -= rowHeight + 1;
+        }
+        yPos -= 6;
+        tableRows = [];
+        inTable = false;
+      };
+
+      const flushCode = () => {
+        if (codeLines.length === 0) return;
+        const blockHeight = codeLines.length * 10 + 12;
+        ensureSpace(Math.min(blockHeight, 300));
+        currentPage.drawRectangle({ x: MARGIN_LEFT, y: yPos - blockHeight + 8, width: CONTENT_WIDTH, height: blockHeight, color: rgb(0.94, 0.94, 0.96), borderColor: rgb(0.8, 0.8, 0.82), borderWidth: 0.5 });
+        for (const codeLine of codeLines) {
+          const truncated = codeLine.length > 95 ? codeLine.substring(0, 92) + "..." : codeLine;
+          ensureSpace(12);
+          currentPage.drawText(truncated, { x: MARGIN_LEFT + 8, y: yPos, size: 6.5, font: courier, color: rgb(0.2, 0.2, 0.3) });
+          yPos -= 10;
+        }
+        yPos -= 8;
+        codeLines = [];
+        inCodeBlock = false;
+      };
+
+      for (const line of lines) {
+        if (line.startsWith("```")) {
+          if (inCodeBlock) {
+            flushCode();
+          } else {
+            if (inTable) flushTable();
+            inCodeBlock = true;
+            codeLines = [];
+          }
+          continue;
+        }
+
+        if (inCodeBlock) {
+          codeLines.push(line);
+          continue;
+        }
+
+        if (line.startsWith("|") && line.includes("|")) {
+          if (line.replace(/[|\-\s]/g, "").length === 0) continue;
+          const cells = line.split("|").filter((c) => c.trim() !== "");
+          if (!inTable) inTable = true;
+          tableRows.push(cells);
+          continue;
+        } else if (inTable) {
+          flushTable();
+        }
+
+        const trimmed = line.trim();
+        if (trimmed === "") {
+          yPos -= 6;
+          continue;
+        }
+
+        if (trimmed === "---") {
+          ensureSpace(12);
+          currentPage.drawLine({ start: { x: MARGIN_LEFT, y: yPos }, end: { x: PAGE_WIDTH - MARGIN_RIGHT, y: yPos }, thickness: 0.5, color: lightGray });
+          yPos -= 12;
+          continue;
+        }
+
+        if (trimmed.startsWith("# ")) {
+          ensureSpace(36);
+          yPos -= 10;
+          drawText(trimmed.replace(/^# /, ""), helveticaBold, 20, brandBlue);
+          yPos -= 6;
+        } else if (trimmed.startsWith("## ")) {
+          ensureSpace(30);
+          yPos -= 8;
+          drawText(trimmed.replace(/^## /, ""), helveticaBold, 15, brandBlue);
+          yPos -= 4;
+        } else if (trimmed.startsWith("### ")) {
+          ensureSpace(24);
+          yPos -= 6;
+          drawText(trimmed.replace(/^### /, ""), helveticaBold, 12, darkGray);
+          yPos -= 2;
+        } else if (trimmed.startsWith("#### ")) {
+          ensureSpace(20);
+          yPos -= 4;
+          drawText(trimmed.replace(/^#### /, ""), helveticaBold, 10, medGray);
+        } else if (trimmed.startsWith("- **") || trimmed.startsWith("* **")) {
+          const clean = trimmed.replace(/^[-*]\s+/, "").replace(/\*\*/g, "");
+          drawText(`  ${clean}`, helvetica, 9, darkGray, 10);
+        } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+          const clean = trimmed.replace(/^[-*]\s+/, "").replace(/\*\*/g, "").replace(/`/g, "");
+          drawText(`  ${clean}`, helvetica, 9, darkGray, 10);
+        } else if (/^\d+\.\s/.test(trimmed)) {
+          const clean = trimmed.replace(/\*\*/g, "").replace(/`/g, "");
+          drawText(clean, helvetica, 9, darkGray, 10);
+        } else {
+          const clean = trimmed.replace(/\*\*/g, "").replace(/`/g, "");
+          drawText(clean, helvetica, 9, darkGray);
+        }
+      }
+
+      if (inCodeBlock) flushCode();
+      if (inTable) flushTable();
+
+      const pageCount = pdf.getPageCount();
+      for (let i = 0; i < pageCount; i++) {
+        const pg = pdf.getPage(i);
+        pg.drawText(`Page ${i + 1} of ${pageCount}`, { x: PAGE_WIDTH - 120, y: 20, size: 8, font: helvetica, color: medGray });
+        pg.drawText("Emergency Chicago Sewer Experts - Confidential", { x: MARGIN_LEFT, y: 20, size: 8, font: helvetica, color: medGray });
+      }
+
+      const pdfBytes = await pdf.save();
+      const fileName = docName === "ai-capabilities" ? "AI_Integration_and_Capabilities.pdf" : "CRM_System_Documentation.pdf";
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      res.setHeader("Content-Length", pdfBytes.length.toString());
+      res.send(Buffer.from(pdfBytes));
+    } catch (error: any) {
+      console.error("Error generating PDF:", error);
+      res.status(500).json({ error: "Failed to generate PDF" });
+    }
+  });
+
+  app.get("/api/docs/available", async (_req, res) => {
+    res.json([
+      { id: "ai-capabilities", title: "AI Integration and Capabilities", description: "Complete documentation of all AI features, workflow schematics, tool registry, and security controls.", url: "/api/docs/pdf/ai-capabilities" },
+      { id: "system-readme", title: "CRM System Documentation", description: "Full system architecture, feature modules, external dependencies, and project structure.", url: "/api/docs/pdf/system-readme" },
+    ]);
+  });
+
   return httpServer;
 }

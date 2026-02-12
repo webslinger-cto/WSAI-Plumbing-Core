@@ -39,6 +39,7 @@ import {
   UserCheck,
   FileStack,
   Sparkles,
+  Download,
 } from "lucide-react";
 const cseLogo = "/cse-logo.png";
 
@@ -196,6 +197,14 @@ export default function AppSidebar({ role, username, userId, onLogout }: AppSide
                     <Link href="/settings" data-testid="nav-settings">
                       <Settings className="w-4 h-4" />
                       <span>Settings</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location === "/documents"}>
+                    <Link href="/documents" data-testid="nav-documents">
+                      <Download className="w-4 h-4" />
+                      <span>Documents</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

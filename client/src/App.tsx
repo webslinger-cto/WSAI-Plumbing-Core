@@ -57,6 +57,7 @@ import BusinessIntakePage from "@/pages/business-intake";
 import CustomersPage from "@/features/customers/CustomersPage";
 import CustomerProfile from "@/features/customers/CustomerProfile";
 import PermitCenterPage from "@/features/permits/PermitCenterPage";
+import DocumentsPage from "@/pages/DocumentsPage";
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -93,6 +94,7 @@ function AdminRouter({ userId, fullName }: { userId: string; fullName: string })
       <Route path="/follow-up" component={FollowUpAssistantPage} />
       <Route path="/export" component={ExportPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/documents" component={DocumentsPage} />
       <Route path="/chat">{() => <DispatchChatPage userId={userId} fullName={fullName} />}</Route>
       <Route path="/operations">{() => <OperationsMenuPage role="admin" />}</Route>
       <Route component={NotFound} />
