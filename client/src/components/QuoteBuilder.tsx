@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Send, Save, CreditCard, Star, QrCode, Download, Users, Clock, Briefcase, Loader2, Search, Package } from "lucide-react";
+import { Plus, Trash2, Send, Save, CreditCard, Star, QrCode, Download, Users, Clock, Briefcase, Loader2, Search, Package, Percent } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -63,6 +63,8 @@ export interface QuoteData {
   notes: string;
   subtotal: number;
   laborTotal: number;
+  discountPercent: number;
+  discountAmount: number;
   tax: number;
   total: number;
 }
@@ -112,6 +114,7 @@ export default function QuoteBuilder({
   const [showFeedback, setShowFeedback] = useState(false);
   const [showLabor, setShowLabor] = useState(false);
   const [showPricebook, setShowPricebook] = useState(false);
+  const [discountPercent, setDiscountPercent] = useState(0);
   const [pricebookSearch, setPricebookSearch] = useState("");
   const [selectedPricebookCategory, setSelectedPricebookCategory] = useState<string>("all");
   const [selectedJobId, setSelectedJobId] = useState<string>(initialJobId || "");
@@ -200,6 +203,8 @@ export default function QuoteBuilder({
         laborEntries: JSON.stringify(quoteData.laborEntries),
         subtotal: String(quoteData.subtotal),
         laborTotal: String(quoteData.laborTotal),
+        discountPercent: String(quoteData.discountPercent),
+        discounts: String(quoteData.discountAmount),
         taxRate: String(TAX_RATE * 100),
         taxAmount: String(quoteData.tax),
         total: String(quoteData.total),
@@ -287,9 +292,13 @@ export default function QuoteBuilder({
 
   const subtotal = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   const laborTotal = laborEntries.reduce((sum, entry) => sum + entry.hoursWorked * entry.hourlyRate, 0);
-  const taxableAmount = subtotal; // Labor is typically not taxable
+  const preDiscountTotal = subtotal + laborTotal;
+  const clampedDiscount = Math.min(Math.max(discountPercent, 0), 100);
+  const discountAmount = preDiscountTotal * (clampedDiscount / 100);
+  const afterDiscount = preDiscountTotal - discountAmount;
+  const taxableAmount = preDiscountTotal > 0 ? Math.max(subtotal - (subtotal / preDiscountTotal) * discountAmount, 0) : 0;
   const tax = taxableAmount * TAX_RATE;
-  const total = subtotal + laborTotal + tax;
+  const total = afterDiscount + tax;
 
   const getQuoteData = (): QuoteData => ({
     customerName: name,
@@ -300,6 +309,8 @@ export default function QuoteBuilder({
     notes,
     subtotal,
     laborTotal,
+    discountPercent: clampedDiscount,
+    discountAmount,
     tax,
     total,
   });
@@ -410,6 +421,7 @@ export default function QuoteBuilder({
         <div class="totals">
           <p>Services & Materials: $${quoteData.subtotal.toFixed(2)}</p>
           ${quoteData.laborTotal > 0 ? `<p>Labor: $${quoteData.laborTotal.toFixed(2)}</p>` : ""}
+          ${quoteData.discountPercent > 0 ? `<p style="color: #ef4444;">Discount (${quoteData.discountPercent}%): -$${quoteData.discountAmount.toFixed(2)}</p>` : ""}
           <p>Tax (6.25%): $${quoteData.tax.toFixed(2)}</p>
           <p class="total-line">Total: $${quoteData.total.toFixed(2)}</p>
         </div>
@@ -914,6 +926,67 @@ export default function QuoteBuilder({
               <span className="font-medium text-blue-400">${laborTotal.toFixed(2)}</span>
             </div>
           )}
+
+          <Separator />
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Percent className="w-4 h-4 text-orange-400" />
+              <span className="text-sm font-medium">Discount</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 flex-1">
+                {[5, 10, 15, 20].map((pct) => (
+                  <Button
+                    key={pct}
+                    type="button"
+                    size="sm"
+                    variant={clampedDiscount === pct ? "default" : "outline"}
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setDiscountPercent(pct)}
+                    data-testid={`button-discount-${pct}`}
+                  >
+                    {pct}%
+                  </Button>
+                ))}
+                <div className="relative flex-1 min-w-[70px]">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={discountPercent || ""}
+                    onChange={(e) => setDiscountPercent(parseFloat(e.target.value) || 0)}
+                    placeholder="Custom"
+                    className="h-7 text-xs pr-6"
+                    data-testid="input-discount-percent"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                </div>
+                {discountPercent > 0 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs text-muted-foreground"
+                    onClick={() => setDiscountPercent(0)}
+                    data-testid="button-discount-clear"
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+            </div>
+            {discountAmount > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-orange-400">Discount ({clampedDiscount}%)</span>
+                <span className="font-medium text-orange-400" data-testid="text-discount-amount">-${discountAmount.toFixed(2)}</span>
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Tax (6.25%)</span>
             <span className="font-medium">${tax.toFixed(2)}</span>

@@ -380,6 +380,7 @@ export const quotes = pgTable("quotes", {
   workDescription: text("work_description"),
   warrantyYears: text("warranty_years"),
   price: decimal("price"),
+  discountPercent: decimal("discount_percent").default("0"),
   discounts: decimal("discounts").default("0"),
   totalPrice: decimal("total_price"),
   depositAmount: decimal("deposit_amount").default("0"),
