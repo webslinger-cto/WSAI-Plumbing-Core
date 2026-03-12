@@ -9769,5 +9769,225 @@ Important guidelines:
     ]);
   });
 
+  // ============================================================
+  // LEAD VELOCITY SYSTEM ROUTES
+  // ============================================================
+  const { emitNewLead, emitLeadUpdate } = await import("./socket");
+
+  // Webhook intake endpoint - returns 200 immediately, designed for lead providers
+  app.post("/api/v1/lead-ingest", async (req, res) => {
+    try {
+      const body = req.body;
+      const customerInfo = body.customerInfo || body.customer_info || body;
+      const phone = customerInfo?.phone || body?.phone || "";
+      const email = customerInfo?.email || body?.email || "";
+      const source = body.source || body.provider || "webhook";
+      const externalId = body.id || body.external_id || body.lead_id || null;
+
+      // Return 200 immediately to satisfy lead provider SLA requirements
+      res.status(200).json({ status: "received", message: "Lead intake acknowledged." });
+
+      // Then process asynchronously
+      setImmediate(async () => {
+        try {
+          // Check for duplicate within 24h window
+          const duplicate = await storage.findDuplicateVelocityLead(phone, email);
+          if (duplicate) {
+            console.log(`[LeadVelocity] Duplicate lead detected for phone: ${phone}, skipping.`);
+            return;
+          }
+
+          const lead = await storage.createVelocityLead({
+            externalId,
+            source,
+            customerInfo: {
+              name: customerInfo?.name || customerInfo?.customerName || body?.name || "Unknown",
+              phone,
+              email,
+              address: customerInfo?.address || body?.address || "",
+              serviceType: customerInfo?.serviceType || body?.serviceType || body?.service_type || "",
+              description: customerInfo?.description || body?.description || body?.notes || "",
+            },
+            status: "NEW",
+          });
+
+          // Audit log
+          await storage.createVelocityLeadAuditLog({
+            leadId: lead.id,
+            fromStatus: null,
+            toStatus: "NEW",
+            changedBy: null,
+            changedByName: "System",
+            note: `Lead received from ${source}`,
+          });
+
+          // Emit real-time event to all connected clients
+          emitNewLead(lead);
+          console.log(`[LeadVelocity] New lead created: ${lead.id} from ${source}`);
+        } catch (err) {
+          console.error("[LeadVelocity] Async processing error:", err);
+        }
+      });
+    } catch (error: any) {
+      console.error("Lead ingest error:", error);
+      res.status(500).json({ error: "Failed to process lead" });
+    }
+  });
+
+  // List velocity leads
+  app.get("/api/velocity-leads", async (req, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const leads = await storage.getVelocityLeads(status ? { status } : undefined);
+      res.json(leads);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch velocity leads" });
+    }
+  });
+
+  // Get single velocity lead
+  app.get("/api/velocity-leads/:id", async (req, res) => {
+    try {
+      const lead = await storage.getVelocityLead(req.params.id);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+      res.json(lead);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch lead" });
+    }
+  });
+
+  // Claim a lead
+  app.post("/api/velocity-leads/:id/claim", async (req, res) => {
+    try {
+      const userId = req.headers["x-user-id"] as string;
+      const user = userId ? await storage.getUser(userId) : null;
+      const lead = await storage.getVelocityLead(req.params.id);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+      if (lead.status !== "NEW") return res.status(409).json({ error: `Lead is already ${lead.status}` });
+
+      const updated = await storage.updateVelocityLead(req.params.id, {
+        status: "CLAIMED",
+        claimedAt: new Date(),
+        claimedBy: userId || null,
+        claimedByName: user?.fullName || user?.username || "Unknown",
+      });
+
+      await storage.createVelocityLeadAuditLog({
+        leadId: lead.id,
+        fromStatus: "NEW",
+        toStatus: "CLAIMED",
+        changedBy: userId || null,
+        changedByName: user?.fullName || user?.username || "Unknown",
+        note: "Lead claimed",
+      });
+
+      emitLeadUpdate(updated!);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to claim lead" });
+    }
+  });
+
+  // Log first contact (updates firstContactAt and status to CONTACTED)
+  app.post("/api/velocity-leads/:id/contact", async (req, res) => {
+    try {
+      const userId = req.headers["x-user-id"] as string;
+      const user = userId ? await storage.getUser(userId) : null;
+      const lead = await storage.getVelocityLead(req.params.id);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+      const prevStatus = lead.status;
+      const updates: any = {
+        status: "CONTACTED",
+        firstContactAt: lead.firstContactAt || new Date(),
+      };
+
+      const updated = await storage.updateVelocityLead(req.params.id, updates);
+
+      await storage.createVelocityLeadAuditLog({
+        leadId: lead.id,
+        fromStatus: prevStatus,
+        toStatus: "CONTACTED",
+        changedBy: userId || null,
+        changedByName: user?.fullName || user?.username || "Unknown",
+        note: req.body?.note || "Contact logged",
+      });
+
+      emitLeadUpdate(updated!);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to log contact" });
+    }
+  });
+
+  // Update velocity lead status
+  app.patch("/api/velocity-leads/:id", async (req, res) => {
+    try {
+      const userId = req.headers["x-user-id"] as string;
+      const user = userId ? await storage.getUser(userId) : null;
+      const lead = await storage.getVelocityLead(req.params.id);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+      const prevStatus = lead.status;
+      const updated = await storage.updateVelocityLead(req.params.id, req.body);
+
+      if (req.body.status && req.body.status !== prevStatus) {
+        await storage.createVelocityLeadAuditLog({
+          leadId: lead.id,
+          fromStatus: prevStatus,
+          toStatus: req.body.status,
+          changedBy: userId || null,
+          changedByName: user?.fullName || user?.username || "Unknown",
+          note: req.body.note || `Status changed to ${req.body.status}`,
+        });
+      }
+
+      emitLeadUpdate(updated!);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to update lead" });
+    }
+  });
+
+  // Get audit log for a velocity lead
+  app.get("/api/velocity-leads/:id/audit", async (req, res) => {
+    try {
+      const log = await storage.getVelocityLeadAuditLog(req.params.id);
+      res.json(log);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch audit log" });
+    }
+  });
+
+  // Create a manual velocity lead (from War Room UI)
+  app.post("/api/velocity-leads", async (req, res) => {
+    try {
+      const userId = req.headers["x-user-id"] as string;
+      const user = userId ? await storage.getUser(userId) : null;
+      const { customerInfo, source, notes } = req.body;
+
+      const lead = await storage.createVelocityLead({
+        source: source || "manual",
+        customerInfo: customerInfo || {},
+        status: "NEW",
+        notes: notes || null,
+      });
+
+      await storage.createVelocityLeadAuditLog({
+        leadId: lead.id,
+        fromStatus: null,
+        toStatus: "NEW",
+        changedBy: userId || null,
+        changedByName: user?.fullName || user?.username || "Staff",
+        note: "Lead created manually",
+      });
+
+      emitNewLead(lead);
+      res.status(201).json(lead);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to create lead" });
+    }
+  });
+
   return httpServer;
 }

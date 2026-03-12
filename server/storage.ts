@@ -42,6 +42,8 @@ import {
   type WorkOrder, type InsertWorkOrder,
   type JobMedia, type InsertJobMedia,
   type CallRecording, type InsertCallRecording,
+  type VelocityLead, type InsertVelocityLead,
+  type VelocityLeadAuditLog, type InsertVelocityLeadAuditLog,
   users, technicians, salespersons, salesCommissions, salespersonLocations,
   leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
@@ -50,6 +52,7 @@ import {
   contentPacks, contentItems, jobMessages,
   chatThreads, chatThreadParticipants, chatMessages, chatMagicSessions, chatEmailNotifications,
   auditLogs, workOrders, jobMedia, callRecordings,
+  velocityLeads, velocityLeadAuditLog,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -443,6 +446,15 @@ export interface IStorage {
   deleteLead(id: string): Promise<boolean>;
   deleteJob(id: string): Promise<boolean>;
   deleteCustomer(id: string): Promise<boolean>;
+
+  // Velocity Leads
+  getVelocityLeads(filters?: { status?: string }): Promise<VelocityLead[]>;
+  getVelocityLead(id: string): Promise<VelocityLead | undefined>;
+  createVelocityLead(lead: InsertVelocityLead): Promise<VelocityLead>;
+  updateVelocityLead(id: string, updates: Partial<VelocityLead>): Promise<VelocityLead | undefined>;
+  findDuplicateVelocityLead(phone: string, email?: string): Promise<VelocityLead | undefined>;
+  createVelocityLeadAuditLog(entry: InsertVelocityLeadAuditLog): Promise<VelocityLeadAuditLog>;
+  getVelocityLeadAuditLog(leadId: string): Promise<VelocityLeadAuditLog[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -1772,6 +1784,13 @@ export class MemStorage implements IStorage {
   async deleteLead(id: string): Promise<boolean> { return false; }
   async deleteJob(id: string): Promise<boolean> { return false; }
   async deleteCustomer(id: string): Promise<boolean> { return false; }
+  async getVelocityLeads(filters?: { status?: string }): Promise<VelocityLead[]> { return []; }
+  async getVelocityLead(id: string): Promise<VelocityLead | undefined> { return undefined; }
+  async createVelocityLead(lead: InsertVelocityLead): Promise<VelocityLead> { throw new Error("Not implemented"); }
+  async updateVelocityLead(id: string, updates: Partial<VelocityLead>): Promise<VelocityLead | undefined> { return undefined; }
+  async findDuplicateVelocityLead(phone: string, email?: string): Promise<VelocityLead | undefined> { return undefined; }
+  async createVelocityLeadAuditLog(entry: InsertVelocityLeadAuditLog): Promise<VelocityLeadAuditLog> { throw new Error("Not implemented"); }
+  async getVelocityLeadAuditLog(leadId: string): Promise<VelocityLeadAuditLog[]> { return []; }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3844,6 +3863,58 @@ export class DatabaseStorage implements IStorage {
       console.error("Error in deleteCustomer:", error);
       throw error;
     }
+  }
+
+  // ============================================================
+  // VELOCITY LEADS
+  // ============================================================
+
+  async getVelocityLeads(filters?: { status?: string }): Promise<VelocityLead[]> {
+    if (filters?.status) {
+      return db.select().from(velocityLeads)
+        .where(eq(velocityLeads.status, filters.status))
+        .orderBy(desc(velocityLeads.createdAt));
+    }
+    return db.select().from(velocityLeads).orderBy(desc(velocityLeads.createdAt));
+  }
+
+  async getVelocityLead(id: string): Promise<VelocityLead | undefined> {
+    const [lead] = await db.select().from(velocityLeads).where(eq(velocityLeads.id, id));
+    return lead;
+  }
+
+  async createVelocityLead(lead: InsertVelocityLead): Promise<VelocityLead> {
+    const [created] = await db.insert(velocityLeads).values(lead).returning();
+    return created;
+  }
+
+  async updateVelocityLead(id: string, updates: Partial<VelocityLead>): Promise<VelocityLead | undefined> {
+    const [updated] = await db.update(velocityLeads).set(updates).where(eq(velocityLeads.id, id)).returning();
+    return updated;
+  }
+
+  async findDuplicateVelocityLead(phone: string, email?: string): Promise<VelocityLead | undefined> {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const all = await db.select().from(velocityLeads).where(gte(velocityLeads.createdAt, since));
+    for (const lead of all) {
+      const info = lead.customerInfo as any;
+      const infoPhone = (info?.phone || "").replace(/\D/g, "");
+      const cleanPhone = (phone || "").replace(/\D/g, "");
+      if (infoPhone && cleanPhone && infoPhone === cleanPhone) return lead;
+      if (email && info?.email && info.email.toLowerCase() === email.toLowerCase()) return lead;
+    }
+    return undefined;
+  }
+
+  async createVelocityLeadAuditLog(entry: InsertVelocityLeadAuditLog): Promise<VelocityLeadAuditLog> {
+    const [created] = await db.insert(velocityLeadAuditLog).values(entry).returning();
+    return created;
+  }
+
+  async getVelocityLeadAuditLog(leadId: string): Promise<VelocityLeadAuditLog[]> {
+    return db.select().from(velocityLeadAuditLog)
+      .where(eq(velocityLeadAuditLog.leadId, leadId))
+      .orderBy(desc(velocityLeadAuditLog.createdAt));
   }
 }
 

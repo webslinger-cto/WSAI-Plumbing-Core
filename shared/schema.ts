@@ -1595,3 +1595,43 @@ export const callRecordings = pgTable("call_recordings", {
 export const insertCallRecordingSchema = createInsertSchema(callRecordings).omit({ id: true, createdAt: true });
 export type InsertCallRecording = z.infer<typeof insertCallRecordingSchema>;
 export type CallRecording = typeof callRecordings.$inferSelect;
+
+// ============================================================
+// LEAD VELOCITY SYSTEM
+// ============================================================
+
+export const velocityLeadStatuses = ["NEW", "CLAIMED", "CONTACTED", "QUOTED", "CLOSED", "LOST"] as const;
+export type VelocityLeadStatus = typeof velocityLeadStatuses[number];
+
+export const velocityLeads = pgTable("velocity_leads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  externalId: text("external_id"),
+  source: text("source").notNull().default("manual"),
+  customerInfo: jsonb("customer_info").notNull().default(sql`'{}'::jsonb`),
+  status: text("status").notNull().default("NEW"),
+  claimedAt: timestamp("claimed_at"),
+  claimedBy: varchar("claimed_by"),
+  claimedByName: text("claimed_by_name"),
+  firstContactAt: timestamp("first_contact_at"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  notes: text("notes"),
+});
+
+export const insertVelocityLeadSchema = createInsertSchema(velocityLeads).omit({ id: true, createdAt: true });
+export type InsertVelocityLead = z.infer<typeof insertVelocityLeadSchema>;
+export type VelocityLead = typeof velocityLeads.$inferSelect;
+
+export const velocityLeadAuditLog = pgTable("velocity_lead_audit_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id").notNull().references(() => velocityLeads.id),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  changedBy: varchar("changed_by"),
+  changedByName: text("changed_by_name"),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertVelocityLeadAuditLogSchema = createInsertSchema(velocityLeadAuditLog).omit({ id: true, createdAt: true });
+export type InsertVelocityLeadAuditLog = z.infer<typeof insertVelocityLeadAuditLogSchema>;
+export type VelocityLeadAuditLog = typeof velocityLeadAuditLog.$inferSelect;

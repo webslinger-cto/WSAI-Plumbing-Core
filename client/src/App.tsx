@@ -58,6 +58,7 @@ import CustomersPage from "@/features/customers/CustomersPage";
 import CustomerProfile from "@/features/customers/CustomerProfile";
 import PermitCenterPage from "@/features/permits/PermitCenterPage";
 import DocumentsPage from "@/pages/DocumentsPage";
+import WarRoomPage from "@/pages/WarRoomPage";
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -95,6 +96,7 @@ function AdminRouter({ userId, fullName }: { userId: string; fullName: string })
       <Route path="/export" component={ExportPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/documents" component={DocumentsPage} />
+      <Route path="/war-room">{() => <WarRoomPage userId={userId} fullName={fullName} />}</Route>
       <Route path="/chat">{() => <DispatchChatPage userId={userId} fullName={fullName} />}</Route>
       <Route path="/operations">{() => <OperationsMenuPage role="admin" />}</Route>
       <Route component={NotFound} />
@@ -116,6 +118,7 @@ function DispatcherRouter({ userId, fullName }: { userId: string; fullName: stri
       <Route path="/calls" component={CallsPage} />
       <Route path="/leads" component={LeadsPage} />
       <Route path="/follow-up" component={FollowUpAssistantPage} />
+      <Route path="/war-room">{() => <WarRoomPage userId={userId} fullName={fullName} />}</Route>
       <Route path="/chat">{() => <DispatchChatPage userId={userId} fullName={fullName} />}</Route>
       <Route path="/operations">{() => <OperationsMenuPage role="dispatcher" />}</Route>
       <Route component={NotFound} />
