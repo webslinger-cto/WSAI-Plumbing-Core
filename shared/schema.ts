@@ -1615,6 +1615,7 @@ export const velocityLeads = pgTable("velocity_leads", {
   firstContactAt: timestamp("first_contact_at"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   notes: text("notes"),
+  linkedLeadId: varchar("linked_lead_id"), // FK to leads.id — set when synced to main leads table
 });
 
 export const insertVelocityLeadSchema = createInsertSchema(velocityLeads).omit({ id: true, createdAt: true });

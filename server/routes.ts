@@ -9797,18 +9797,37 @@ Important guidelines:
             return;
           }
 
+          const customerName = customerInfo?.name || customerInfo?.customerName || body?.name || "Unknown";
+          const serviceType = customerInfo?.serviceType || body?.serviceType || body?.service_type || "";
+          const description = customerInfo?.description || body?.description || body?.notes || "";
+          const address = customerInfo?.address || body?.address || "";
+
+          // Create a record in the main leads table so it shows in the Leads tab
+          const mainLead = await storage.createLead({
+            source,
+            customerName,
+            customerPhone: phone,
+            customerEmail: email || undefined,
+            address: address || undefined,
+            serviceType: serviceType || undefined,
+            description: description || undefined,
+            status: "new",
+            priority: "high", // all webhook leads are high priority
+          });
+
           const lead = await storage.createVelocityLead({
             externalId,
             source,
             customerInfo: {
-              name: customerInfo?.name || customerInfo?.customerName || body?.name || "Unknown",
+              name: customerName,
               phone,
               email,
-              address: customerInfo?.address || body?.address || "",
-              serviceType: customerInfo?.serviceType || body?.serviceType || body?.service_type || "",
-              description: customerInfo?.description || body?.description || body?.notes || "",
+              address,
+              serviceType,
+              description,
             },
             status: "NEW",
+            linkedLeadId: mainLead.id,
           });
 
           // Audit log
@@ -9818,12 +9837,12 @@ Important guidelines:
             toStatus: "NEW",
             changedBy: null,
             changedByName: "System",
-            note: `Lead received from ${source}`,
+            note: `Lead received from ${source} — synced to Leads tab (ID: ${mainLead.id})`,
           });
 
           // Emit real-time event to all connected clients
           emitNewLead(lead);
-          console.log(`[LeadVelocity] New lead created: ${lead.id} from ${source}`);
+          console.log(`[LeadVelocity] New lead created: ${lead.id} from ${source} (linked to lead ${mainLead.id})`);
         } catch (err) {
           console.error("[LeadVelocity] Async processing error:", err);
         }

@@ -17,6 +17,7 @@ import AppSidebar from "@/components/AppSidebar";
 import LoginPage from "@/components/LoginPage";
 import PasswordSetupPage from "@/components/PasswordSetupPage";
 import CopilotPanel from "@/components/CopilotPanel";
+import { useNewLeadAlert } from "@/hooks/useNewLeadAlert";
 
 export const YELP_REVIEW_URL = "https://www.yelp.com/biz/chicago-sewer-experts-lyons-3?adjust_creative=microsoft&utm_campaign=yelp_feed&utm_medium=feed_v2&utm_source=microsoft";
 import AdminDashboard from "@/pages/AdminDashboard";
@@ -469,6 +470,9 @@ function App() {
   const effectiveFullName = auth.isSuperAdmin && viewAsRole === "technician" ? viewAsTechnicianName 
     : auth.isSuperAdmin && viewAsRole === "salesperson" ? viewAsSalespersonName 
     : auth.fullName;
+
+  // Global new-lead audible alert — plays for all admins/dispatchers anywhere in the app
+  useNewLeadAlert(auth.isAuthenticated, effectiveRole);
 
   // Always use dark mode for premium marble background
   useLayoutEffect(() => {

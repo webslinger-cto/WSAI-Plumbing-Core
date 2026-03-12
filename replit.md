@@ -81,10 +81,14 @@ The CRM follows a "Lead-to-Quote-to-Job" workflow:
 - Persistent color coding for technicians, appearing on calendar and job tracking.
 - Technician map view for field tracking.
 
-**Lead Velocity System**:
+**Lead Assassin System**:
 - Real-time lead management with Socket.io notifications, "Claim & Conquer" workflow, urgency timers (Green, Yellow, Red, Flashing Red).
-- War Room Dashboard for live lead feed.
-- Deduplicating webhook intake endpoint.
+- Lead Assassin Dashboard (`/lead-assassin`) for live automated lead feed.
+- Deduplicating webhook intake endpoint (`POST /api/v1/lead-ingest`).
+- Every webhook lead creates records in BOTH `velocity_leads` (Lead Assassin) AND `leads` (Leads tab), linked via `linkedLeadId`.
+- "View Lead" link on each Lead Assassin card navigates to the full lead record.
+- Global audible alert (`useNewLeadAlert` hook in App.tsx): plays ascending 3-tone chime + toast for all admin/dispatcher users anywhere in the app when a new lead arrives via Socket.io `NEW_LEAD` event.
+- Lead Assassin button (with live count badge) on Admin Dashboard, Dispatcher Dashboard, and Leads page header.
 
 ### Technical Stack
 - **Frontend**: React, TypeScript, Tailwind CSS, shadcn/ui, Vite, TanStack Query, Wouter, React Hook Form + Zod.

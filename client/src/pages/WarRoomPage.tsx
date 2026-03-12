@@ -14,7 +14,7 @@ import { io, Socket } from "socket.io-client";
 import {
   Flame, Zap, Phone, UserCheck, Clock, AlertTriangle,
   Plus, RefreshCw, Wifi, WifiOff, ChevronRight, Filter,
-  PhoneCall, CheckCircle2, XCircle
+  PhoneCall, CheckCircle2, XCircle, ExternalLink
 } from "lucide-react";
 
 interface CustomerInfo {
@@ -38,6 +38,7 @@ interface VelocityLead {
   firstContactAt: string | null;
   createdAt: string;
   notes: string | null;
+  linkedLeadId: string | null;
 }
 
 // ─── Timer Hook ─────────────────────────────────────────────
@@ -228,6 +229,17 @@ function LeadCard({ lead, userId, onClaim, onContact, onStatusChange, claiming, 
             <ChevronRight className="w-3 h-3 mr-1" />
             Update
           </Button>
+        )}
+        {lead.linkedLeadId && (
+          <a
+            href={`/leads`}
+            className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 ml-auto"
+            data-testid={`btn-view-lead-${lead.id}`}
+            title="View full lead record in Leads tab"
+          >
+            <ExternalLink className="w-3 h-3" />
+            View Lead
+          </a>
         )}
       </div>
     </div>
@@ -433,12 +445,8 @@ export default function WarRoomPage({ userId, fullName }: WarRoomPageProps) {
     });
 
     socket.on("NEW_LEAD", (lead: VelocityLead) => {
+      // Cache is refreshed here; global useNewLeadAlert hook handles toast + sound
       queryClient.invalidateQueries({ queryKey: ["/api/velocity-leads"] });
-      toast({
-        title: "🔪 New Lead — Make the Kill!",
-        description: `${(lead.customerInfo as CustomerInfo).name || "Unknown"} from ${lead.source}`,
-        duration: 8000,
-      });
     });
 
     socket.on("LEAD_UPDATED", () => {
