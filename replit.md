@@ -9,9 +9,10 @@ Preferred communication style: Simple, everyday language.
 ## System Architecture
 
 ### Core Business Workflow
-The CRM follows a "Lead-to-Quote-to-Job" workflow:
+The CRM follows a "Lead-to-Intake-to-Quote-to-Job" workflow:
 - **Lead Capture & Qualification**: Manual entry, webhooks (Thumbtack, Angi), chat widget, AI call recording intake. Leads are tracked, assigned, and followed up.
-- **Quote Generation**: Digital estimates with pricebook integration, digital signatures, PDF export.
+- **Customer Intake**: Dispatcher opens full intake form pre-filled from lead data. Available from Lead Assassin cards ("Intake" button) and Leads page ("Open Intake Form" button).
+- **Quote Generation**: After saving intake, a "What's Next?" panel appears offering "Build Quote / Estimate" (creates pending job + opens QuoteBuilder in-sheet) or "Schedule a Job". Also supports digital estimates with pricebook integration, digital signatures, PDF export, and discount calculator.
 - **Job Creation & Dispatch**: Calendar-based scheduling, technician assignment, color-coding.
 - **Field Service**: Mobile work orders, media upload, checklists, on-site quoting.
 - **Job Completion**: Status tracking, automatic chat notifications, payroll integration.

@@ -56,7 +56,13 @@ import {
   Flag,
   Truck,
   Wrench,
+  Hammer,
+  CalendarPlus,
+  ChevronDown,
+  Sparkles,
 } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import QuoteBuilder from "@/components/QuoteBuilder";
 import type { Lead, Quote, Job, Technician } from "@shared/schema";
 import { format } from "date-fns";
 
@@ -130,17 +136,33 @@ const WORKFLOW_STAGES = [
   { key: "completed", label: "Completed", description: "Job completed" },
 ];
 
+interface PrefillData {
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  address?: string;
+  city?: string;
+  zipCode?: string;
+  serviceType?: string;
+  description?: string;
+  source?: string;
+}
+
 interface CustomerIntakeFormProps {
   lead?: Lead | null;
+  prefill?: PrefillData;
   onClose?: () => void;
   onLeadCreated?: (lead: Lead) => void;
 }
 
-export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: CustomerIntakeFormProps) {
+export default function CustomerIntakeForm({ lead, prefill, onClose, onLeadCreated }: CustomerIntakeFormProps) {
   const { toast } = useToast();
   const [showQuoteDialog, setShowQuoteDialog] = useState(false);
   const [showJobDialog, setShowJobDialog] = useState(false);
   const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [savedLead, setSavedLead] = useState<Lead | null>(null);
+  const [showQuoteBuilderSheet, setShowQuoteBuilderSheet] = useState(false);
+  const [quoteBuilderJobId, setQuoteBuilderJobId] = useState<string | null>(null);
   const isEditing = !!lead;
 
   const { data: technicians = [] } = useQuery<Technician[]>({
@@ -169,19 +191,19 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
   const form = useForm<IntakeFormValues>({
     resolver: zodResolver(intakeFormSchema),
     defaultValues: {
-      customerName: lead?.customerName || "",
-      customerPhone: lead?.customerPhone || "",
-      customerEmail: lead?.customerEmail || "",
+      customerName: lead?.customerName || prefill?.customerName || "",
+      customerPhone: lead?.customerPhone || prefill?.customerPhone || "",
+      customerEmail: lead?.customerEmail || prefill?.customerEmail || "",
       contactTenantName: lead?.contactTenantName || "",
       contactTenantPhone: lead?.contactTenantPhone || "",
-      address: lead?.address || "",
-      city: lead?.city || "",
+      address: lead?.address || prefill?.address || "",
+      city: lead?.city || prefill?.city || "",
       state: lead?.state || "IL",
-      zipCode: lead?.zipCode || "",
+      zipCode: lead?.zipCode || prefill?.zipCode || "",
       propertyType: lead?.propertyType || "",
-      source: lead?.source || "Phone Call",
-      serviceType: lead?.serviceType || "",
-      description: lead?.description || "",
+      source: lead?.source || prefill?.source || "Phone Call",
+      serviceType: lead?.serviceType || prefill?.serviceType || "",
+      description: lead?.description || prefill?.description || "",
       estimateAmount: lead?.estimateAmount || "",
       nightWeekendCall: lead?.nightWeekendCall || false,
       rehab: lead?.rehab || false,
@@ -204,10 +226,38 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
     onSuccess: (newLead: Lead) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       toast({ title: "Customer Intake Created", description: `Lead created for ${newLead.customerName}` });
+      setSavedLead(newLead);
       onLeadCreated?.(newLead);
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to create intake record", variant: "destructive" });
+    },
+  });
+
+  const buildQuoteMutation = useMutation({
+    mutationFn: async () => {
+      const theLead = savedLead || lead;
+      if (!theLead) throw new Error("No lead available");
+      const fullAddress = [theLead.address, theLead.city, theLead.state, theLead.zipCode].filter(Boolean).join(", ");
+      const res = await apiRequest("POST", "/api/jobs", {
+        leadId: theLead.id,
+        customerName: theLead.customerName,
+        customerPhone: theLead.customerPhone,
+        address: fullAddress || "Address pending",
+        serviceType: theLead.serviceType || "Sewer Service",
+        status: "pending",
+        priority: theLead.priority || "normal",
+        scheduledDate: new Date().toISOString(),
+      });
+      return res.json();
+    },
+    onSuccess: (job: Job) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      setQuoteBuilderJobId(job.id);
+      setShowQuoteBuilderSheet(true);
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create job for quote", variant: "destructive" });
     },
   });
 
@@ -216,9 +266,10 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
       const res = await apiRequest("PATCH", `/api/leads/${lead!.id}`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (updatedLead: Lead) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       toast({ title: "Intake Updated", description: "Customer intake record updated" });
+      setSavedLead(updatedLead);
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to update intake record", variant: "destructive" });
@@ -259,19 +310,20 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
 
   const createJobMutation = useMutation({
     mutationFn: async () => {
-      if (!lead) return;
+      const theLead = savedLead || lead;
+      if (!theLead) return;
       const res = await apiRequest("POST", "/api/jobs", {
-        leadId: lead.id,
-        customerName: lead.customerName,
-        customerPhone: lead.customerPhone,
-        customerEmail: lead.customerEmail || undefined,
-        address: lead.address || "Address pending",
-        city: lead.city || undefined,
-        zipCode: lead.zipCode || undefined,
-        serviceType: lead.serviceType || "Sewer Service",
-        description: lead.description || `Job from intake - ${lead.customerName}`,
+        leadId: theLead.id,
+        customerName: theLead.customerName,
+        customerPhone: theLead.customerPhone,
+        customerEmail: theLead.customerEmail || undefined,
+        address: theLead.address || "Address pending",
+        city: theLead.city || undefined,
+        zipCode: theLead.zipCode || undefined,
+        serviceType: theLead.serviceType || "Sewer Service",
+        description: theLead.description || `Job from intake - ${theLead.customerName}`,
         status: "pending",
-        priority: lead.priority || "normal",
+        priority: theLead.priority || "normal",
       });
       const job = await res.json();
       return job;
@@ -280,7 +332,8 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
       queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       setShowJobDialog(false);
-      toast({ title: "Job Created", description: `Job created for ${lead?.customerName}` });
+      const theLead = savedLead || lead;
+      toast({ title: "Job Created", description: `Job created for ${theLead?.customerName}` });
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to create job", variant: "destructive" });
@@ -924,13 +977,60 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
         </form>
       </Form>
 
+      {/* ── What's Next panel (shown after a new intake is saved) ── */}
+      {savedLead && (
+        <Card className="border-green-500/40 bg-green-500/5" data-testid="section-whats-next">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
+              <div>
+                <p className="font-semibold text-green-700 dark:text-green-400">
+                  Intake saved for {savedLead.customerName}!
+                </p>
+                <p className="text-xs text-muted-foreground">Choose your next step:</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={() => buildQuoteMutation.mutate()}
+                disabled={buildQuoteMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-500 text-white"
+                data-testid="button-build-quote-nextstep"
+              >
+                {buildQuoteMutation.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <FileText className="w-3.5 h-3.5 mr-1.5" />
+                )}
+                Build Quote / Estimate
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowJobDialog(true)}
+                data-testid="button-schedule-job-nextstep"
+              >
+                <CalendarPlus className="w-3.5 h-3.5 mr-1.5" />
+                Schedule a Job
+              </Button>
+              {onClose && (
+                <Button size="sm" variant="ghost" onClick={onClose} data-testid="button-done-intake">
+                  Done
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Dialog open={showQuoteDialog} onOpenChange={setShowQuoteDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create Quote from Intake</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            This will create a draft quote for <strong>{lead?.customerName}</strong> using the information from this intake.
+            This will create a draft quote for <strong>{(savedLead || lead)?.customerName}</strong> using the information from this intake.
             {lead?.estimateAmount && (
               <span> Estimate amount: <strong>${lead.estimateAmount}</strong></span>
             )}
@@ -998,6 +1098,28 @@ export default function CustomerIntakeForm({ lead, onClose, onLeadCreated }: Cus
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── QuoteBuilder Sheet (opened after "Build Quote" creates a pending job) ── */}
+      <Sheet open={showQuoteBuilderSheet} onOpenChange={setShowQuoteBuilderSheet}>
+        <SheetContent side="right" className="w-full sm:max-w-4xl overflow-y-auto p-0">
+          <SheetHeader className="p-6 pb-2 border-b border-border">
+            <SheetTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-500" />
+              Build Quote for {(savedLead || lead)?.customerName}
+            </SheetTitle>
+          </SheetHeader>
+          {quoteBuilderJobId && (
+            <div className="p-4 overflow-y-auto">
+              <QuoteBuilder
+                jobId={quoteBuilderJobId}
+                customerName={(savedLead || lead)?.customerName || ""}
+                customerPhone={(savedLead || lead)?.customerPhone || ""}
+                onQuoteCreated={() => setShowQuoteBuilderSheet(false)}
+              />
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

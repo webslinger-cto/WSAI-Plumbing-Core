@@ -31,7 +31,9 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History, Wifi, WifiOff, Plus, Building2, Globe, Users, Trash2, AlertTriangle, Flame } from "lucide-react";
+import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History, Wifi, WifiOff, Plus, Building2, Globe, Users, Trash2, AlertTriangle, Flame, ClipboardList } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import CustomerIntakeForm from "@/components/CustomerIntakeForm";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { SlaTimer } from "@/components/SlaTimer";
@@ -130,6 +132,7 @@ type NewLeadFormData = z.infer<typeof newLeadFormSchema>;
 
 export default function LeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [showIntakeForm, setShowIntakeForm] = useState(false);
   const [isNewLeadDialogOpen, setIsNewLeadDialogOpen] = useState(false);
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -624,6 +627,15 @@ export default function LeadsPage() {
                   </Button>
                 )}
                 <Button
+                  variant="outline"
+                  className="flex-1 border-purple-500/40 text-purple-400 hover:bg-purple-950/30"
+                  onClick={() => setShowIntakeForm(true)}
+                  data-testid="button-open-intake"
+                >
+                  <ClipboardList className="w-4 h-4 mr-2" />
+                  Open Intake Form
+                </Button>
+                <Button
                   className="flex-1"
                   onClick={() => {
                     if (selectedLead) createQuoteFromLeadMutation.mutate(selectedLead);
@@ -1002,6 +1014,27 @@ export default function LeadsPage() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      {/* ── Customer Intake Sheet ── */}
+      <Sheet open={showIntakeForm} onOpenChange={(open) => { if (!open) setShowIntakeForm(false); }}>
+        <SheetContent side="right" className="w-full sm:max-w-3xl overflow-y-auto p-0">
+          <SheetHeader className="p-6 pb-2 border-b border-border">
+            <SheetTitle className="flex items-center gap-2">
+              <ClipboardList className="w-5 h-5 text-purple-400" />
+              Customer Intake — {selectedLead?.name || "Lead"}
+            </SheetTitle>
+          </SheetHeader>
+          {showIntakeForm && selectedLead && (
+            <div className="p-4 overflow-y-auto">
+              <CustomerIntakeForm
+                key={selectedLead.id}
+                lead={apiLeads.find(l => l.id === selectedLead.id) || undefined}
+                onClose={() => setShowIntakeForm(false)}
+              />
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

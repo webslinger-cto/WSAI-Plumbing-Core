@@ -1181,6 +1181,97 @@ registerTool({
   },
 });
 
+registerTool({
+  name: "web_search",
+  description: "Search the web for real-time information like material pricing, plumbing code requirements, product specs, supplier availability, permit regulations, weather conditions, or any other external data. Use this when the answer is not in the CRM database. Uses AI-powered research to find current data and pricing.",
+  requiredRole: "dispatcher",
+  type: "read",
+  parameters: z.object({
+    query: z.string().describe("Natural language search query - be specific about what you need"),
+  }),
+  execute: async (params) => {
+    try {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are a research assistant for a plumbing and sewer services company in Chicago, IL. 
+Your job is to provide accurate, current market information when asked.
+
+RULES:
+- Provide specific prices, product names, part numbers, and specifications when available.
+- Include supplier names (Home Depot, Lowe's, Ferguson, Supply House, etc.) when relevant.
+- For pricing, provide realistic current market ranges. Cite typical retail sources.
+- For code/regulations, reference the specific Chicago or Illinois codes.
+- Format your response as structured data with clear categories.
+- Be specific and actionable — this data will be used for real business estimates and quotes.
+- Always note that prices may vary by location and should be verified with suppliers.`
+          },
+          {
+            role: "user",
+            content: params.query,
+          },
+        ],
+        temperature: 0.3,
+        max_tokens: 1500,
+      });
+
+      const answer = completion.choices[0]?.message?.content || "No results found.";
+      return {
+        query: params.query,
+        answer,
+        source: "AI-powered market research (prices should be verified with local suppliers)",
+      };
+    } catch (error: any) {
+      return { error: `Web search failed: ${error.message}` };
+    }
+  },
+});
+
+registerTool({
+  name: "web_fetch",
+  description: "Fetch the content of a specific web page URL to get detailed product info, pricing, or specifications from supplier websites.",
+  requiredRole: "dispatcher",
+  type: "read",
+  parameters: z.object({
+    url: z.string().describe("Full HTTPS URL to fetch"),
+  }),
+  execute: async (params) => {
+    try {
+      const response = await fetch(params.url, {
+        headers: { 
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml",
+        },
+        signal: AbortSignal.timeout(10000),
+        redirect: "follow",
+      });
+
+      if (!response.ok) {
+        return { error: `Failed to fetch URL: ${response.status}` };
+      }
+
+      const html = await response.text();
+      const textContent = html
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&#x27;/g, "'")
+        .replace(/&amp;/g, "&")
+        .replace(/&quot;/g, '"')
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 8000);
+
+      return { url: params.url, content: textContent };
+    } catch (error: any) {
+      return { error: `Failed to fetch page: ${error.message}` };
+    }
+  },
+});
+
 function getToolsForRole(role: string): ToolDefinition[] {
   const tools: ToolDefinition[] = [];
   toolRegistry.forEach((tool) => {
@@ -1234,6 +1325,13 @@ CUSTOMER PROFILES:
 - This returns the full customer history: leads, jobs, quotes, calls, contact attempts, and a summary with counts.
 - Always check the customer profile before taking action on a customer to understand their history and current status.
 - Use customer profile data to personalize follow-ups and make informed decisions about service recommendations.
+
+WEB SEARCH & EXTERNAL DATA:
+- You can search the web for real-time information using web_search. Use this for material pricing, plumbing supply costs, product specifications, Chicago building code requirements, permit regulations, supplier availability, weather conditions, or any data not in the CRM.
+- After searching, use web_fetch to get detailed content from a specific page (e.g. a supplier's product page or a pricing table).
+- When the user asks about pricing for materials (PVC pipe, fittings, pumps, etc.), search for current market prices and present them clearly with sources.
+- Always cite your sources when presenting external data so the user knows where the information came from.
+- Web search is a read operation — you can use it freely without user approval.
 
 CALENDAR & SCHEDULING:
 - You have full access to the calendar. Use get_todays_schedule to quickly see today's workload.

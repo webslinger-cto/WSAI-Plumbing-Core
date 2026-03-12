@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,8 +15,10 @@ import { io, Socket } from "socket.io-client";
 import {
   Flame, Zap, Phone, UserCheck, Clock, AlertTriangle,
   Plus, RefreshCw, Wifi, WifiOff, ChevronRight, Filter,
-  PhoneCall, CheckCircle2, XCircle, ExternalLink
+  PhoneCall, CheckCircle2, XCircle, ExternalLink, ClipboardList, Loader2
 } from "lucide-react";
+import CustomerIntakeForm from "@/components/CustomerIntakeForm";
+import type { Lead as ApiLead } from "@shared/schema";
 
 interface CustomerInfo {
   name?: string;
@@ -126,11 +129,12 @@ interface LeadCardProps {
   onClaim: (id: string) => void;
   onContact: (lead: VelocityLead) => void;
   onStatusChange: (lead: VelocityLead) => void;
+  onStartIntake: (lead: VelocityLead) => void;
   claiming: boolean;
   contacting: boolean;
 }
 
-function LeadCard({ lead, userId, onClaim, onContact, onStatusChange, claiming, contacting }: LeadCardProps) {
+function LeadCard({ lead, userId, onClaim, onContact, onStatusChange, onStartIntake, claiming, contacting }: LeadCardProps) {
   const info = lead.customerInfo as CustomerInfo;
   const minutes = (Date.now() - new Date(lead.createdAt).getTime()) / 60000;
   const isUrgent = lead.status === "NEW" && minutes >= 5;
@@ -230,6 +234,18 @@ function LeadCard({ lead, userId, onClaim, onContact, onStatusChange, claiming, 
             Update
           </Button>
         )}
+        {!["CLOSED", "LOST"].includes(lead.status) && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs border-purple-500/40 text-purple-400 hover:bg-purple-950/30 hover:text-purple-300"
+            data-testid={`btn-intake-${lead.id}`}
+            onClick={() => onStartIntake(lead)}
+          >
+            <ClipboardList className="w-3 h-3 mr-1" />
+            Intake
+          </Button>
+        )}
         {lead.linkedLeadId && (
           <a
             href={`/leads`}
@@ -242,6 +258,52 @@ function LeadCard({ lead, userId, onClaim, onContact, onStatusChange, claiming, 
           </a>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Intake Sheet Content ─────────────────────────────────────
+function IntakeSheetContent({ velocityLead, onClose }: { velocityLead: VelocityLead; onClose: () => void }) {
+  const info = velocityLead.customerInfo as CustomerInfo;
+
+  const { data: linkedLead, isLoading } = useQuery<ApiLead>({
+    queryKey: ["/api/leads", velocityLead.linkedLeadId],
+    queryFn: async () => {
+      const res = await fetch(`/api/leads/${velocityLead.linkedLeadId}`, {
+        headers: { "X-User-Id": "system" },
+      });
+      if (!res.ok) throw new Error("Failed to fetch lead");
+      return res.json();
+    },
+    enabled: !!velocityLead.linkedLeadId,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <span className="ml-2 text-muted-foreground">Loading intake form…</span>
+      </div>
+    );
+  }
+
+  const prefill = !linkedLead ? {
+    customerName: info.name,
+    customerPhone: info.phone,
+    customerEmail: undefined,
+    address: info.address,
+    serviceType: info.serviceType,
+    description: info.description,
+    source: velocityLead.source,
+  } : undefined;
+
+  return (
+    <div className="p-4 overflow-y-auto">
+      <CustomerIntakeForm
+        lead={linkedLead || undefined}
+        prefill={prefill}
+        onClose={onClose}
+      />
     </div>
   );
 }
@@ -418,6 +480,7 @@ export default function WarRoomPage({ userId, fullName }: WarRoomPageProps) {
   const [connected, setConnected] = useState(false);
   const [showNewModal, setShowNewModal] = useState(false);
   const [statusLead, setStatusLead] = useState<VelocityLead | null>(null);
+  const [intakeLead, setIntakeLead] = useState<VelocityLead | null>(null);
   const [filter, setFilter] = useState<string>("active");
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [contactingId, setContactingId] = useState<string | null>(null);
@@ -602,6 +665,7 @@ export default function WarRoomPage({ userId, fullName }: WarRoomPageProps) {
               onClaim={(id) => claimMutation.mutate(id)}
               onContact={(lead) => contactMutation.mutate(lead)}
               onStatusChange={(lead) => setStatusLead(lead)}
+              onStartIntake={(lead) => setIntakeLead(lead)}
               claiming={claimingId === lead.id && claimMutation.isPending}
               contacting={contactingId === lead.id && contactMutation.isPending}
             />
@@ -620,6 +684,25 @@ export default function WarRoomPage({ userId, fullName }: WarRoomPageProps) {
       {/* Modals */}
       <NewLeadModal open={showNewModal} onClose={() => setShowNewModal(false)} userId={userId} />
       <StatusUpdateModal lead={statusLead} onClose={() => setStatusLead(null)} userId={userId} />
+
+      {/* ── Customer Intake Sheet ── */}
+      <Sheet open={!!intakeLead} onOpenChange={(open) => { if (!open) setIntakeLead(null); }}>
+        <SheetContent side="right" className="w-full sm:max-w-3xl overflow-y-auto p-0">
+          <SheetHeader className="p-6 pb-2 border-b border-border">
+            <SheetTitle className="flex items-center gap-2">
+              <ClipboardList className="w-5 h-5 text-purple-400" />
+              Customer Intake — {intakeLead ? (intakeLead.customerInfo as CustomerInfo).name || "New Customer" : ""}
+            </SheetTitle>
+          </SheetHeader>
+          {intakeLead && (
+            <IntakeSheetContent
+              key={intakeLead.id}
+              velocityLead={intakeLead}
+              onClose={() => setIntakeLead(null)}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
