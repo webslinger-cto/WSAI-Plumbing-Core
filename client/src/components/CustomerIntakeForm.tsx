@@ -60,8 +60,10 @@ import {
   CalendarPlus,
   ChevronDown,
   Sparkles,
+  Target,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import LeadDispositionDialog from "@/components/LeadDispositionDialog";
 import QuoteBuilder from "@/components/QuoteBuilder";
 import type { Lead, Quote, Job, Technician } from "@shared/schema";
 import { format } from "date-fns";
@@ -162,6 +164,7 @@ export default function CustomerIntakeForm({ lead, prefill, onClose, onLeadCreat
   const [showAssignDialog, setShowAssignDialog] = useState(false);
   const [savedLead, setSavedLead] = useState<Lead | null>(null);
   const [showQuoteBuilderSheet, setShowQuoteBuilderSheet] = useState(false);
+  const [showDispositionDialog, setShowDispositionDialog] = useState(false);
   const [quoteBuilderJobId, setQuoteBuilderJobId] = useState<string | null>(null);
   const isEditing = !!lead;
 
@@ -1014,6 +1017,16 @@ export default function CustomerIntakeForm({ lead, prefill, onClose, onLeadCreat
                 <CalendarPlus className="w-3.5 h-3.5 mr-1.5" />
                 Schedule a Job
               </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-amber-500/40 text-amber-400 hover:bg-amber-950/30"
+                onClick={() => setShowDispositionDialog(true)}
+                data-testid="button-mark-outcome-intake"
+              >
+                <Target className="w-3.5 h-3.5 mr-1.5" />
+                Mark Lead Outcome
+              </Button>
               {onClose && (
                 <Button size="sm" variant="ghost" onClick={onClose} data-testid="button-done-intake">
                   Done
@@ -1098,6 +1111,13 @@ export default function CustomerIntakeForm({ lead, prefill, onClose, onLeadCreat
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── Lead Disposition Dialog ── */}
+      <LeadDispositionDialog
+        lead={showDispositionDialog ? (savedLead || lead || null) : null}
+        open={showDispositionDialog}
+        onClose={() => setShowDispositionDialog(false)}
+      />
 
       {/* ── QuoteBuilder Sheet (opened after "Build Quote" creates a pending job) ── */}
       <Sheet open={showQuoteBuilderSheet} onOpenChange={setShowQuoteBuilderSheet}>

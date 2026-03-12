@@ -31,7 +31,8 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History, Wifi, WifiOff, Plus, Building2, Globe, Users, Trash2, AlertTriangle, Flame, ClipboardList } from "lucide-react";
+import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History, Wifi, WifiOff, Plus, Building2, Globe, Users, Trash2, AlertTriangle, Flame, ClipboardList, Target } from "lucide-react";
+import LeadDispositionDialog, { DispositionBadge } from "@/components/LeadDispositionDialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import CustomerIntakeForm from "@/components/CustomerIntakeForm";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -134,6 +135,7 @@ export default function LeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [showIntakeForm, setShowIntakeForm] = useState(false);
   const [isNewLeadDialogOpen, setIsNewLeadDialogOpen] = useState(false);
+  const [showDispositionDialog, setShowDispositionDialog] = useState(false);
   const { toast } = useToast();
   const [, navigate] = useLocation();
 
@@ -520,12 +522,15 @@ export default function LeadsPage() {
                     />
                   </div>
                 </div>
-                <Badge
-                  variant="outline"
-                  className="capitalize"
-                >
-                  {selectedLead.status}
-                </Badge>
+                <div className="flex flex-col items-end gap-1">
+                  <Badge
+                    variant="outline"
+                    className="capitalize"
+                  >
+                    {selectedLead.status}
+                  </Badge>
+                  <DispositionBadge lead={selectedLead} />
+                </div>
               </div>
 
               <Separator />
@@ -668,6 +673,15 @@ export default function LeadsPage() {
                   data-testid="button-update-status"
                 >
                   Update Status
+                </Button>
+                <Button
+                  variant="outline"
+                  className="border-amber-500/40 text-amber-400 hover:bg-amber-950/30"
+                  onClick={() => setShowDispositionDialog(true)}
+                  data-testid="button-mark-outcome"
+                >
+                  <Target className="w-4 h-4 mr-2" />
+                  Mark Outcome
                 </Button>
                 <Button
                   variant="outline"
@@ -1035,6 +1049,12 @@ export default function LeadsPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <LeadDispositionDialog
+        lead={showDispositionDialog ? selectedLead : null}
+        open={showDispositionDialog}
+        onClose={() => setShowDispositionDialog(false)}
+      />
     </div>
   );
 }

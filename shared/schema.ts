@@ -192,6 +192,11 @@ export const leads = pgTable("leads", {
   estimateAmount: decimal("estimate_amount"),
   intakeNotes: text("intake_notes"),
   state: text("state"), // US state (e.g. IL)
+  // Lead disposition / outcome tracking
+  notConvertedReason: text("not_converted_reason"), // pricing, scheduling, permits, competitor, no_response, out_of_area, duplicate, changed_mind, other
+  dispositionNotes: text("disposition_notes"), // free-text explanation
+  dispositionSetAt: timestamp("disposition_set_at"), // when outcome was marked
+  dispositionSetBy: varchar("disposition_set_by"), // userId who marked
 });
 
 export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, createdAt: true, updatedAt: true });

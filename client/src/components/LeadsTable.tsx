@@ -43,6 +43,11 @@ export interface Lead {
   leadScore?: number;
   isDuplicate?: boolean;
   duplicateOfId?: string | null;
+  notConvertedReason?: string | null;
+  dispositionNotes?: string | null;
+  dispositionSetAt?: string | null;
+  dispositionSetBy?: string | null;
+  convertedAt?: string | null;
 }
 
 interface LeadsTableProps {

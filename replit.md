@@ -91,6 +91,17 @@ The CRM follows a "Lead-to-Intake-to-Quote-to-Job" workflow:
 - Global audible alert (`useNewLeadAlert` hook in App.tsx): plays ascending 3-tone chime + toast for all admin/dispatcher users anywhere in the app when a new lead arrives via Socket.io `NEW_LEAD` event.
 - Lead Assassin button (with live count badge) on Admin Dashboard, Dispatcher Dashboard, and Leads page header.
 
+**Lead Disposition Tracking**:
+- Tracks why leads don't convert with a `LeadDispositionDialog` component (`client/src/components/LeadDispositionDialog.tsx`).
+- Reasons: pricing, scheduling, permits, competitor, no_response, out_of_area, duplicate, changed_mind, already_completed, other.
+- DB columns: `not_converted_reason`, `disposition_notes`, `disposition_set_at`, `disposition_set_by` on the `leads` table.
+- "Mark Outcome" button in Leads page detail dialog and "Mark Lead Outcome" button in CustomerIntakeForm "What's Next?" panel.
+- `DispositionBadge` component shows colored badge for converted/lost leads in detail dialogs.
+- Exported from `LeadDispositionDialog.tsx`: `NOT_CONVERTED_REASONS`, `DispositionBadge`, `getDispositionLabel`, `NotConvertedReason` type.
+
+**User Management**:
+- Delete user route (`DELETE /api/admin/users/:userId`) now properly nullifies all FK references before deletion (time_entries, payroll_records, payroll_periods, employee_pay_rates, job_messages, permit_packets, content_packs, content_items) to prevent foreign key constraint violations.
+
 ### Technical Stack
 - **Frontend**: React, TypeScript, Tailwind CSS, shadcn/ui, Vite, TanStack Query, Wouter, React Hook Form + Zod.
 - **Backend**: Node.js, Express.js, TypeScript.

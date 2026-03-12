@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { chatMagicSessions, payrollPeriods, payrollRecords, insertWorkOrderSchema } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   insertLeadSchema,
   insertCallSchema,
@@ -884,6 +884,16 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Cannot delete super admin account" });
       }
 
+      // Nullify all FK references to this user so the DELETE doesn't violate constraints
+      await db.execute(sql`UPDATE time_entries SET user_id = NULL WHERE user_id = ${userId}`);
+      await db.execute(sql`UPDATE payroll_records SET user_id = NULL WHERE user_id = ${userId}`);
+      await db.execute(sql`UPDATE payroll_periods SET processed_by = NULL WHERE processed_by = ${userId}`);
+      await db.execute(sql`UPDATE employee_pay_rates SET user_id = NULL WHERE user_id = ${userId}`);
+      await db.execute(sql`UPDATE job_messages SET sender_user_id = NULL WHERE sender_user_id = ${userId}`);
+      await db.execute(sql`UPDATE permit_packets SET created_by = NULL WHERE created_by = ${userId}`);
+      await db.execute(sql`UPDATE content_packs SET reviewed_by = NULL WHERE reviewed_by = ${userId}`);
+      await db.execute(sql`UPDATE content_items SET reviewed_by = NULL WHERE reviewed_by = ${userId}`);
+
       // Delete linked technician/salesperson record if exists
       if (user.role === "technician") {
         await storage.deleteTechnicianByUserId(userId);
@@ -893,9 +903,9 @@ export async function registerRoutes(
 
       await storage.deleteUser(userId);
       res.json({ success: true });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting user:", error);
-      res.status(500).json({ error: "Failed to delete user" });
+      res.status(500).json({ error: error.message || "Failed to delete user" });
     }
   });
 
@@ -1642,7 +1652,7 @@ export async function registerRoutes(
       if (!oldLead) return res.status(404).json({ error: "Lead not found" });
 
       const body = { ...req.body };
-      const leadDateFields = ['receivedAt', 'convertedAt', 'contactedAt', 'slaDeadline'];
+      const leadDateFields = ['receivedAt', 'convertedAt', 'contactedAt', 'slaDeadline', 'dispositionSetAt'];
       leadDateFields.forEach(field => {
         if (body[field] && typeof body[field] === 'string') {
           body[field] = new Date(body[field]);
