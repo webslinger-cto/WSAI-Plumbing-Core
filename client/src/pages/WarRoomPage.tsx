@@ -245,7 +245,7 @@ function NewLeadModal({ open, onClose, userId }: { open: boolean; onClose: () =>
     mutationFn: (data: any) => apiRequest("POST", "/api/velocity-leads", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/velocity-leads"] });
-      toast({ title: "Lead created", description: "New lead added to the War Room." });
+      toast({ title: "Lead created", description: "New lead added to Lead Assassin." });
       onClose();
       setForm({ name: "", phone: "", email: "", address: "", serviceType: "", description: "", source: "manual" });
     },
@@ -395,7 +395,7 @@ function StatusUpdateModal({ lead, onClose, userId }: { lead: VelocityLead | nul
   );
 }
 
-// ─── Main War Room Page ──────────────────────────────────────
+// ─── Main Lead Assassin Page ──────────────────────────────────
 interface WarRoomPageProps {
   userId: string;
   fullName: string;
@@ -425,7 +425,7 @@ export default function WarRoomPage({ userId, fullName }: WarRoomPageProps) {
 
     socket.on("connect", () => {
       setConnected(true);
-      console.log("[WarRoom] Connected to real-time feed");
+      console.log("[LeadAssassin] Connected to real-time feed");
     });
 
     socket.on("disconnect", () => {
@@ -435,7 +435,7 @@ export default function WarRoomPage({ userId, fullName }: WarRoomPageProps) {
     socket.on("NEW_LEAD", (lead: VelocityLead) => {
       queryClient.invalidateQueries({ queryKey: ["/api/velocity-leads"] });
       toast({
-        title: "🚨 New Lead Incoming!",
+        title: "🔪 New Lead — Make the Kill!",
         description: `${(lead.customerInfo as CustomerInfo).name || "Unknown"} from ${lead.source}`,
         duration: 8000,
       });
@@ -508,7 +508,7 @@ export default function WarRoomPage({ userId, fullName }: WarRoomPageProps) {
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <Flame className="w-6 h-6 text-orange-500" />
-          <h1 className="text-xl sm:text-2xl font-bold text-foreground">War Room</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground">Lead Assassin</h1>
           {urgentCount > 0 && (
             <Badge className="bg-red-600 text-white animate-pulse text-xs">
               {urgentCount} URGENT

@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -55,7 +56,7 @@ import {
 import type { Job, Lead, Call, Technician, Quote, PricebookItem } from "@shared/schema";
 import { useState, useMemo } from "react";
 import { formatDistanceToNow, format } from "date-fns";
-import { DollarSign, Trash2, Save, Send, X, Edit3 } from "lucide-react";
+import { DollarSign, Trash2, Save, Send, X, Edit3, Flame } from "lucide-react";
 import DispatcherCalendar from "@/components/DispatcherCalendar";
 import RecordDetailPanel from "@/components/RecordDetailPanel";
 import CustomerIntakeForm from "@/components/CustomerIntakeForm";
@@ -1507,6 +1508,7 @@ interface DispatcherDashboardProps {
 
 export default function DispatcherDashboard({ userId }: DispatcherDashboardProps = {}) {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -1538,6 +1540,12 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
   const { data: permitJobIdsList = [] } = useQuery<string[]>({
     queryKey: ["/api/permits/job-ids"],
   });
+
+  const { data: velocityLeads = [] } = useQuery<{ id: string; status: string }[]>({
+    queryKey: ["/api/velocity-leads"],
+    refetchInterval: 30000,
+  });
+  const newVelocityCount = velocityLeads.filter(l => l.status === "NEW").length;
 
   const estimateJobIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1659,10 +1667,26 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
 
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <h2 className="text-lg font-semibold">Recent Intakes</h2>
-                <Button onClick={() => { setSelectedLead(null); setShowIntakeForm(true); }} data-testid="button-new-intake">
-                  <Plus className="w-4 h-4 mr-2" />
-                  New Customer Intake
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    className="border-orange-500/50 text-orange-400 hover:bg-orange-950/30 relative"
+                    onClick={() => navigate("/lead-assassin")}
+                    data-testid="button-lead-assassin"
+                  >
+                    <Flame className="w-4 h-4 mr-2" />
+                    Lead Assassin
+                    {newVelocityCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse">
+                        {newVelocityCount}
+                      </span>
+                    )}
+                  </Button>
+                  <Button onClick={() => { setSelectedLead(null); setShowIntakeForm(true); }} data-testid="button-new-intake">
+                    <Plus className="w-4 h-4 mr-2" />
+                    New Customer Intake
+                  </Button>
+                </div>
               </div>
               
               {leadsLoading ? (

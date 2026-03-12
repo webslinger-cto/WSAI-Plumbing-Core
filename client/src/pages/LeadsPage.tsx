@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import LeadsTable, { type Lead } from "@/components/LeadsTable";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,7 +31,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History, Wifi, WifiOff, Plus, Building2, Globe, Users, Trash2, AlertTriangle } from "lucide-react";
+import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History, Wifi, WifiOff, Plus, Building2, Globe, Users, Trash2, AlertTriangle, Flame } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { SlaTimer } from "@/components/SlaTimer";
@@ -131,6 +132,13 @@ export default function LeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isNewLeadDialogOpen, setIsNewLeadDialogOpen] = useState(false);
   const { toast } = useToast();
+  const [, navigate] = useLocation();
+
+  const { data: velocityLeads = [] } = useQuery<{ id: string; status: string }[]>({
+    queryKey: ["/api/velocity-leads"],
+    refetchInterval: 30000,
+  });
+  const newVelocityCount = velocityLeads.filter(l => l.status === "NEW").length;
 
   // Form for new lead creation
   const form = useForm<NewLeadFormData>({
@@ -401,6 +409,20 @@ export default function LeadsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            className="border-orange-500/50 text-orange-400 hover:bg-orange-950/30 relative"
+            onClick={() => navigate("/lead-assassin")}
+            data-testid="button-open-lead-assassin"
+          >
+            <Flame className="w-4 h-4 mr-2" />
+            Lead Assassin
+            {newVelocityCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse">
+                {newVelocityCount}
+              </span>
+            )}
+          </Button>
           <Button 
             onClick={() => setIsNewLeadDialogOpen(true)}
             data-testid="button-new-lead"

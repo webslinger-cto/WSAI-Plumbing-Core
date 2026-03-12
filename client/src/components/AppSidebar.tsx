@@ -60,7 +60,7 @@ const adminMenuItems = [
   { title: "Technician Map", url: "/map", icon: MapPin },
   { title: "Outreach", url: "/outreach", icon: Megaphone },
   { title: "Follow-Up AI", url: "/follow-up", icon: Sparkles },
-  { title: "War Room", url: "/war-room", icon: Flame },
+  { title: "Lead Assassin", url: "/lead-assassin", icon: Flame },
   { title: "Technicians", url: "/technicians", icon: Wrench },
   { title: "Quote Templates", url: "/quote-templates", icon: FileText },
   { title: "Pricebook", url: "/pricebook", icon: Tag },
@@ -81,7 +81,7 @@ const dispatcherMenuItems = [
   { title: "Messages", url: "/chat", icon: MessageSquare },
   { title: "Leads", url: "/leads", icon: Users },
   { title: "Follow-Up AI", url: "/follow-up", icon: Sparkles },
-  { title: "War Room", url: "/war-room", icon: Flame },
+  { title: "Lead Assassin", url: "/lead-assassin", icon: Flame },
   { title: "Permit Center", url: "/permits", icon: FileStack },
 ];
 

@@ -15,7 +15,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Users, DollarSign, Phone, TrendingUp, Percent, FileText, CheckCircle2, Clock, XCircle, Download } from "lucide-react";
+import { Users, DollarSign, Phone, TrendingUp, Percent, FileText, CheckCircle2, Clock, XCircle, Download, Flame } from "lucide-react";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import type { Quote, Technician, Lead, Job } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
@@ -31,6 +32,13 @@ const quoteStatusConfig: Record<string, { label: string; color: string; icon: ty
 
 export default function AdminDashboard() {
   const [timeRange, setTimeRange] = useState("month");
+  const [, navigate] = useLocation();
+
+  const { data: velocityLeads = [] } = useQuery<{ id: string; status: string }[]>({
+    queryKey: ["/api/velocity-leads"],
+    refetchInterval: 30000,
+  });
+  const newVelocityCount = velocityLeads.filter(l => l.status === "NEW").length;
 
   const { data: quotes = [], isLoading: quotesLoading, isError: quotesError } = useQuery<Quote[]>({
     queryKey: ["/api/quotes"],
@@ -148,6 +156,21 @@ export default function AdminDashboard() {
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-orange-500/50 text-orange-400 hover:bg-orange-950/30 relative"
+            onClick={() => navigate("/lead-assassin")}
+            data-testid="button-lead-assassin"
+          >
+            <Flame className="w-4 h-4 mr-2" />
+            Lead Assassin
+            {newVelocityCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse">
+                {newVelocityCount}
+              </span>
+            )}
+          </Button>
           <Button
             variant="outline"
             size="sm"
