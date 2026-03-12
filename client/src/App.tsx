@@ -430,9 +430,19 @@ function NotificationsBell({ userId }: NotificationsBellProps) {
   );
 }
 
-function App() {
-  const [location, setLocation] = useLocation();
-  const [auth, setAuth] = useState<AuthState>({
+const AUTH_STORAGE_KEY = "cse-auth-session";
+
+function loadAuthFromStorage(): AuthState {
+  try {
+    const saved = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed?.isAuthenticated && parsed?.userId) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return {
     isAuthenticated: false,
     role: null,
     username: "",
@@ -442,7 +452,12 @@ function App() {
     fullName: "",
     requiresPasswordSetup: false,
     isSuperAdmin: false,
-  });
+  };
+}
+
+function App() {
+  const [location, setLocation] = useLocation();
+  const [auth, setAuth] = useState<AuthState>(loadAuthFromStorage);
   
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [devMode, setDevMode] = useState(() => localStorage.getItem("cse-developer-mode") === "true");
@@ -480,7 +495,7 @@ function App() {
   }, []);
 
   const handleLogin = (loginData: LoginResponse) => {
-    setAuth({
+    const newAuth: AuthState = {
       isAuthenticated: true,
       role: loginData.role,
       username: loginData.username,
@@ -490,18 +505,25 @@ function App() {
       fullName: loginData.fullName || loginData.username,
       requiresPasswordSetup: loginData.requiresPasswordSetup || false,
       isSuperAdmin: loginData.isSuperAdmin || false,
-    });
+    };
+    setAuth(newAuth);
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newAuth));
     if (!loginData.requiresPasswordSetup) {
       setLocation("/");
     }
   };
 
   const handlePasswordSetupComplete = () => {
-    setAuth(prev => ({ ...prev, requiresPasswordSetup: false }));
+    setAuth(prev => {
+      const updated = { ...prev, requiresPasswordSetup: false };
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
     setLocation("/");
   };
 
   const handleLogout = () => {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
     setAuth({
       isAuthenticated: false,
       role: null,
