@@ -49,6 +49,11 @@ import CustomerChatPage from "@/pages/CustomerChatPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 import BusinessIntakePage from "@/pages/business-intake";
+import InvoicesPage from "@/pages/InvoicesPage";
+import PublicInvoicePage from "@/pages/PublicInvoicePage";
+import SchedulePage from "@/pages/SchedulePage";
+import CustomerPortalPage from "@/pages/CustomerPortalPage";
+import CustomersPage from "@/pages/CustomersPage";
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -69,6 +74,9 @@ function AdminRouter() {
       <Route path="/leads" component={LeadsPage} />
       <Route path="/jobs" component={JobsPage} />
       <Route path="/quotes" component={QuotesPage} />
+      <Route path="/invoices" component={InvoicesPage} />
+      <Route path="/schedule" component={SchedulePage} />
+      <Route path="/customers" component={CustomersPage} />
       <Route path="/technicians" component={TechniciansPage} />
       <Route path="/map" component={TechnicianMapPage} />
       <Route path="/quote-templates" component={QuoteTemplatesPage} />
@@ -90,6 +98,7 @@ function DispatcherRouter({ userId, fullName }: { userId: string; fullName: stri
   return (
     <Switch>
       <Route path="/">{() => <DispatcherDashboard userId={userId} />}</Route>
+      <Route path="/schedule" component={SchedulePage} />
       <Route path="/jobs" component={JobsPage} />
       <Route path="/quotes" component={QuotesPage} />
       <Route path="/map" component={TechnicianMapPage} />
@@ -471,12 +480,40 @@ function App() {
     );
   }
 
+  // Public invoice page (customer payment — no auth required)
+  if (location.startsWith('/invoice/')) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Switch>
+            <Route path="/invoice/:token" component={PublicInvoicePage} />
+          </Switch>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
   // Public business intake form (no auth required)
   if (location === '/intake' || location.startsWith('/intake')) {
     return (
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <BusinessIntakePage />
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  // Customer self-service portal (token auth)
+  if (location.startsWith('/customer/') && !location.startsWith('/customer/chat')) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Switch>
+            <Route path="/customer/:token" component={CustomerPortalPage} />
+          </Switch>
           <Toaster />
         </TooltipProvider>
       </QueryClientProvider>

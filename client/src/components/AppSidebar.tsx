@@ -36,6 +36,7 @@ import {
   Tag,
   TrendingUp,
   MessageSquare,
+  CalendarDays,
 } from "lucide-react";
 const cseLogo = "/cse-logo.png";
 
@@ -49,8 +50,11 @@ interface AppSidebarProps {
 const adminMenuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Leads", url: "/leads", icon: Users },
+  { title: "Customers", url: "/customers", icon: Users },
   { title: "Jobs", url: "/jobs", icon: Briefcase },
+  { title: "Schedule", url: "/schedule", icon: CalendarDays },
   { title: "Quotes", url: "/quotes", icon: Receipt },
+  { title: "Invoices", url: "/invoices", icon: DollarSign },
   { title: "Technician Map", url: "/map", icon: MapPin },
   { title: "Outreach", url: "/outreach", icon: Megaphone },
   { title: "Technicians", url: "/technicians", icon: Wrench },
@@ -63,6 +67,7 @@ const adminMenuItems = [
 const dispatcherMenuItems = [
   { title: "Dispatch Center", url: "/", icon: LayoutDashboard },
   { title: "Jobs", url: "/jobs", icon: Briefcase },
+  { title: "Schedule", url: "/schedule", icon: CalendarDays },
   { title: "Quotes", url: "/quotes", icon: Receipt },
   { title: "Technician Map", url: "/map", icon: MapPin },
   { title: "Staffing Pool", url: "/staffing", icon: UserCog },

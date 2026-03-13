@@ -984,6 +984,15 @@ export const companySettings = pgTable("company_settings", {
   seoWebhookSecret: text("seo_webhook_secret"), // HMAC secret for webhook authentication
   // Lead API/Webhook integration settings
   leadApiEnabled: boolean("lead_api_enabled").notNull().default(true), // Enable/disable lead API and webhooks (Thumbtack, Angi, etc.)
+  // Stripe Connect settings
+  stripeConnectedAccountId: text("stripe_connected_account_id"), // Connected account ID (acct_xxx)
+  stripeConnectOnboardingComplete: boolean("stripe_connect_onboarding_complete").default(false),
+  stripeDefaultCurrency: text("stripe_default_currency").default("usd"),
+  // Review request automation
+  reviewRequestEnabled: boolean("review_request_enabled").default(true),
+  reviewRequestDelayMinutes: integer("review_request_delay_minutes").default(120), // 2 hours
+  googleReviewUrl: text("google_review_url"), // configurable Google Business review link
+  yelpReviewUrl: text("yelp_review_url"), // override for Yelp link
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
 
@@ -1185,3 +1194,115 @@ export const chatEmailNotifications = pgTable("chat_email_notifications", {
   customerIdentifier: text("customer_identifier").notNull(),
   lastNotifiedAt: timestamp("last_notified_at").notNull().default(sql`now()`),
 });
+
+// ============================================
+// INVOICES & PAYMENTS (Stripe Connect)
+// ============================================
+
+export const invoiceStatuses = ["draft", "sent", "paid", "void", "overdue"] as const;
+export type InvoiceStatus = typeof invoiceStatuses[number];
+
+export const invoices = pgTable("invoices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceNumber: text("invoice_number").notNull(), // INV-0001, INV-0002, …
+  jobId: varchar("job_id").references(() => jobs.id),
+  quoteId: varchar("quote_id").references(() => quotes.id),
+  // Customer snapshot (denormalized so invoice stays correct even if job changes)
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email"),
+  customerPhone: text("customer_phone"),
+  customerAddress: text("customer_address"),
+  // Financials
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull().default("0"),
+  taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).notNull().default("0"),
+  taxAmount: decimal("tax_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull().default("0"),
+  // Status & dates
+  status: text("status").notNull().default("draft"), // draft | sent | paid | void | overdue
+  dueDate: timestamp("due_date"),
+  sentAt: timestamp("sent_at"),
+  paidAt: timestamp("paid_at"),
+  paidAmount: decimal("paid_amount", { precision: 10, scale: 2 }),
+  // Stripe references
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+  stripeChargeId: text("stripe_charge_id"),
+  // Public token for customer-facing invoice page (no auth required)
+  publicToken: text("public_token").unique(),
+  // Metadata
+  notes: text("notes"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
+export type Invoice = typeof invoices.$inferSelect;
+
+export const invoiceLineItems = pgTable("invoice_line_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceId: varchar("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
+  description: text("description").notNull(),
+  quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull().default("1"),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull().default("0"),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  sortOrder: integer("sort_order").default(0),
+});
+
+export const insertInvoiceLineItemSchema = createInsertSchema(invoiceLineItems).omit({ id: true });
+export type InsertInvoiceLineItem = z.infer<typeof insertInvoiceLineItemSchema>;
+export type InvoiceLineItem = typeof invoiceLineItems.$inferSelect;
+
+// ============================================
+// AUDIT LOG
+// ============================================
+
+export const auditLogs = pgTable("audit_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id"), // null for system-generated events
+  action: text("action").notNull(), // e.g. "invoice.created", "job.completed", "user.deleted"
+  entityType: text("entity_type").notNull(), // "invoice" | "job" | "user" | "settings" | ...
+  entityId: varchar("entity_id"), // PK of the affected entity
+  meta: jsonb("meta").notNull().default({}), // arbitrary JSON context
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+export type AuditLog = typeof auditLogs.$inferSelect;
+
+// ============================================
+// CUSTOMERS (normalized contact + history)
+// ============================================
+
+export const customers = pgTable("customers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fullName: text("full_name").notNull(),
+  phone: text("phone").notNull(),
+  email: text("email"),
+  address: text("address"),
+  city: text("city"),
+  zipCode: text("zip_code"),
+  // Aggregated counts — updated asynchronously for read performance
+  totalJobs: integer("total_jobs").notNull().default(0),
+  totalRevenue: decimal("total_revenue", { precision: 10, scale: 2 }).notNull().default("0"),
+  // Self-service portal access token (UUID, sent to customer via email/SMS)
+  portalToken: text("portal_token").unique(),
+  notes: text("notes"),
+  tags: text("tags").array(),
+  source: text("source"), // first-touch source (eLocal, Referral, etc.)
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertCustomerSchema = createInsertSchema(customers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+export type Customer = typeof customers.$inferSelect;

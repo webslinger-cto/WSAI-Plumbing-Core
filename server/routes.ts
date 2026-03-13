@@ -1,6 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { randomUUID } from "crypto";
 import { storage } from "./storage";
+import { requireRole } from "./middleware/requireRole";
+import { logAudit } from "./services/auditLog";
 import {
   insertLeadSchema,
   insertCallSchema,
@@ -1452,6 +1455,82 @@ export async function registerRoutes(
     }
   });
 
+  // ─── Schedule reschedule with double-booking guard ─────────────────────────
+  app.patch("/api/schedule/reschedule/:jobId", requireRole("admin", "dispatcher"), async (req, res) => {
+    try {
+      const { jobId } = req.params;
+      const {
+        scheduledDate,
+        scheduledTimeStart,
+        scheduledTimeEnd,
+        assignedTechnicianId,
+      } = req.body;
+
+      const job = await storage.getJob(jobId);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+
+      // ── Double-booking guard ──────────────────────────────────────────────
+      if (assignedTechnicianId && scheduledDate && scheduledTimeStart) {
+        const allJobs = await storage.getJobs();
+        const targetDate = new Date(scheduledDate);
+
+        const strToMins = (t: string) => {
+          const [h, m] = t.split(":").map(Number);
+          return h * 60 + m;
+        };
+
+        const newStart = strToMins(scheduledTimeStart);
+        const newEnd = scheduledTimeEnd
+          ? strToMins(scheduledTimeEnd)
+          : newStart + 60;
+
+        const conflicting = allJobs.find((j) => {
+          if (j.id === jobId) return false;
+          if (j.assignedTechnicianId !== assignedTechnicianId) return false;
+          if (!j.scheduledDate || !j.scheduledTimeStart) return false;
+          if (["completed", "cancelled"].includes(j.status)) return false;
+          if (
+            new Date(j.scheduledDate).toDateString() !==
+            targetDate.toDateString()
+          )
+            return false;
+
+          const jStart = strToMins(j.scheduledTimeStart);
+          const jEnd = j.scheduledTimeEnd
+            ? strToMins(j.scheduledTimeEnd)
+            : jStart + (j.estimatedDuration ?? 60);
+
+          return !(newEnd <= jStart || newStart >= jEnd);
+        });
+
+        if (conflicting) {
+          return res.status(409).json({
+            error: "Double-booking conflict",
+            conflictingJobId: conflicting.id,
+            conflictingJob: {
+              customerName: conflicting.customerName,
+              scheduledTimeStart: conflicting.scheduledTimeStart,
+            },
+          });
+        }
+      }
+
+      const updates: Partial<typeof job> = {};
+      if (scheduledDate) updates.scheduledDate = new Date(scheduledDate);
+      if (scheduledTimeStart) updates.scheduledTimeStart = scheduledTimeStart;
+      if (scheduledTimeEnd !== undefined)
+        updates.scheduledTimeEnd = scheduledTimeEnd;
+      if (assignedTechnicianId !== undefined)
+        updates.assignedTechnicianId = assignedTechnicianId || null;
+
+      const updated = await storage.updateJob(jobId, updates);
+      res.json(updated);
+    } catch (err) {
+      console.error("Reschedule error:", err);
+      res.status(500).json({ error: "Failed to reschedule" });
+    }
+  });
+
   // Job claim (tech picks from pool)
   app.post("/api/jobs/:id/claim", async (req, res) => {
     try {
@@ -1780,6 +1859,11 @@ export async function registerRoutes(
           console.error(`Dispatcher notification failed for job ${id} completed:`, err)
         );
       }
+
+      logAudit(req, "job.completed", "job", id, {
+        technicianId,
+        totalRevenue,
+      }).catch(() => {});
       
       res.json(job);
     } catch (error) {
@@ -5482,9 +5566,12 @@ ${emailContent}
     }
   });
 
-  app.patch("/api/settings", async (req, res) => {
+  app.patch("/api/settings", requireRole("admin"), async (req, res) => {
     try {
       const settings = await storage.updateCompanySettings(req.body);
+      logAudit(req, "settings.changed", "settings", settings?.id ?? null, {
+        fields: Object.keys(req.body),
+      }).catch(() => {});
       res.json(settings);
     } catch (error) {
       console.error("Error updating company settings:", error);
@@ -5570,7 +5657,7 @@ ${emailContent}
   // PAYROLL PERIODS
   // ============================================
   
-  app.get("/api/payroll/periods", async (req, res) => {
+  app.get("/api/payroll/periods", requireRole("admin"), async (req, res) => {
     try {
       const periods = await storage.getPayrollPeriods();
       res.json(periods);
@@ -5603,7 +5690,7 @@ ${emailContent}
     }
   });
 
-  app.post("/api/payroll/periods", async (req, res) => {
+  app.post("/api/payroll/periods", requireRole("admin"), async (req, res) => {
     try {
       const data = {
         ...req.body,
@@ -5669,7 +5756,7 @@ ${emailContent}
     }
   });
 
-  app.post("/api/payroll/records", async (req, res) => {
+  app.post("/api/payroll/records", requireRole("admin"), async (req, res) => {
     try {
       const validatedData = insertPayrollRecordSchema.parse(req.body);
       const record = await storage.createPayrollRecord(validatedData);
@@ -6800,6 +6887,692 @@ ${emailContent}
     } catch (error) {
       console.error("Error marking customer thread read:", error);
       res.status(500).json({ error: "Failed to mark as read" });
+    }
+  });
+
+  // ============================================================
+  // STRIPE CONNECT & INVOICING
+  // ============================================================
+
+  const {
+    isStripeConfigured,
+    getConnectOAuthUrl,
+    exchangeConnectCode,
+    getConnectedAccount,
+    disconnectConnectedAccount,
+    createCheckoutSession,
+    constructWebhookEvent,
+    retrieveCheckoutSession,
+  } = await import("./services/stripe");
+
+  // ------------------------------------------------------------------
+  // Stripe Connect — OAuth
+  // ------------------------------------------------------------------
+
+  // Return current Stripe connection status + account info
+  app.get("/api/stripe/connect/status", async (req, res) => {
+    if (!req.isAuthenticated() || (req.user as any).role !== "admin") {
+      return res.status(403).json({ error: "Admin only" });
+    }
+    try {
+      const settings = await storage.getCompanySettings();
+      const configured = isStripeConfigured();
+      if (!settings?.stripeConnectedAccountId) {
+        return res.json({
+          connected: false,
+          stripeKeyPresent: configured,
+          stripeClientIdPresent: !!process.env.STRIPE_CLIENT_ID,
+        });
+      }
+      let accountInfo = null;
+      if (configured) {
+        try {
+          accountInfo = await getConnectedAccount(settings.stripeConnectedAccountId);
+        } catch (_) {
+          // account may have been revoked; treat as disconnected
+        }
+      }
+      res.json({
+        connected: true,
+        onboardingComplete: settings.stripeConnectOnboardingComplete,
+        accountId: settings.stripeConnectedAccountId,
+        accountEmail: (accountInfo as any)?.email ?? null,
+        businessName: (accountInfo as any)?.business_profile?.name ?? null,
+        stripeKeyPresent: configured,
+        stripeClientIdPresent: !!process.env.STRIPE_CLIENT_ID,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Begin OAuth flow — redirect admin to Stripe's authorisation page
+  app.get("/api/stripe/connect/authorize", async (req, res) => {
+    if (!req.isAuthenticated() || (req.user as any).role !== "admin") {
+      return res.status(403).json({ error: "Admin only" });
+    }
+    try {
+      const baseUrl = process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+      const redirectUri = `${baseUrl}/api/stripe/connect/callback`;
+      const state = Math.random().toString(36).slice(2);
+      (req.session as any).stripeOAuthState = state;
+      const url = getConnectOAuthUrl(redirectUri, state);
+      res.redirect(url);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // OAuth callback — exchange code for connected account ID
+  app.get("/api/stripe/connect/callback", async (req, res) => {
+    try {
+      const { code, state, error: oauthError } = req.query as Record<string, string>;
+      if (oauthError) {
+        return res.redirect(`/settings?stripe_error=${encodeURIComponent(oauthError)}`);
+      }
+      if (state !== (req.session as any).stripeOAuthState) {
+        return res.redirect("/settings?stripe_error=state_mismatch");
+      }
+      const { accountId } = await exchangeConnectCode(code);
+      await storage.updateCompanySettings({
+        stripeConnectedAccountId: accountId,
+        stripeConnectOnboardingComplete: true,
+      });
+      delete (req.session as any).stripeOAuthState;
+      res.redirect("/settings?stripe_connected=1");
+    } catch (error: any) {
+      console.error("Stripe Connect callback error:", error);
+      res.redirect(`/settings?stripe_error=${encodeURIComponent(error.message)}`);
+    }
+  });
+
+  // Disconnect / deauthorise connected account
+  app.delete("/api/stripe/connect/disconnect", async (req, res) => {
+    if (!req.isAuthenticated() || (req.user as any).role !== "admin") {
+      return res.status(403).json({ error: "Admin only" });
+    }
+    try {
+      const settings = await storage.getCompanySettings();
+      if (settings?.stripeConnectedAccountId) {
+        try {
+          await disconnectConnectedAccount(settings.stripeConnectedAccountId);
+        } catch (_) {
+          // Proceed even if Stripe revocation fails (account may already be gone)
+        }
+      }
+      await storage.updateCompanySettings({
+        stripeConnectedAccountId: null,
+        stripeConnectOnboardingComplete: false,
+      });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // Invoices — CRUD
+  // ------------------------------------------------------------------
+
+  // Helper: generate sequential invoice number
+  async function generateInvoiceNumber(): Promise<string> {
+    const invoiceList = await storage.listInvoices();
+    const seq = (invoiceList.length + 1).toString().padStart(4, "0");
+    return `INV-${seq}`;
+  }
+
+  // List invoices (admin/dispatcher)
+  app.get("/api/invoices", requireRole("admin", "dispatcher"), async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const invoices = await storage.listInvoices(req.query as any);
+      res.json(invoices);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create invoice (manually or from a job)
+  app.post("/api/invoices", requireRole("admin", "dispatcher"), async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const { lineItems = [], ...invoiceData } = req.body;
+      const invoiceNumber = await generateInvoiceNumber();
+      // Compute totals from line items
+      let subtotal = 0;
+      const normalizedItems = (lineItems as any[]).map((item: any, idx: number) => {
+        const qty = parseFloat(item.quantity ?? 1);
+        const unit = parseFloat(item.unitPrice ?? 0);
+        const amount = qty * unit;
+        subtotal += amount;
+        return { ...item, quantity: qty, unitPrice: unit, amount, sortOrder: idx };
+      });
+      const taxRate = parseFloat(invoiceData.taxRate ?? 0);
+      const taxAmount = subtotal * (taxRate / 100);
+      const total = subtotal + taxAmount;
+
+      const crypto = await import("crypto");
+      const publicToken = crypto.randomBytes(24).toString("hex");
+
+      const invoice = await storage.createInvoice({
+        ...invoiceData,
+        invoiceNumber,
+        subtotal: subtotal.toFixed(2),
+        taxRate: taxRate.toFixed(2),
+        taxAmount: taxAmount.toFixed(2),
+        total: total.toFixed(2),
+        publicToken,
+        createdByUserId: (req.user as any).id,
+      }, normalizedItems);
+
+      logAudit(req, "invoice.created", "invoice", invoice.id, {
+        invoiceNumber: invoice.invoiceNumber,
+        total: invoice.total,
+        customerName: invoice.customerName,
+      }).catch(() => {});
+
+      res.status(201).json(invoice);
+    } catch (error: any) {
+      console.error("Create invoice error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get single invoice with line items
+  app.get("/api/invoices/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const invoice = await storage.getInvoice(req.params.id);
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+      res.json(invoice);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update invoice (only draft invoices can be freely edited)
+  app.patch("/api/invoices/:id", requireRole("admin", "dispatcher"), async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const { lineItems, ...updates } = req.body;
+      // Recompute totals if line items are being updated
+      if (lineItems) {
+        let subtotal = 0;
+        const normalizedItems = (lineItems as any[]).map((item: any, idx: number) => {
+          const qty = parseFloat(item.quantity ?? 1);
+          const unit = parseFloat(item.unitPrice ?? 0);
+          const amount = qty * unit;
+          subtotal += amount;
+          return { ...item, quantity: qty, unitPrice: unit, amount, sortOrder: idx };
+        });
+        const taxRate = parseFloat(updates.taxRate ?? 0);
+        const taxAmount = subtotal * (taxRate / 100);
+        updates.subtotal = subtotal.toFixed(2);
+        updates.taxAmount = taxAmount.toFixed(2);
+        updates.total = (subtotal + taxAmount).toFixed(2);
+        await storage.replaceInvoiceLineItems(req.params.id, normalizedItems);
+      }
+      const invoice = await storage.updateInvoice(req.params.id, updates);
+      logAudit(req, "invoice.updated", "invoice", req.params.id, {
+        fields: Object.keys(updates),
+      }).catch(() => {});
+      res.json(invoice);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Void invoice
+  app.post("/api/invoices/:id/void", requireRole("admin"), async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const invoice = await storage.updateInvoice(req.params.id, { status: "void" });
+      logAudit(req, "invoice.voided", "invoice", req.params.id).catch(() => {});
+      res.json(invoice);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Generate invoice from completed job
+  app.post("/api/jobs/:jobId/invoice", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const job = await storage.getJob(req.params.jobId);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+
+      // Pull line items from linked quote if available
+      let lineItems: any[] = [];
+      if (job.quoteId) {
+        const quoteItems = await storage.getQuoteLineItems(job.quoteId);
+        lineItems = quoteItems.map((qi: any) => ({
+          description: qi.description,
+          quantity: parseFloat(qi.quantity ?? 1),
+          unitPrice: parseFloat(qi.unitPrice ?? 0),
+          amount: parseFloat(qi.quantity ?? 1) * parseFloat(qi.unitPrice ?? 0),
+        }));
+      }
+
+      const invoiceNumber = await generateInvoiceNumber();
+      let subtotal = lineItems.reduce((s: number, i: any) => s + i.amount, 0);
+      const settings = await storage.getCompanySettings();
+      const taxRate = parseFloat((settings as any)?.defaultTaxRate ?? 0);
+      const taxAmount = subtotal * (taxRate / 100);
+      const total = subtotal + taxAmount;
+
+      const crypto = await import("crypto");
+      const publicToken = crypto.randomBytes(24).toString("hex");
+
+      const invoice = await storage.createInvoice({
+        invoiceNumber,
+        jobId: job.id,
+        quoteId: job.quoteId ?? undefined,
+        customerName: job.customerName,
+        customerEmail: job.customerEmail ?? undefined,
+        customerPhone: job.customerPhone ?? undefined,
+        customerAddress: job.address ?? undefined,
+        subtotal: subtotal.toFixed(2),
+        taxRate: taxRate.toFixed(2),
+        taxAmount: taxAmount.toFixed(2),
+        total: total.toFixed(2),
+        publicToken,
+        status: "draft",
+        createdByUserId: (req.user as any).id,
+      }, lineItems);
+
+      res.status(201).json(invoice);
+    } catch (error: any) {
+      console.error("Create invoice from job error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // Invoice actions — send & payment link
+  // ------------------------------------------------------------------
+
+  // Mark invoice as sent (+ optionally email the customer)
+  app.post("/api/invoices/:id/send", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const invoice = await storage.getInvoice(req.params.id);
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+      if (invoice.status === "void") {
+        return res.status(400).json({ error: "Cannot send a voided invoice" });
+      }
+
+      const updated = await storage.updateInvoice(req.params.id, {
+        status: "sent",
+        sentAt: new Date(),
+      });
+
+      // Attempt to email customer (non-fatal if email service not configured)
+      if (invoice.customerEmail) {
+        try {
+          const { sendEmail } = await import("./services/email");
+          const baseUrl = process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+          const invoiceUrl = `${baseUrl}/invoice/${invoice.publicToken}`;
+          await sendEmail({
+            to: invoice.customerEmail,
+            subject: `Invoice ${invoice.invoiceNumber} — $${Number(invoice.total).toFixed(2)} due`,
+            html: `
+              <p>Hi ${invoice.customerName},</p>
+              <p>Your invoice <strong>${invoice.invoiceNumber}</strong> for <strong>$${Number(invoice.total).toFixed(2)}</strong> is ready.</p>
+              <p><a href="${invoiceUrl}" style="background:#0070f3;color:#fff;padding:10px 20px;border-radius:5px;text-decoration:none;">View & Pay Invoice</a></p>
+              <p>Thank you for your business!</p>
+            `,
+          });
+        } catch (emailErr) {
+          console.error("Invoice email send error (non-fatal):", emailErr);
+        }
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a Stripe Checkout Session for an invoice
+  app.post("/api/invoices/:id/payment-link", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      if (!isStripeConfigured()) {
+        return res.status(503).json({
+          error: "Stripe is not configured. Set STRIPE_SECRET_KEY to enable payments.",
+        });
+      }
+
+      const invoice = await storage.getInvoice(req.params.id);
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+      if (invoice.status === "void" || invoice.status === "paid") {
+        return res.status(400).json({ error: `Cannot create payment link for a ${invoice.status} invoice` });
+      }
+
+      const settings = await storage.getCompanySettings();
+      const connectedAccountId = settings?.stripeConnectedAccountId ?? null;
+      const baseUrl = process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+      const lineItems = await storage.getInvoiceLineItems(req.params.id);
+
+      const session = await createCheckoutSession({
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        customerEmail: invoice.customerEmail,
+        lineItems: lineItems.map((li: any) => ({
+          description: li.description,
+          unitAmount: parseFloat(li.unitPrice),
+          quantity: parseFloat(li.quantity),
+        })),
+        successUrl: `${baseUrl}/invoice/${invoice.publicToken}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${baseUrl}/invoice/${invoice.publicToken}?payment=cancelled`,
+        connectedAccountId,
+        currency: settings?.stripeDefaultCurrency ?? "usd",
+      });
+
+      // Persist checkout session ID on invoice
+      await storage.updateInvoice(invoice.id, {
+        stripeCheckoutSessionId: session.id,
+      });
+
+      res.json({ checkoutUrl: session.url, sessionId: session.id });
+    } catch (error: any) {
+      console.error("Payment link creation error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // Stripe Webhook — receives events from Stripe
+  // IMPORTANT: raw body required — must be placed before express.json() would
+  // re-parse it.  We use req.rawBody which is captured in server/index.ts.
+  // ------------------------------------------------------------------
+  app.post("/api/webhooks/stripe", async (req, res) => {
+    const sig = req.headers["stripe-signature"] as string;
+    if (!sig) return res.status(400).json({ error: "Missing stripe-signature header" });
+
+    let event: any;
+    try {
+      const rawBody = (req as any).rawBody;
+      if (!rawBody) return res.status(400).json({ error: "Missing raw body" });
+      event = constructWebhookEvent(rawBody as Buffer, sig);
+    } catch (err: any) {
+      console.error("Stripe webhook signature verification failed:", err.message);
+      return res.status(400).json({ error: `Webhook error: ${err.message}` });
+    }
+
+    try {
+      switch (event.type) {
+        case "checkout.session.completed": {
+          const session = event.data.object as any;
+          const invoiceId = session.metadata?.invoice_id;
+          if (invoiceId && session.payment_status === "paid") {
+            await storage.updateInvoice(invoiceId, {
+              status: "paid",
+              paidAt: new Date(),
+              paidAmount: (session.amount_total / 100).toFixed(2),
+              stripeCheckoutSessionId: session.id,
+              stripePaymentIntentId: session.payment_intent ?? null,
+            });
+            logAudit(null, "invoice.payment_received", "invoice", invoiceId, {
+              amountPaid: (session.amount_total / 100).toFixed(2),
+              source: "stripe_checkout",
+              sessionId: session.id,
+            }).catch(() => {});
+            console.log(`[Stripe] Invoice ${invoiceId} marked paid via checkout.session.completed`);
+          }
+          break;
+        }
+        case "payment_intent.succeeded": {
+          const pi = event.data.object as any;
+          const invoiceId = pi.metadata?.invoice_id;
+          if (invoiceId) {
+            await storage.updateInvoice(invoiceId, {
+              status: "paid",
+              paidAt: new Date(),
+              paidAmount: (pi.amount_received / 100).toFixed(2),
+              stripePaymentIntentId: pi.id,
+              stripeChargeId: pi.latest_charge ?? null,
+            });
+            console.log(`[Stripe] Invoice ${invoiceId} marked paid via payment_intent.succeeded`);
+          }
+          break;
+        }
+        case "payment_intent.payment_failed": {
+          const pi = event.data.object as any;
+          console.warn(`[Stripe] Payment failed for PI ${pi.id}: ${pi.last_payment_error?.message}`);
+          break;
+        }
+        default:
+          // Unhandled event type — ignore
+          break;
+      }
+      res.json({ received: true });
+    } catch (error: any) {
+      console.error("Stripe webhook handler error:", error);
+      res.status(500).json({ error: "Webhook handler error" });
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // Public invoice view (no auth — token-gated)
+  // ------------------------------------------------------------------
+
+  app.get("/api/public/invoice/:token", async (req, res) => {
+    try {
+      const invoice = await storage.getInvoiceByToken(req.params.token);
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+      // Never expose internal IDs or Stripe secret-side data to the public
+      const { stripePaymentIntentId, stripeCheckoutSessionId, stripeChargeId, ...safe } = invoice as any;
+      res.json(safe);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create payment link from the public invoice page (customer-initiated)
+  app.post("/api/public/invoice/:token/pay", async (req, res) => {
+    try {
+      if (!isStripeConfigured()) {
+        return res.status(503).json({ error: "Online payments are not yet configured." });
+      }
+      const invoice = await storage.getInvoiceByToken(req.params.token);
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+      if (invoice.status === "paid" || invoice.status === "void") {
+        return res.status(400).json({ error: `Invoice is already ${invoice.status}` });
+      }
+
+      const settings = await storage.getCompanySettings();
+      const connectedAccountId = settings?.stripeConnectedAccountId ?? null;
+      const baseUrl = process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+      const lineItems = await storage.getInvoiceLineItems(invoice.id);
+
+      const session = await createCheckoutSession({
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        customerEmail: invoice.customerEmail,
+        lineItems: lineItems.map((li: any) => ({
+          description: li.description,
+          unitAmount: parseFloat(li.unitPrice),
+          quantity: parseFloat(li.quantity),
+        })),
+        successUrl: `${baseUrl}/invoice/${invoice.publicToken}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${baseUrl}/invoice/${invoice.publicToken}?payment=cancelled`,
+        connectedAccountId,
+        currency: settings?.stripeDefaultCurrency ?? "usd",
+      });
+
+      await storage.updateInvoice(invoice.id, { stripeCheckoutSessionId: session.id });
+      res.json({ checkoutUrl: session.url });
+    } catch (error: any) {
+      console.error("Public invoice pay error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================
+  // AUDIT LOG ROUTES
+  // ============================================================
+
+  app.get("/api/audit-logs", requireRole("admin"), async (req, res) => {
+    try {
+      const { entityType, entityId, limit } = req.query;
+      const logs = await storage.getAuditLogs({
+        entityType: entityType as string | undefined,
+        entityId: entityId as string | undefined,
+        limit: limit ? Number(limit) : 200,
+      });
+      res.json(logs);
+    } catch (err) {
+      console.error("Error fetching audit logs:", err);
+      res.status(500).json({ error: "Failed to fetch audit logs" });
+    }
+  });
+
+  // ============================================================
+  // CUSTOMER ROUTES (admin-authenticated)
+  // ============================================================
+
+  app.get("/api/customers", requireRole("admin"), async (req, res) => {
+    try {
+      const customerList = await storage.getCustomers();
+      res.json(customerList);
+    } catch (err) {
+      console.error("Error fetching customers:", err);
+      res.status(500).json({ error: "Failed to fetch customers" });
+    }
+  });
+
+  app.get("/api/customers/:id", requireRole("admin"),  async (req, res) => {
+    try {
+      const customer = await storage.getCustomer(req.params.id);
+      if (!customer) return res.status(404).json({ error: "Customer not found" });
+
+      const allJobs = await storage.getJobs();
+      const normalized = customer.phone.replace(/\D/g, "");
+      const customerJobs = allJobs.filter(
+        (j) => j.customerPhone.replace(/\D/g, "") === normalized
+      );
+
+      const customerInvoices: any[] = [];
+      for (const job of customerJobs) {
+        const jobInvoices = await storage.listInvoices({ jobId: job.id });
+        customerInvoices.push(...jobInvoices);
+      }
+
+      res.json({ customer, jobs: customerJobs, invoices: customerInvoices });
+    } catch (err) {
+      console.error("Error fetching customer:", err);
+      res.status(500).json({ error: "Failed to fetch customer" });
+    }
+  });
+
+  app.post("/api/customers", requireRole("admin"), async (req, res) => {
+    try {
+      const customer = await storage.createCustomer(req.body);
+      res.status(201).json(customer);
+    } catch (err) {
+      console.error("Error creating customer:", err);
+      res.status(500).json({ error: "Failed to create customer" });
+    }
+  });
+
+  app.patch("/api/customers/:id", requireRole("admin"), async (req, res) => {
+    try {
+      const customer = await storage.updateCustomer(req.params.id, req.body);
+      if (!customer) return res.status(404).json({ error: "Customer not found" });
+      res.json(customer);
+    } catch (err) {
+      console.error("Error updating customer:", err);
+      res.status(500).json({ error: "Failed to update customer" });
+    }
+  });
+
+  // Generate (or regenerate) a portal token for a customer
+  app.post("/api/customers/:id/portal-token", requireRole("admin"), async (req, res) => {
+    try {
+      const token = randomUUID();
+      const customer = await storage.updateCustomer(req.params.id, {
+        portalToken: token,
+      });
+      if (!customer) return res.status(404).json({ error: "Customer not found" });
+      const baseUrl =
+        process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+      res.json({ token, portalUrl: `${baseUrl}/customer/${token}` });
+    } catch (err) {
+      console.error("Error generating portal token:", err);
+      res.status(500).json({ error: "Failed to generate portal token" });
+    }
+  });
+
+  // ============================================================
+  // CUSTOMER PORTAL (public — token-authenticated)
+  // ============================================================
+
+  app.get("/api/customer-portal/:token", async (req, res) => {
+    try {
+      const customer = await storage.getCustomerByPortalToken(req.params.token);
+      if (!customer) return res.status(404).json({ error: "Portal not found" });
+
+      const allJobs = await storage.getJobs();
+      const normalized = customer.phone.replace(/\D/g, "");
+      const customerJobs = allJobs
+        .filter((j) => j.customerPhone.replace(/\D/g, "") === normalized)
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+
+      const customerInvoices: any[] = [];
+      for (const job of customerJobs) {
+        const jobInvoices = await storage.listInvoices({ jobId: job.id });
+        customerInvoices.push(...jobInvoices);
+      }
+
+      res.json({
+        customer: {
+          id: customer.id,
+          fullName: customer.fullName,
+          phone: customer.phone,
+          email: customer.email,
+          address: customer.address,
+        },
+        jobs: customerJobs,
+        invoices: customerInvoices,
+      });
+    } catch (err) {
+      console.error("Customer portal error:", err);
+      res.status(500).json({ error: "Portal unavailable" });
+    }
+  });
+
+  // Service request form submission (creates a lead)
+  app.post("/api/customer-portal/:token/request", async (req, res) => {
+    try {
+      const customer = await storage.getCustomerByPortalToken(req.params.token);
+      if (!customer) return res.status(404).json({ error: "Portal not found" });
+
+      const { serviceType, description, preferredDate } = req.body;
+
+      const lead = await storage.createLead({
+        source: "Customer Portal",
+        customerName: customer.fullName,
+        customerPhone: customer.phone,
+        customerEmail: customer.email || undefined,
+        address: customer.address || undefined,
+        city: customer.city || undefined,
+        zipCode: customer.zipCode || undefined,
+        serviceType: serviceType || "Other",
+        description: description
+          ? `[Portal Request] ${description}${preferredDate ? ` · Preferred: ${preferredDate}` : ""}`
+          : undefined,
+        status: "new",
+        priority: "normal",
+      });
+
+      res.status(201).json({ success: true, leadId: lead.id });
+    } catch (err) {
+      console.error("Portal request error:", err);
+      res.status(500).json({ error: "Failed to submit request" });
     }
   });
 
