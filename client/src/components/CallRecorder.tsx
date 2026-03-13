@@ -115,6 +115,15 @@ export function CallRecorder({ userId, userName, onLeadCreated }: CallRecorderPr
 
   const startRecording = useCallback(async () => {
     try {
+      if (!navigator.mediaDevices || !window.MediaRecorder) {
+        toast({
+          title: "Not Supported",
+          description: "Audio recording is not supported in this browser. Please use Chrome, Firefox, or Edge.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const res = await apiRequest("POST", "/api/call-recordings", {
         recordedBy: userId,
         recordedByName: userName,
@@ -125,11 +134,21 @@ export function CallRecorder({ userId, userName, onLeadCreated }: CallRecorderPr
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : "audio/webm",
-      });
+
+      let recorderOptions: MediaRecorderOptions = {};
+      if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+        recorderOptions = { mimeType: "audio/webm;codecs=opus" };
+      } else if (MediaRecorder.isTypeSupported("audio/webm")) {
+        recorderOptions = { mimeType: "audio/webm" };
+      } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+        recorderOptions = { mimeType: "audio/mp4" };
+      } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
+        recorderOptions = { mimeType: "audio/ogg" };
+      }
+
+      const mediaRecorder = new MediaRecorder(stream, recorderOptions);
+      const actualMimeType = mediaRecorder.mimeType || recorderOptions.mimeType || "audio/webm";
+      (mediaRecorder as any)._actualMimeType = actualMimeType;
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -234,7 +253,8 @@ export function CallRecorder({ userId, userName, onLeadCreated }: CallRecorderPr
         setIsRecording(false);
         setStep("transcribing");
 
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const actualMimeType = (mediaRecorderRef.current as any)?._actualMimeType || "audio/webm";
+        const audioBlob = new Blob(audioChunksRef.current, { type: actualMimeType });
         const reader = new FileReader();
         reader.onloadend = async () => {
           const base64 = (reader.result as string).split(",")[1];
