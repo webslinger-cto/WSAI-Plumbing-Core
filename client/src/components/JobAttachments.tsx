@@ -216,28 +216,31 @@ export default function JobAttachments({ jobId, technicianId }: JobAttachmentsPr
             variant="outline"
             size="sm"
             onClick={() => cameraInputRef.current?.click()}
+            className="flex-1 sm:flex-none min-w-[80px]"
             data-testid="button-take-photo"
           >
-            <Camera className="w-4 h-4 mr-2" />
-            Photo
+            <Camera className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Photo</span>
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => videoInputRef.current?.click()}
+            className="flex-1 sm:flex-none min-w-[80px]"
             data-testid="button-record-video"
           >
-            <Video className="w-4 h-4 mr-2" />
-            Video
+            <Video className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Video</span>
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => fileInputRef.current?.click()}
+            className="flex-1 sm:flex-none min-w-[80px]"
             data-testid="button-upload-file"
           >
-            <Upload className="w-4 h-4 mr-2" />
-            Upload
+            <Upload className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Upload</span>
           </Button>
         </div>
       </div>

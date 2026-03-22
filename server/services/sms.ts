@@ -100,14 +100,23 @@ function normalizePhoneNumber(phone: string): string {
   return phone;
 }
 
+// Mask phone number for logging (show last 4 digits only)
+function maskPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length >= 4) {
+    return `***${digits.slice(-4)}`;
+  }
+  return "***";
+}
+
 export async function sendSMS(to: string, body: string): Promise<SMSResult> {
   const normalizedTo = normalizePhoneNumber(to);
-  console.log(`SMS: Normalizing ${to} -> ${normalizedTo}`);
+  console.log(`SMS: Sending to ${maskPhone(normalizedTo)}`);
   
   // Check if this number has a carrier gateway - use it FIRST
   const gateway = getCarrierGateway(to);
   if (gateway) {
-    console.log(`SMS: Using carrier email gateway for ${to}`);
+    console.log(`SMS: Using carrier email gateway for ${maskPhone(to)}`);
     const gatewayResult = await sendViaCarrierGateway(to, body);
     if (gatewayResult.success) {
       return gatewayResult;
@@ -223,6 +232,16 @@ export async function sendQuoteReady(
   quoteUrl: string
 ): Promise<SMSResult> {
   const message = `Hi ${customerName}, your quote from Chicago Sewer Experts is ready! View it here: ${quoteUrl}. Reply or call us with any questions.`;
+
+  return sendSMS(customerPhone, message);
+}
+
+export async function sendChatInvite(
+  customerPhone: string,
+  customerName: string,
+  chatUrl: string
+): Promise<SMSResult> {
+  const message = `Hi ${customerName}, Chicago Sewer Experts needs to communicate with you about your service. Tap here to chat with us: ${chatUrl}`;
 
   return sendSMS(customerPhone, message);
 }

@@ -92,6 +92,7 @@ export default function QuotesPage() {
     { id: crypto.randomUUID(), description: "", customDescription: "", quantity: 1, unitPrice: 0, total: 0 }
   ]);
   const [laborFee, setLaborFee] = useState(0);
+  const [materialsCost, setMaterialsCost] = useState(0);
   const [taxRate, setTaxRate] = useState(0);
   const [notes, setNotes] = useState("");
 
@@ -123,6 +124,7 @@ export default function QuotesPage() {
     setAddress("");
     setLineItems([{ id: crypto.randomUUID(), description: "", customDescription: "", quantity: 1, unitPrice: 0, total: 0 }]);
     setLaborFee(0);
+    setMaterialsCost(0);
     setTaxRate(0);
     setNotes("");
   };
@@ -166,7 +168,7 @@ export default function QuotesPage() {
 
   // Calculate totals
   const lineItemsTotal = lineItems.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-  const subtotal = lineItemsTotal + laborFee;
+  const subtotal = lineItemsTotal + laborFee + materialsCost;
   const taxAmount = subtotal * (taxRate / 100);
   const total = subtotal + taxAmount;
 
@@ -174,13 +176,14 @@ export default function QuotesPage() {
     mutationFn: async (status: "draft" | "sent") => {
       const validLineItems = lineItems.filter(item => item.description || item.customDescription);
       const quoteData = {
-        jobId: selectedJobId,
+        jobId: selectedJobId && selectedJobId !== "none" ? selectedJobId : undefined,
         customerName,
         customerPhone,
         customerEmail,
         address,
         lineItems: JSON.stringify(validLineItems),
         laborTotal: laborFee.toString(),
+        materialsCost: materialsCost.toString(),
         subtotal: subtotal.toString(),
         taxRate: taxRate.toString(),
         taxAmount: taxAmount.toString(),
@@ -561,19 +564,20 @@ export default function QuotesPage() {
 
       {/* Create Quote Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={(open) => { if (!open) { resetCreateForm(); } setCreateDialogOpen(open); }}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Quote</DialogTitle>
           </DialogHeader>
           <div className="space-y-6">
-            {/* Job Selection */}
+            {/* Job Selection (Optional) */}
             <div className="space-y-2">
-              <Label>Link to Job</Label>
+              <Label>Link to Job <span className="text-muted-foreground font-normal">(Optional)</span></Label>
               <Select value={selectedJobId} onValueChange={handleJobSelect}>
                 <SelectTrigger data-testid="select-job">
-                  <SelectValue placeholder="Select a job..." />
+                  <SelectValue placeholder="No job linked - enter customer info below" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">No job linked</SelectItem>
                   {availableJobs.map((job) => (
                     <SelectItem key={job.id} value={job.id}>
                       {job.customerName} - {job.address} ({job.status})
@@ -581,15 +585,13 @@ export default function QuotesPage() {
                   ))}
                 </SelectContent>
               </Select>
-              {!selectedJobId && (
-                <p className="text-sm text-amber-500">A job must be selected to create a quote</p>
-              )}
+              <p className="text-sm text-muted-foreground">Select a job to auto-fill customer info, or enter manually below</p>
             </div>
 
             {/* Customer Information */}
             <div className="space-y-4">
               <Label className="text-base font-medium">Customer Information</Label>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div className="space-y-2">
                   <Label>Name</Label>
                   <Input
@@ -637,7 +639,7 @@ export default function QuotesPage() {
               </div>
               <div className="space-y-3">
                 {lineItems.map((item, index) => (
-                  <div key={item.id} className="flex items-center gap-3 p-3 border rounded-md">
+                  <div key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3 border rounded-md">
                     <div className="flex-1">
                       <Select
                         value={item.description}
@@ -655,33 +657,48 @@ export default function QuotesPage() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <Input
-                      type="number"
-                      value={item.quantity}
-                      onChange={(e) => handleLineItemChange(item.id, "quantity", parseInt(e.target.value) || 1)}
-                      className="w-20 text-center"
-                      min={1}
-                      data-testid={`input-quantity-${index}`}
-                    />
-                    <Input
-                      type="number"
-                      value={item.unitPrice}
-                      onChange={(e) => handleLineItemChange(item.id, "unitPrice", parseFloat(e.target.value) || 0)}
-                      className="w-24 text-right"
-                      step="0.01"
-                      data-testid={`input-unit-price-${index}`}
-                    />
-                    <span className="w-24 text-right font-medium">${(item.quantity * item.unitPrice).toFixed(2)}</span>
-                    {lineItems.length > 1 && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeLineItem(item.id)}
-                        data-testid={`button-remove-item-${index}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <Input
+                        type="number"
+                        value={item.quantity === 0 ? "" : item.quantity}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          handleLineItemChange(item.id, "quantity", val === "" ? 0 : parseInt(val) || 0);
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value === "" || parseInt(e.target.value) < 1) {
+                            handleLineItemChange(item.id, "quantity", 1);
+                          }
+                        }}
+                        className="w-16 sm:w-20 text-center"
+                        min={1}
+                        placeholder="Qty"
+                        data-testid={`input-quantity-${index}`}
+                      />
+                      <Input
+                        type="number"
+                        value={item.unitPrice === 0 ? "" : item.unitPrice}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          handleLineItemChange(item.id, "unitPrice", val === "" ? 0 : parseFloat(val) || 0);
+                        }}
+                        className="w-20 sm:w-24 text-right"
+                        step="0.01"
+                        placeholder="Price"
+                        data-testid={`input-unit-price-${index}`}
+                      />
+                      <span className="w-20 sm:w-24 text-right font-medium text-sm sm:text-base">${(item.quantity * item.unitPrice).toFixed(2)}</span>
+                      {lineItems.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeLineItem(item.id)}
+                          data-testid={`button-remove-item-${index}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -697,11 +714,28 @@ export default function QuotesPage() {
                 <span>Labor Fee</span>
                 <Input
                   type="number"
-                  value={laborFee}
-                  onChange={(e) => setLaborFee(parseFloat(e.target.value) || 0)}
+                  value={laborFee === 0 ? "" : laborFee}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setLaborFee(val === "" ? 0 : parseFloat(val) || 0);
+                  }}
                   className="w-24 text-right"
                   step="0.01"
                   data-testid="input-labor-fee"
+                />
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Materials Cost</span>
+                <Input
+                  type="number"
+                  value={materialsCost === 0 ? "" : materialsCost}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setMaterialsCost(val === "" ? 0 : parseFloat(val) || 0);
+                  }}
+                  className="w-24 text-right"
+                  step="0.01"
+                  data-testid="input-materials-cost"
                 />
               </div>
               <Separator />
@@ -713,8 +747,11 @@ export default function QuotesPage() {
                 <span>Tax Rate (%)</span>
                 <Input
                   type="number"
-                  value={taxRate}
-                  onChange={(e) => setTaxRate(parseFloat(e.target.value) || 0)}
+                  value={taxRate === 0 ? "" : taxRate}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setTaxRate(val === "" ? 0 : parseFloat(val) || 0);
+                  }}
                   className="w-20 text-right"
                   step="0.1"
                   data-testid="input-tax-rate"
@@ -744,7 +781,7 @@ export default function QuotesPage() {
             <Button
               variant="ghost"
               onClick={() => createQuoteMutation.mutate("draft")}
-              disabled={!selectedJobId || !customerName || createQuoteMutation.isPending}
+              disabled={!customerName || createQuoteMutation.isPending}
               data-testid="button-save-draft"
             >
               <Save className="w-4 h-4 mr-2" />
@@ -752,7 +789,7 @@ export default function QuotesPage() {
             </Button>
             <Button
               onClick={() => createQuoteMutation.mutate("sent")}
-              disabled={!selectedJobId || !customerName || createQuoteMutation.isPending}
+              disabled={!customerName || createQuoteMutation.isPending}
               data-testid="button-send-quote"
             >
               <Send className="w-4 h-4 mr-2" />
@@ -797,16 +834,16 @@ function QuoteDetails({
         <p className="text-2xl font-bold">${parseFloat(quote.total?.toString() || "0").toLocaleString()}</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground">Phone</p>
           <p className="font-medium">{quote.customerPhone || "N/A"}</p>
         </div>
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground">Email</p>
-          <p className="font-medium">{quote.customerEmail || "N/A"}</p>
+          <p className="font-medium truncate">{quote.customerEmail || "N/A"}</p>
         </div>
-        <div className="space-y-1 col-span-2">
+        <div className="space-y-1 sm:col-span-2">
           <p className="text-sm text-muted-foreground">Address</p>
           <p className="font-medium">{quote.address || "N/A"}</p>
         </div>
@@ -816,7 +853,7 @@ function QuoteDetails({
         </div>
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground">Created At</p>
-          <p className="font-medium">
+          <p className="font-medium text-sm sm:text-base">
             {quote.createdAt && format(new Date(quote.createdAt), "MMM d, yyyy h:mm a")}
           </p>
         </div>
@@ -927,7 +964,7 @@ function EditQuoteForm({
 
   return (
     <div className="space-y-4 py-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         <div className="space-y-2">
           <Label htmlFor="customerName">Customer Name</Label>
           <Input
@@ -969,7 +1006,7 @@ function EditQuoteForm({
             </SelectContent>
           </Select>
         </div>
-        <div className="col-span-2 space-y-2">
+        <div className="sm:col-span-2 space-y-2">
           <Label htmlFor="address">Address</Label>
           <Input
             id="address"

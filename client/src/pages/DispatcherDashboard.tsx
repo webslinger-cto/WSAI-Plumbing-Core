@@ -1308,8 +1308,16 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                       <div className="col-span-2">
                         <Input
                           type="number"
-                          value={item.quantity}
-                          onChange={(e) => updateLineItemQuantity(item.id, parseInt(e.target.value) || 1)}
+                          value={item.quantity === 0 ? "" : item.quantity}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            updateLineItemQuantity(item.id, val === "" ? 0 : parseInt(val) || 0);
+                          }}
+                          onBlur={(e) => {
+                            if (e.target.value === "" || parseInt(e.target.value) < 1) {
+                              updateLineItemQuantity(item.id, 1);
+                            }
+                          }}
                           min={1}
                           data-testid={`input-qty-${index}`}
                         />
@@ -1317,8 +1325,11 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                       <div className="col-span-2">
                         <Input
                           type="number"
-                          value={item.unitPrice}
-                          onChange={(e) => updateLineItemPrice(item.id, parseFloat(e.target.value) || 0)}
+                          value={item.unitPrice === 0 ? "" : item.unitPrice}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            updateLineItemPrice(item.id, val === "" ? 0 : parseFloat(val) || 0);
+                          }}
                           step="0.01"
                           data-testid={`input-price-${index}`}
                         />
@@ -1388,8 +1399,11 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                   <span className="text-muted-foreground">$</span>
                   <Input
                     type="number"
-                    value={laborFee}
-                    onChange={(e) => setLaborFee(parseFloat(e.target.value) || 0)}
+                    value={laborFee === 0 ? "" : laborFee}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setLaborFee(val === "" ? 0 : parseFloat(val) || 0);
+                    }}
                     className="w-20 text-right"
                     step="0.01"
                     data-testid="input-labor-fee"
@@ -1404,8 +1418,11 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                   <span className="text-muted-foreground">$</span>
                   <Input
                     type="number"
-                    value={materialsCost}
-                    onChange={(e) => setMaterialsCost(parseFloat(e.target.value) || 0)}
+                    value={materialsCost === 0 ? "" : materialsCost}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setMaterialsCost(val === "" ? 0 : parseFloat(val) || 0);
+                    }}
                     className="w-20 text-right"
                     step="0.01"
                     data-testid="input-materials-cost"
@@ -1427,8 +1444,11 @@ function QuoteBuilderTab({ jobs, technicians }: QuoteBuilderTabProps) {
                 <div className="flex items-center gap-1">
                   <Input
                     type="number"
-                    value={taxRate}
-                    onChange={(e) => setTaxRate(parseFloat(e.target.value) || 0)}
+                    value={taxRate === 0 ? "" : taxRate}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTaxRate(val === "" ? 0 : parseFloat(val) || 0);
+                    }}
                     className="w-16 text-right"
                     step="0.1"
                     data-testid="input-tax-rate"
@@ -1791,19 +1811,19 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
       />
 
       <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl w-[95vw] sm:w-full max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Job Details - {selectedJob?.customerName}</DialogTitle>
+            <DialogTitle className="text-base sm:text-lg">Job Details - {selectedJob?.customerName}</DialogTitle>
           </DialogHeader>
           {selectedJob && (
             <Tabs defaultValue="details" className="mt-4">
-              <TabsList>
-                <TabsTrigger value="details" data-testid="tab-job-details">Details</TabsTrigger>
-                <TabsTrigger value="timeline" data-testid="tab-job-timeline">Timeline</TabsTrigger>
-                <TabsTrigger value="chat" data-testid="tab-job-chat">Chat</TabsTrigger>
+              <TabsList className="flex flex-wrap h-auto gap-1">
+                <TabsTrigger value="details" className="text-xs sm:text-sm" data-testid="tab-job-details">Details</TabsTrigger>
+                <TabsTrigger value="timeline" className="text-xs sm:text-sm" data-testid="tab-job-timeline">Timeline</TabsTrigger>
+                <TabsTrigger value="chat" className="text-xs sm:text-sm" data-testid="tab-job-chat">Chat</TabsTrigger>
               </TabsList>
               <TabsContent value="details" className="space-y-4 mt-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Customer</p>
                     <p className="font-medium">{selectedJob.customerName}</p>
@@ -1812,7 +1832,7 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
                     <p className="text-sm text-muted-foreground">Phone</p>
                     <p className="font-medium">{selectedJob.customerPhone}</p>
                   </div>
-                  <div className="space-y-1 col-span-2">
+                  <div className="space-y-1 sm:col-span-2">
                     <p className="text-sm text-muted-foreground">Address</p>
                     <p className="font-medium">{selectedJob.address}, {selectedJob.city}</p>
                   </div>
@@ -1829,14 +1849,14 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
                   {selectedJob.scheduledDate && (
                     <div className="space-y-1">
                       <p className="text-sm text-muted-foreground">Scheduled</p>
-                      <p className="font-medium">
+                      <p className="font-medium text-sm sm:text-base">
                         {format(new Date(selectedJob.scheduledDate), "MMM d, yyyy")}
                         {selectedJob.scheduledTimeStart && ` at ${selectedJob.scheduledTimeStart}`}
                       </p>
                     </div>
                   )}
                   {selectedJob.description && (
-                    <div className="space-y-1 col-span-2">
+                    <div className="space-y-1 sm:col-span-2">
                       <p className="text-sm text-muted-foreground">Notes</p>
                       <p className="text-sm">{selectedJob.description}</p>
                     </div>
@@ -1855,7 +1875,7 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
       </Dialog>
 
       <Dialog open={showCustomerSnapshot} onOpenChange={setShowCustomerSnapshot}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl w-[95vw] sm:w-full max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <User className="w-5 h-5" />

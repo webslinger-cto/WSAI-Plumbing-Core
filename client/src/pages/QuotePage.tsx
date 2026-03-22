@@ -738,8 +738,16 @@ export default function QuotePage() {
                               <Input
                                 type="number"
                                 min={1}
-                                value={item.quantity}
-                                onChange={(e) => updateLineItem(item.id, "quantity", parseInt(e.target.value) || 1)}
+                                value={item.quantity === 0 ? "" : item.quantity}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  updateLineItem(item.id, "quantity", val === "" ? 0 : parseInt(val) || 0);
+                                }}
+                                onBlur={(e) => {
+                                  if (e.target.value === "" || parseInt(e.target.value) < 1) {
+                                    updateLineItem(item.id, "quantity", 1);
+                                  }
+                                }}
                                 className="h-7 w-14 text-xs"
                               />
                             </TableCell>
@@ -747,8 +755,11 @@ export default function QuotePage() {
                               <Input
                                 type="number"
                                 min={0}
-                                value={item.unitPrice}
-                                onChange={(e) => updateLineItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)}
+                                value={item.unitPrice === 0 ? "" : item.unitPrice}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  updateLineItem(item.id, "unitPrice", val === "" ? 0 : parseFloat(val) || 0);
+                                }}
                                 className="h-7 w-20 text-xs"
                               />
                             </TableCell>
@@ -837,8 +848,16 @@ export default function QuotePage() {
                                 type="number"
                                 min={0.5}
                                 step={0.5}
-                                value={entry.hoursWorked}
-                                onChange={(e) => updateLaborEntry(entry.id, { hoursWorked: parseFloat(e.target.value) || 1 })}
+                                value={entry.hoursWorked === 0 ? "" : entry.hoursWorked}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  updateLaborEntry(entry.id, { hoursWorked: val === "" ? 0 : parseFloat(val) || 0 });
+                                }}
+                                onBlur={(e) => {
+                                  if (e.target.value === "" || parseFloat(e.target.value) < 0.5) {
+                                    updateLaborEntry(entry.id, { hoursWorked: 1 });
+                                  }
+                                }}
                                 className="h-7 w-14 text-xs"
                                 data-testid={`input-laborer-hours-${entry.id}`}
                               />
@@ -847,8 +866,11 @@ export default function QuotePage() {
                               <Input
                                 type="number"
                                 min={0}
-                                value={entry.hourlyRate}
-                                onChange={(e) => updateLaborEntry(entry.id, { hourlyRate: parseFloat(e.target.value) || 0 })}
+                                value={entry.hourlyRate === 0 ? "" : entry.hourlyRate}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  updateLaborEntry(entry.id, { hourlyRate: val === "" ? 0 : parseFloat(val) || 0 });
+                                }}
                                 className="h-7 w-14 text-xs"
                                 data-testid={`input-laborer-rate-${entry.id}`}
                               />
