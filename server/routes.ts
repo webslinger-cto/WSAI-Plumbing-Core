@@ -7956,20 +7956,39 @@ ${emailContent}
     const accountId = req.query.accountId as string;
     const callStatus = req.body.CallStatus;
     const from = req.body.From;
+    const to = req.body.To;
     const callSid = req.body.CallSid;
 
-    console.log(`[MCTB Webhook] Voice: ${callStatus} from ${from} for account ${accountId}`);
+    console.log(`[MCTB Webhook] Voice: ${callStatus} from ${from} to ${to} (account: ${accountId || "direct"})`);
 
-    // If the call wasn't answered (forwarded to us), trigger MCTB
+    // ── Direct BossMan demo numbers (no accountId needed) ──────────────
+    const BOSSMAN_NUMBERS = ["+18568306568", "+16306268905"];
+    if (BOSSMAN_NUMBERS.includes(to)) {
+      // Immediately send auto-text to the caller FROM the number they called
+      try {
+        const smsService = await import("./services/sms");
+        if (smsService.isConfigured()) {
+          const autoText = "Hey! Sorry we missed your call. Tell us what you need and we'll get right back to you: https://webslingerai.com/activate";
+          await smsService.sendSMS(from, autoText, to);
+          console.log(`[MCTB] Auto-text sent to ${from} from ${to}`);
+        }
+      } catch (smsErr) {
+        console.error(`[MCTB] Auto-text failed:`, smsErr);
+      }
+
+      // Reject the call
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="no-answer"/></Response>`;
+      res.type("text/xml").send(twiml);
+      return;
+    }
+
+    // ── Multi-tenant provisioned numbers (with accountId) ──────────────
     if (callStatus === "ringing" || callStatus === "in-progress") {
-      // Let it ring — TwiML tells Twilio to just hang up after timeout
-      // The no-answer status callback will trigger the auto-text
       const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="busy"/></Response>`;
       res.type("text/xml").send(twiml);
       return;
     }
 
-    // For missed/no-answer — trigger the auto-text
     if (accountId && from) {
       const { handleMissedCall } = await import("./services/mctb-handler");
       await handleMissedCall(accountId, from, callSid || "");
