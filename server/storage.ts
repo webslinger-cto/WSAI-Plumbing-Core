@@ -42,6 +42,10 @@ import {
   type InvoiceLineItem, type InsertInvoiceLineItem,
   type Customer, type InsertCustomer,
   type AuditLog,
+  type InvoiceReminder, type InsertInvoiceReminder,
+  type IntakeSubmission, type InsertIntakeSubmission,
+  type ServiceEstimate, type InsertServiceEstimate,
+  type FollowUp, type InsertFollowUp,
   users, technicians, salespersons, salesCommissions, salespersonLocations,
   leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
@@ -52,6 +56,7 @@ import {
   invoices, invoiceLineItems,
   customers,
   auditLogs,
+  invoiceReminders, intakeSubmissions, serviceEstimates, followUps,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -3618,6 +3623,89 @@ export class DatabaseStorage implements IStorage {
       phone,
       ...data,
     } as InsertCustomer);
+  }
+  // ─── Invoice Reminders ────────────────────────────────────────────────────
+
+  async createInvoiceReminder(data: InsertInvoiceReminder): Promise<InvoiceReminder> {
+    const [r] = await db.insert(invoiceReminders).values(data).returning();
+    return r;
+  }
+
+  async getPendingInvoiceReminders(): Promise<InvoiceReminder[]> {
+    return db.select().from(invoiceReminders)
+      .where(and(eq(invoiceReminders.status, "pending"), lte(invoiceReminders.scheduledFor, new Date())));
+  }
+
+  async updateInvoiceReminder(id: string, data: Partial<InvoiceReminder>): Promise<void> {
+    await db.update(invoiceReminders).set(data).where(eq(invoiceReminders.id, id));
+  }
+
+  async cancelInvoiceReminders(invoiceId: string): Promise<void> {
+    await db.update(invoiceReminders)
+      .set({ status: "cancelled" })
+      .where(and(eq(invoiceReminders.invoiceId, invoiceId), eq(invoiceReminders.status, "pending")));
+  }
+
+  async getInvoiceReminders(invoiceId: string): Promise<InvoiceReminder[]> {
+    return db.select().from(invoiceReminders).where(eq(invoiceReminders.invoiceId, invoiceId));
+  }
+
+  // ─── Intake Submissions ──────────────────────────────────────────────────
+
+  async createIntakeSubmission(data: InsertIntakeSubmission): Promise<IntakeSubmission> {
+    const [s] = await db.insert(intakeSubmissions).values(data).returning();
+    return s;
+  }
+
+  async getIntakeSubmissions(): Promise<IntakeSubmission[]> {
+    return db.select().from(intakeSubmissions).orderBy(desc(intakeSubmissions.createdAt));
+  }
+
+  async getIntakeSubmission(id: string): Promise<IntakeSubmission | undefined> {
+    const [s] = await db.select().from(intakeSubmissions).where(eq(intakeSubmissions.id, id));
+    return s;
+  }
+
+  async updateIntakeSubmission(id: string, data: Partial<IntakeSubmission>): Promise<void> {
+    await db.update(intakeSubmissions).set(data).where(eq(intakeSubmissions.id, id));
+  }
+
+  // ─── Service Estimates ───────────────────────────────────────────────────
+
+  async getServiceEstimates(): Promise<ServiceEstimate[]> {
+    return db.select().from(serviceEstimates).where(eq(serviceEstimates.active, true)).orderBy(serviceEstimates.sortOrder);
+  }
+
+  async createServiceEstimate(data: InsertServiceEstimate): Promise<ServiceEstimate> {
+    const [s] = await db.insert(serviceEstimates).values(data).returning();
+    return s;
+  }
+
+  async updateServiceEstimate(id: string, data: Partial<ServiceEstimate>): Promise<void> {
+    await db.update(serviceEstimates).set(data).where(eq(serviceEstimates.id, id));
+  }
+
+  // ─── Follow-Ups ──────────────────────────────────────────────────────────
+
+  async createFollowUp(data: InsertFollowUp): Promise<FollowUp> {
+    const [f] = await db.insert(followUps).values(data).returning();
+    return f;
+  }
+
+  async getDueFollowUps(): Promise<FollowUp[]> {
+    return db.select().from(followUps)
+      .where(and(eq(followUps.status, "scheduled"), lte(followUps.followUpDate, new Date())));
+  }
+
+  async updateFollowUp(id: string, data: Partial<FollowUp>): Promise<void> {
+    await db.update(followUps).set(data).where(eq(followUps.id, id));
+  }
+
+  async getFollowUps(jobId?: string): Promise<FollowUp[]> {
+    if (jobId) {
+      return db.select().from(followUps).where(eq(followUps.jobId, jobId)).orderBy(desc(followUps.createdAt));
+    }
+    return db.select().from(followUps).orderBy(desc(followUps.createdAt));
   }
 }
 

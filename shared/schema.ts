@@ -1306,3 +1306,90 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
 });
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Customer = typeof customers.$inferSelect;
+
+// ============================================
+// INVOICE REMINDERS (Feature: auto-chase unpaid invoices)
+// ============================================
+
+export const invoiceReminders = pgTable("invoice_reminders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceId: varchar("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
+  reminderNumber: integer("reminder_number").notNull(), // 1, 2, 3, 4
+  scheduledFor: timestamp("scheduled_for").notNull(),
+  sentAt: timestamp("sent_at"),
+  status: text("status").notNull().default("pending"), // pending | sent | skipped | cancelled
+  channel: text("channel").default("sms"), // sms | email | both
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertInvoiceReminderSchema = createInsertSchema(invoiceReminders).omit({ id: true, createdAt: true });
+export type InsertInvoiceReminder = z.infer<typeof insertInvoiceReminderSchema>;
+export type InvoiceReminder = typeof invoiceReminders.$inferSelect;
+
+// ============================================
+// INTAKE SUBMISSIONS (Feature: public auto-qualification form)
+// ============================================
+
+export const intakeSubmissions = pgTable("intake_submissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  phone: text("phone").notNull(),
+  address: text("address"),
+  serviceType: text("service_type").notNull(),
+  urgency: text("urgency").notNull().default("this_week"), // today | this_week | flexible
+  description: text("description"),
+  estimatedMin: decimal("estimated_min", { precision: 10, scale: 2 }),
+  estimatedMax: decimal("estimated_max", { precision: 10, scale: 2 }),
+  convertedToLeadId: varchar("converted_to_lead_id").references(() => leads.id),
+  source: text("source").default("mctb_intake"), // mctb_intake | website | direct
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertIntakeSubmissionSchema = createInsertSchema(intakeSubmissions).omit({ id: true, createdAt: true });
+export type InsertIntakeSubmission = z.infer<typeof insertIntakeSubmissionSchema>;
+export type IntakeSubmission = typeof intakeSubmissions.$inferSelect;
+
+// ============================================
+// SERVICE ESTIMATES (Feature: price ranges per service type for auto-quoting)
+// ============================================
+
+export const serviceEstimates = pgTable("service_estimates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  serviceType: text("service_type").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  minPrice: decimal("min_price", { precision: 10, scale: 2 }).notNull(),
+  maxPrice: decimal("max_price", { precision: 10, scale: 2 }).notNull(),
+  estimatedDuration: text("estimated_duration"), // "1-2 hours", "half day", etc.
+  active: boolean("active").notNull().default(true),
+  sortOrder: integer("sort_order").default(0),
+});
+
+export const insertServiceEstimateSchema = createInsertSchema(serviceEstimates).omit({ id: true });
+export type InsertServiceEstimate = z.infer<typeof insertServiceEstimateSchema>;
+export type ServiceEstimate = typeof serviceEstimates.$inferSelect;
+
+// ============================================
+// SEASONAL FOLLOW-UP (Feature: re-engagement after job completion)
+// ============================================
+
+export const followUps = pgTable("follow_ups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  customerId: varchar("customer_id").references(() => customers.id),
+  customerName: text("customer_name").notNull(),
+  customerPhone: text("customer_phone"),
+  customerEmail: text("customer_email"),
+  address: text("address"),
+  serviceType: text("service_type").notNull(),
+  followUpDate: timestamp("follow_up_date").notNull(),
+  followUpMonths: integer("follow_up_months").notNull(), // 3, 6, 12, 18
+  message: text("message"), // custom override, otherwise auto-generated
+  status: text("status").notNull().default("scheduled"), // scheduled | sent | replied | converted | cancelled
+  sentAt: timestamp("sent_at"),
+  convertedToLeadId: varchar("converted_to_lead_id").references(() => leads.id),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertFollowUpSchema = createInsertSchema(followUps).omit({ id: true, createdAt: true });
+export type InsertFollowUp = z.infer<typeof insertFollowUpSchema>;
+export type FollowUp = typeof followUps.$inferSelect;

@@ -104,6 +104,31 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+
+      // ── Cron jobs for contractor productivity features ──────────────
+      // Invoice reminders — check every hour
+      setInterval(async () => {
+        try {
+          const { processInvoiceReminders } = await import("./services/automation");
+          await processInvoiceReminders();
+        } catch (err) {
+          console.error("[Cron] Invoice reminder processing error:", err);
+        }
+      }, 60 * 60 * 1000); // every hour
+
+      // Seasonal follow-ups — check daily at startup + every 24h
+      const runFollowUps = async () => {
+        try {
+          const { processDueFollowUps } = await import("./services/automation");
+          await processDueFollowUps();
+        } catch (err) {
+          console.error("[Cron] Follow-up processing error:", err);
+        }
+      };
+      setTimeout(runFollowUps, 30_000); // 30s after startup
+      setInterval(runFollowUps, 24 * 60 * 60 * 1000); // then daily
+
+      log("Cron jobs started: invoice reminders (hourly), follow-ups (daily)");
     },
   );
 })();

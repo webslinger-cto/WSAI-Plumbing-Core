@@ -7268,6 +7268,14 @@ ${emailContent}
         }
       }
 
+      // Schedule automatic invoice reminders
+      try {
+        const { scheduleInvoiceReminders } = await import("./services/automation");
+        await scheduleInvoiceReminders(req.params.id);
+      } catch (reminderErr) {
+        console.error("[InvoiceReminder] Failed to schedule (non-fatal):", reminderErr);
+      }
+
       res.json(updated);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -7360,6 +7368,11 @@ ${emailContent}
               sessionId: session.id,
             }).catch(() => {});
             console.log(`[Stripe] Invoice ${invoiceId} marked paid via checkout.session.completed`);
+            // Cancel pending reminders since invoice is paid
+            try {
+              const { cancelInvoiceReminders } = await import("./services/automation");
+              await cancelInvoiceReminders(invoiceId);
+            } catch {}
           }
           break;
         }
@@ -7614,6 +7627,194 @@ ${emailContent}
     } catch (err) {
       console.error("Portal request error:", err);
       res.status(500).json({ error: "Failed to submit request" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // CONTRACTOR PRODUCTIVITY FEATURES
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ─── Invoice Reminders ───────────────────────────────────────────────────
+
+  app.get("/api/invoice-reminders/:invoiceId", async (req, res) => {
+    try {
+      const reminders = await storage.getInvoiceReminders(req.params.invoiceId);
+      res.json(reminders);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch reminders" });
+    }
+  });
+
+  // ─── Public Intake Form (auto-qualification) ────────────────────────────
+
+  app.get("/api/public/intake/services", async (req, res) => {
+    try {
+      const estimates = await storage.getServiceEstimates();
+      const settings = await storage.getCompanySettings();
+      res.json({
+        companyName: settings?.companyName || "BossMan",
+        companyPhone: settings?.phone || "",
+        services: estimates,
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to load services" });
+    }
+  });
+
+  app.post("/api/public/intake", async (req, res) => {
+    try {
+      const { name, phone, address, serviceType, urgency, description } = req.body;
+      if (!name || !phone || !serviceType) {
+        return res.status(400).json({ error: "Name, phone, and service type are required" });
+      }
+
+      // Get price estimate for the service
+      const estimates = await storage.getServiceEstimates();
+      const estimate = estimates.find(e => e.serviceType === serviceType);
+
+      // Save submission
+      const submission = await storage.createIntakeSubmission({
+        name, phone, address, serviceType, urgency: urgency || "this_week",
+        description,
+        estimatedMin: estimate?.minPrice || null,
+        estimatedMax: estimate?.maxPrice || null,
+        source: "mctb_intake",
+      });
+
+      // Auto-create lead
+      const lead = await storage.createLead({
+        customerName: name,
+        customerPhone: phone,
+        customerEmail: null,
+        address: address || null,
+        serviceType,
+        description: description || `Intake form: ${serviceType} - ${urgency || "this week"}`,
+        source: "Website",
+        priority: urgency === "today" ? "urgent" : urgency === "this_week" ? "high" : "normal",
+        status: "new",
+      });
+
+      // Link submission to lead
+      await storage.updateIntakeSubmission(submission.id, { convertedToLeadId: lead.id });
+
+      // Notify dispatcher via SMS
+      const settings = await storage.getCompanySettings();
+      if (settings?.phone) {
+        const { sendSMS, isConfigured } = await import("./services/sms");
+        if (isConfigured()) {
+          const urgencyLabel = urgency === "today" ? "URGENT - TODAY" : urgency === "this_week" ? "This week" : "Flexible";
+          await sendSMS(
+            settings.phone,
+            `New intake form: ${name} at ${address || "no address"} needs ${serviceType} (${urgencyLabel}). Phone: ${phone}`
+          );
+        }
+      }
+
+      res.status(201).json({
+        success: true,
+        estimatedMin: estimate?.minPrice || null,
+        estimatedMax: estimate?.maxPrice || null,
+        estimatedDuration: estimate?.estimatedDuration || null,
+        message: estimate
+          ? `${estimate.displayName} typically runs $${estimate.minPrice}-$${estimate.maxPrice}. We'll confirm on-site.`
+          : "We'll reach out shortly to confirm details and pricing.",
+      });
+    } catch (err) {
+      console.error("Intake submission error:", err);
+      res.status(500).json({ error: "Failed to submit" });
+    }
+  });
+
+  // ─── Service Estimates (admin CRUD) ──────────────────────────────────────
+
+  app.get("/api/service-estimates", async (req, res) => {
+    try {
+      res.json(await storage.getServiceEstimates());
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch estimates" });
+    }
+  });
+
+  app.post("/api/service-estimates", async (req, res) => {
+    try {
+      const estimate = await storage.createServiceEstimate(req.body);
+      res.status(201).json(estimate);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to create estimate" });
+    }
+  });
+
+  app.patch("/api/service-estimates/:id", async (req, res) => {
+    try {
+      await storage.updateServiceEstimate(req.params.id, req.body);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update estimate" });
+    }
+  });
+
+  // ─── QR Code Payment ────────────────────────────────────────────────────
+
+  app.get("/api/invoices/:id/qr", async (req, res) => {
+    try {
+      const invoice = await storage.getInvoice(req.params.id);
+      if (!invoice || !invoice.publicToken) {
+        return res.status(404).json({ error: "Invoice not found or no public token" });
+      }
+
+      const paymentUrl = `${process.env.APP_URL || req.headers.origin || "https://app.bossman.io"}/public/invoice/${invoice.publicToken}`;
+
+      const QRCode = await import("qrcode");
+      const qrDataUrl = await QRCode.toDataURL(paymentUrl, {
+        width: 300,
+        margin: 2,
+        color: { dark: "#0f172a", light: "#ffffff" },
+      });
+
+      res.json({ qrDataUrl, paymentUrl });
+    } catch (err) {
+      console.error("QR generation error:", err);
+      res.status(500).json({ error: "Failed to generate QR code" });
+    }
+  });
+
+  // ─── Follow-Ups ──────────────────────────────────────────────────────────
+
+  app.get("/api/follow-ups", async (req, res) => {
+    try {
+      const jobId = req.query.jobId as string | undefined;
+      res.json(await storage.getFollowUps(jobId));
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch follow-ups" });
+    }
+  });
+
+  app.post("/api/follow-ups", async (req, res) => {
+    try {
+      const { scheduleFollowUp } = await import("./services/automation");
+      await scheduleFollowUp(req.body.jobId, req.body.months);
+      res.status(201).json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to schedule follow-up" });
+    }
+  });
+
+  app.patch("/api/follow-ups/:id", async (req, res) => {
+    try {
+      await storage.updateFollowUp(req.params.id, req.body);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update follow-up" });
+    }
+  });
+
+  // ─── Intake Submissions (admin view) ─────────────────────────────────────
+
+  app.get("/api/intake-submissions", async (req, res) => {
+    try {
+      res.json(await storage.getIntakeSubmissions());
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch submissions" });
     }
   });
 

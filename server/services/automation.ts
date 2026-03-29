@@ -1087,3 +1087,179 @@ export function scheduleReviewRequest(jobId: string, delayMs: number): void {
 
   console.log(`[ReviewRequest] Scheduled for job ${jobId} in ${delayMs / 60000} min`);
 }
+
+// ─── Invoice Reminder Automation ──────────────────────────────────────────────
+
+/**
+ * Schedules invoice reminders at day 3, 7, 14, 30 after invoice is sent.
+ * Called when an invoice status changes to "sent".
+ */
+export async function scheduleInvoiceReminders(invoiceId: string): Promise<void> {
+  try {
+    const delays = [3, 7, 14, 30]; // days after send
+    const now = new Date();
+
+    for (let i = 0; i < delays.length; i++) {
+      const scheduledFor = new Date(now);
+      scheduledFor.setDate(scheduledFor.getDate() + delays[i]);
+
+      await storage.createInvoiceReminder({
+        invoiceId,
+        reminderNumber: i + 1,
+        scheduledFor,
+        status: "pending",
+        channel: "sms",
+      });
+    }
+
+    console.log(`[InvoiceReminder] Scheduled ${delays.length} reminders for invoice ${invoiceId}`);
+  } catch (err) {
+    console.error(`[InvoiceReminder] Failed to schedule for ${invoiceId}:`, err);
+  }
+}
+
+/**
+ * Process pending invoice reminders. Run on a cron (every hour).
+ */
+export async function processInvoiceReminders(): Promise<void> {
+  try {
+    const pending = await storage.getPendingInvoiceReminders();
+    const settings = await storage.getCompanySettings();
+    const companyName = settings?.companyName || "our team";
+
+    for (const reminder of pending) {
+      const invoice = await storage.getInvoice(reminder.invoiceId);
+      if (!invoice) continue;
+
+      // Skip if already paid or voided
+      if (invoice.status === "paid" || invoice.status === "void") {
+        await storage.updateInvoiceReminder(reminder.id, { status: "cancelled" });
+        continue;
+      }
+
+      // Build payment link
+      const paymentUrl = invoice.publicToken
+        ? `${process.env.APP_URL || "https://app.bossman.io"}/public/invoice/${invoice.publicToken}`
+        : null;
+
+      // Send SMS
+      if (invoice.customerPhone && smsService.isConfigured()) {
+        const firstName = invoice.customerName.split(" ")[0];
+        const amount = parseFloat(invoice.total as string || "0").toFixed(2);
+        const body = paymentUrl
+          ? `Hi ${firstName}, friendly reminder about your $${amount} invoice from ${companyName}. Tap to pay: ${paymentUrl}`
+          : `Hi ${firstName}, friendly reminder about your $${amount} invoice from ${companyName}. Please contact us to arrange payment.`;
+
+        await smsService.sendSMS(invoice.customerPhone, body);
+      }
+
+      await storage.updateInvoiceReminder(reminder.id, {
+        status: "sent",
+        sentAt: new Date(),
+      });
+
+      console.log(`[InvoiceReminder] Sent reminder #${reminder.reminderNumber} for invoice ${invoice.invoiceNumber}`);
+    }
+  } catch (err) {
+    console.error("[InvoiceReminder] Processing error:", err);
+  }
+}
+
+/**
+ * Cancel all pending reminders for an invoice (called when invoice is paid).
+ */
+export async function cancelInvoiceReminders(invoiceId: string): Promise<void> {
+  try {
+    await storage.cancelInvoiceReminders(invoiceId);
+    console.log(`[InvoiceReminder] Cancelled reminders for invoice ${invoiceId}`);
+  } catch (err) {
+    console.error(`[InvoiceReminder] Cancel error for ${invoiceId}:`, err);
+  }
+}
+
+// ─── Seasonal Follow-Up Automation ────────────────────────────────────────────
+
+// Default follow-up periods by service type (months)
+const DEFAULT_FOLLOW_UP_MONTHS: Record<string, number> = {
+  "sewer_repair": 12,
+  "sewer_line": 12,
+  "drain_cleaning": 6,
+  "water_heater": 12,
+  "plumbing_repair": 12,
+  "hvac_repair": 6,
+  "hvac_install": 12,
+  "electrical": 12,
+  "roofing": 18,
+  "sealcoating": 12,
+  "general": 12,
+};
+
+/**
+ * Schedule a follow-up for a completed job.
+ * Called from job completion flow or manually.
+ */
+export async function scheduleFollowUp(
+  jobId: string,
+  months?: number
+): Promise<void> {
+  try {
+    const job = await storage.getJob(jobId);
+    if (!job) return;
+
+    const followUpMonths = months || DEFAULT_FOLLOW_UP_MONTHS[job.serviceType] || 12;
+    const followUpDate = new Date();
+    followUpDate.setMonth(followUpDate.getMonth() + followUpMonths);
+
+    await storage.createFollowUp({
+      jobId: job.id,
+      customerName: job.customerName,
+      customerPhone: job.customerPhone,
+      customerEmail: job.customerEmail || undefined,
+      address: job.address,
+      serviceType: job.serviceType,
+      followUpDate,
+      followUpMonths,
+      status: "scheduled",
+    });
+
+    console.log(`[FollowUp] Scheduled ${followUpMonths}-month follow-up for job ${jobId}`);
+  } catch (err) {
+    console.error(`[FollowUp] Failed to schedule for ${jobId}:`, err);
+  }
+}
+
+/**
+ * Process due follow-ups. Run on a daily cron.
+ */
+export async function processDueFollowUps(): Promise<void> {
+  try {
+    const due = await storage.getDueFollowUps();
+    const settings = await storage.getCompanySettings();
+    const companyName = settings?.companyName || "our team";
+    const companyPhone = settings?.phone || "";
+
+    for (const followUp of due) {
+      const firstName = followUp.customerName.split(" ")[0];
+      const monthsAgo = followUp.followUpMonths;
+      const serviceLabel = followUp.serviceType.replace(/_/g, " ");
+
+      const body =
+        `Hi ${firstName}! It's been ${monthsAgo} months since we did ${serviceLabel} at ${followUp.address || "your property"}. ` +
+        `Most ${serviceLabel} needs a check-up around now. Want to schedule? ` +
+        `Reply YES or call us: ${companyPhone}`;
+
+      if (followUp.customerPhone && smsService.isConfigured()) {
+        await smsService.sendSMS(followUp.customerPhone, body);
+      }
+
+      await storage.updateFollowUp(followUp.id, {
+        status: "sent",
+        sentAt: new Date(),
+      });
+
+      console.log(`[FollowUp] Sent to ${followUp.customerName} for ${followUp.serviceType}`);
+    }
+  } catch (err) {
+    console.error("[FollowUp] Processing error:", err);
+  }
+}
