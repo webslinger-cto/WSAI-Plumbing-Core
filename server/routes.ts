@@ -7818,5 +7818,255 @@ ${emailContent}
     }
   });
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // MCTB AUTO-PROVISIONING + MULTI-TENANT WEBHOOKS
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ─── Onboard a new MCTB customer (creates account + provisions number) ───
+
+  app.post("/api/mctb/onboard", async (req, res) => {
+    try {
+      const { businessName, ownerName, businessPhone, businessEmail, businessZip, phoneType } = req.body;
+
+      if (!businessName || !ownerName || !businessPhone) {
+        return res.status(400).json({ error: "businessName, ownerName, and businessPhone are required" });
+      }
+
+      // Generate a URL-safe slug from business name
+      const slug = businessName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
+      // Create account
+      const account = await storage.createMctbAccount({
+        businessName,
+        ownerName,
+        businessEmail,
+        businessPhone,
+        businessZip: businessZip || null,
+        phoneType: phoneType || "cell",
+        companySlug: slug,
+        plan: "apprentice",
+        status: "provisioning",
+        trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14-day trial
+      });
+
+      // Auto-provision a Twilio number
+      const { provisionNumber } = await import("./services/twilio-provisioning");
+      const result = await provisionNumber(businessPhone, businessZip || null, account.id);
+
+      if (result.success) {
+        await storage.updateMctbAccount(account.id, {
+          twilioNumberSid: result.twilioNumberSid,
+          twilioNumber: result.twilioNumber,
+          twilioAreaCode: result.areaCode,
+          status: "active",
+        });
+
+        res.status(201).json({
+          success: true,
+          accountId: account.id,
+          twilioNumber: result.twilioNumber,
+          forwardingInstructions: getForwardingInstructions(phoneType || "cell", result.twilioNumber!),
+          trialEndsAt: account.trialEndsAt,
+        });
+      } else {
+        // Account created but provisioning failed — they can retry
+        await storage.updateMctbAccount(account.id, { status: "provisioning" });
+        res.status(201).json({
+          success: true,
+          accountId: account.id,
+          provisioningStatus: "pending",
+          error: `Number provisioning delayed: ${result.error}. We'll assign one manually.`,
+        });
+      }
+    } catch (err: any) {
+      console.error("[MCTB Onboard] Error:", err);
+      res.status(500).json({ error: "Failed to create account" });
+    }
+  });
+
+  // ─── Get forwarding instructions for a phone type ────────────────────────
+
+  app.get("/api/mctb/setup-instructions/:accountId", async (req, res) => {
+    try {
+      const account = await storage.getMctbAccount(req.params.accountId);
+      if (!account || !account.twilioNumber) {
+        return res.status(404).json({ error: "Account not found or no number assigned" });
+      }
+      res.json({
+        twilioNumber: account.twilioNumber,
+        phoneType: account.phoneType,
+        instructions: getForwardingInstructions(account.phoneType, account.twilioNumber),
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to get instructions" });
+    }
+  });
+
+  // ─── Send a test call to verify forwarding ───────────────────────────────
+
+  app.post("/api/mctb/test-call/:accountId", async (req, res) => {
+    try {
+      const account = await storage.getMctbAccount(req.params.accountId);
+      if (!account) return res.status(404).json({ error: "Account not found" });
+
+      const { sendTestCall } = await import("./services/twilio-provisioning");
+      const result = await sendTestCall(account.businessPhone);
+
+      res.json({
+        success: result.success,
+        message: result.success
+          ? "Test call initiated. Don't answer your phone — you should receive an auto-text within 30 seconds."
+          : `Test call failed: ${result.error}`,
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to send test call" });
+    }
+  });
+
+  // ─── MCTB Account management ────────────────────────────────────────────
+
+  app.get("/api/mctb/accounts", async (req, res) => {
+    try { res.json(await storage.getMctbAccounts()); }
+    catch (err) { res.status(500).json({ error: "Failed to fetch accounts" }); }
+  });
+
+  app.get("/api/mctb/accounts/:id", async (req, res) => {
+    try {
+      const account = await storage.getMctbAccount(req.params.id);
+      if (!account) return res.status(404).json({ error: "Not found" });
+      res.json(account);
+    } catch (err) { res.status(500).json({ error: "Failed to fetch account" }); }
+  });
+
+  app.get("/api/mctb/accounts/:id/calls", async (req, res) => {
+    try { res.json(await storage.getMctbCallLogs(req.params.id)); }
+    catch (err) { res.status(500).json({ error: "Failed to fetch call logs" }); }
+  });
+
+  app.patch("/api/mctb/accounts/:id", async (req, res) => {
+    try {
+      const updated = await storage.updateMctbAccount(req.params.id, req.body);
+      res.json(updated);
+    } catch (err) { res.status(500).json({ error: "Failed to update account" }); }
+  });
+
+  // ─── Multi-tenant MCTB Webhooks (Twilio calls these) ────────────────────
+
+  app.post("/api/webhooks/mctb/voice", async (req, res) => {
+    const accountId = req.query.accountId as string;
+    const callStatus = req.body.CallStatus;
+    const from = req.body.From;
+    const callSid = req.body.CallSid;
+
+    console.log(`[MCTB Webhook] Voice: ${callStatus} from ${from} for account ${accountId}`);
+
+    // If the call wasn't answered (forwarded to us), trigger MCTB
+    if (callStatus === "ringing" || callStatus === "in-progress") {
+      // Let it ring — TwiML tells Twilio to just hang up after timeout
+      // The no-answer status callback will trigger the auto-text
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="busy"/></Response>`;
+      res.type("text/xml").send(twiml);
+      return;
+    }
+
+    // For missed/no-answer — trigger the auto-text
+    if (accountId && from) {
+      const { handleMissedCall } = await import("./services/mctb-handler");
+      await handleMissedCall(accountId, from, callSid || "");
+    }
+
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`;
+    res.type("text/xml").send(twiml);
+  });
+
+  app.post("/api/webhooks/mctb/sms", async (req, res) => {
+    const accountId = req.query.accountId as string;
+    const from = req.body.From;
+    const body = req.body.Body;
+
+    console.log(`[MCTB Webhook] SMS from ${from} for account ${accountId}: ${body?.slice(0, 50)}`);
+
+    if (accountId && from && body) {
+      const { handleCustomerReply } = await import("./services/mctb-handler");
+      await handleCustomerReply(accountId, from, body);
+    }
+
+    // Respond with empty TwiML
+    res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response/>`);
+  });
+
+  app.post("/api/webhooks/mctb/status", async (req, res) => {
+    // Status callback — log delivery status
+    const accountId = req.query.accountId as string;
+    console.log(`[MCTB Webhook] Status for account ${accountId}: ${req.body.MessageStatus || req.body.CallStatus}`);
+    res.sendStatus(200);
+  });
+
+  app.post("/api/webhooks/mctb/voice-fallback", async (req, res) => {
+    console.error(`[MCTB Webhook] Voice fallback hit — primary webhook failed`);
+    res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`);
+  });
+
   return httpServer;
+}
+
+// ─── Helper: Generate forwarding instructions per phone type ─────────────────
+
+function getForwardingInstructions(phoneType: string, twilioNumber: string): {
+  steps: string[];
+  forwardCode: string | null;
+  testInstructions: string;
+} {
+  const cleanNumber = twilioNumber.replace(/\D/g, "");
+  const formatted = `(${cleanNumber.slice(1, 4)}) ${cleanNumber.slice(4, 7)}-${cleanNumber.slice(7)}`;
+
+  switch (phoneType) {
+    case "cell":
+      return {
+        steps: [
+          "Open your phone app (the one you use to make calls)",
+          `Dial: *73${cleanNumber}# and press call`,
+          "You'll hear a confirmation beep or message",
+          "That's it — missed calls now forward to BossMan",
+        ],
+        forwardCode: `*73${cleanNumber}#`,
+        testInstructions: `Call your business number from another phone. Don't answer. You should get a text within 10 seconds.`,
+      };
+
+    case "google_voice":
+      return {
+        steps: [
+          "Open voice.google.com on your computer",
+          "Click the gear icon (Settings) in the top right",
+          "Click 'Calls' on the left sidebar",
+          `Under 'Forward calls to', add this number: ${formatted}`,
+          "Make sure 'Forward calls when not answered' is enabled",
+          "Save",
+        ],
+        forwardCode: null,
+        testInstructions: `Call your Google Voice number from another phone. Don't answer. You should get a text within 10 seconds.`,
+      };
+
+    case "voip":
+    case "landline":
+      return {
+        steps: [
+          "Log into your phone provider's website or app",
+          "Find 'Call Forwarding' or 'Call Rules' in settings",
+          `Set 'Forward when no answer' to: ${formatted}`,
+          "Save the changes",
+          "If you can't find it, call your phone provider and say: 'I need calls forwarded when I don't answer'",
+          `Give them this number: ${formatted}`,
+        ],
+        forwardCode: `*72${cleanNumber}# (try this first — works for many landlines)`,
+        testInstructions: `Call your business number from another phone. Don't answer. You should get a text within 10 seconds.`,
+      };
+
+    default:
+      return {
+        steps: [`Forward your missed calls to: ${formatted}`],
+        forwardCode: `*73${cleanNumber}#`,
+        testInstructions: `Call your business number. Don't answer. You should get a text within 10 seconds.`,
+      };
+  }
 }

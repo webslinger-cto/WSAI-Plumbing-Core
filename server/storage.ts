@@ -46,6 +46,8 @@ import {
   type IntakeSubmission, type InsertIntakeSubmission,
   type ServiceEstimate, type InsertServiceEstimate,
   type FollowUp, type InsertFollowUp,
+  type MctbAccount, type InsertMctbAccount,
+  type MctbCallLog, type InsertMctbCallLog,
   users, technicians, salespersons, salesCommissions, salespersonLocations,
   leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
@@ -57,6 +59,7 @@ import {
   customers,
   auditLogs,
   invoiceReminders, intakeSubmissions, serviceEstimates, followUps,
+  mctbAccounts, mctbCallLog,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -3706,6 +3709,58 @@ export class DatabaseStorage implements IStorage {
       return db.select().from(followUps).where(eq(followUps.jobId, jobId)).orderBy(desc(followUps.createdAt));
     }
     return db.select().from(followUps).orderBy(desc(followUps.createdAt));
+  }
+
+  // ─── MCTB Accounts ──────────────────────────────────────────────────────
+
+  async createMctbAccount(data: InsertMctbAccount): Promise<MctbAccount> {
+    const [a] = await db.insert(mctbAccounts).values(data).returning();
+    return a;
+  }
+
+  async getMctbAccount(id: string): Promise<MctbAccount | undefined> {
+    const [a] = await db.select().from(mctbAccounts).where(eq(mctbAccounts.id, id));
+    return a;
+  }
+
+  async getMctbAccountByTwilioNumber(twilioNumber: string): Promise<MctbAccount | undefined> {
+    const [a] = await db.select().from(mctbAccounts).where(eq(mctbAccounts.twilioNumber, twilioNumber));
+    return a;
+  }
+
+  async getMctbAccounts(): Promise<MctbAccount[]> {
+    return db.select().from(mctbAccounts).orderBy(desc(mctbAccounts.createdAt));
+  }
+
+  async updateMctbAccount(id: string, data: Partial<MctbAccount>): Promise<MctbAccount | undefined> {
+    const [a] = await db.update(mctbAccounts).set({ ...data, updatedAt: new Date() }).where(eq(mctbAccounts.id, id)).returning();
+    return a;
+  }
+
+  // ─── MCTB Call Log ───────────────────────────────────────────────────────
+
+  async createMctbCallLog(data: InsertMctbCallLog): Promise<MctbCallLog> {
+    const [l] = await db.insert(mctbCallLog).values(data).returning();
+    return l;
+  }
+
+  async getRecentMctbCallLog(accountId: string, callerPhone: string): Promise<MctbCallLog | undefined> {
+    const [l] = await db.select().from(mctbCallLog)
+      .where(and(eq(mctbCallLog.accountId, accountId), eq(mctbCallLog.callerPhone, callerPhone)))
+      .orderBy(desc(mctbCallLog.calledAt))
+      .limit(1);
+    return l;
+  }
+
+  async updateMctbCallLog(id: string, data: Partial<MctbCallLog>): Promise<void> {
+    await db.update(mctbCallLog).set(data).where(eq(mctbCallLog.id, id));
+  }
+
+  async getMctbCallLogs(accountId: string, limit = 50): Promise<MctbCallLog[]> {
+    return db.select().from(mctbCallLog)
+      .where(eq(mctbCallLog.accountId, accountId))
+      .orderBy(desc(mctbCallLog.calledAt))
+      .limit(limit);
   }
 }
 

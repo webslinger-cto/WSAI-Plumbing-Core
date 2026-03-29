@@ -1393,3 +1393,71 @@ export const followUps = pgTable("follow_ups", {
 export const insertFollowUpSchema = createInsertSchema(followUps).omit({ id: true, createdAt: true });
 export type InsertFollowUp = z.infer<typeof insertFollowUpSchema>;
 export type FollowUp = typeof followUps.$inferSelect;
+
+// ============================================
+// MCTB ACCOUNTS (multi-tenant: each contractor who subscribes)
+// ============================================
+
+export const mctbAccounts = pgTable("mctb_accounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  // Business info
+  businessName: text("business_name").notNull(),
+  ownerName: text("owner_name").notNull(),
+  businessPhone: text("business_phone").notNull(), // their existing number (customers call this)
+  businessEmail: text("business_email"),
+  businessZip: text("business_zip"),
+  phoneType: text("phone_type").notNull().default("cell"), // cell | google_voice | voip | landline
+  // Provisioned Twilio number
+  twilioNumberSid: text("twilio_number_sid"), // Twilio IncomingPhoneNumber SID
+  twilioNumber: text("twilio_number"), // E.164 format +1XXXXXXXXXX
+  twilioAreaCode: text("twilio_area_code"),
+  // MCTB configuration
+  autoTextTemplate: text("auto_text_template"), // custom message, null = use default
+  intakeFormEnabled: boolean("intake_form_enabled").notNull().default(true),
+  companySlug: text("company_slug").unique(), // for public intake URL: /intake/smith-plumbing
+  // Subscription
+  plan: text("plan").notNull().default("apprentice"), // apprentice | foreman | gc | developer | owner-builder
+  trialEndsAt: timestamp("trial_ends_at"),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  // Status
+  status: text("status").notNull().default("provisioning"), // provisioning | active | paused | cancelled
+  forwardingVerified: boolean("forwarding_verified").notNull().default(false),
+  // Metadata
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+  cancelledAt: timestamp("cancelled_at"),
+});
+
+export const insertMctbAccountSchema = createInsertSchema(mctbAccounts).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertMctbAccount = z.infer<typeof insertMctbAccountSchema>;
+export type MctbAccount = typeof mctbAccounts.$inferSelect;
+
+// ============================================
+// MCTB CALL LOG (every missed call handled by BossMan)
+// ============================================
+
+export const mctbCallLog = pgTable("mctb_call_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  accountId: varchar("account_id").notNull().references(() => mctbAccounts.id),
+  callerPhone: text("caller_phone").notNull(),
+  twilioCallSid: text("twilio_call_sid"),
+  // Auto-text response
+  autoTextSent: boolean("auto_text_sent").notNull().default(false),
+  autoTextSid: text("auto_text_sid"),
+  autoTextBody: text("auto_text_body"),
+  // Customer response
+  customerReplied: boolean("customer_replied").notNull().default(false),
+  customerReply: text("customer_reply"),
+  customerRepliedAt: timestamp("customer_replied_at"),
+  // Conversion
+  convertedToLead: boolean("converted_to_lead").notNull().default(false),
+  convertedToJob: boolean("converted_to_job").notNull().default(false),
+  estimatedValue: decimal("estimated_value", { precision: 10, scale: 2 }),
+  // Timestamps
+  calledAt: timestamp("called_at").notNull().default(sql`now()`),
+});
+
+export const insertMctbCallLogSchema = createInsertSchema(mctbCallLog).omit({ id: true, calledAt: true });
+export type InsertMctbCallLog = z.infer<typeof insertMctbCallLogSchema>;
+export type MctbCallLog = typeof mctbCallLog.$inferSelect;
