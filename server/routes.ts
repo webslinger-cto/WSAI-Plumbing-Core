@@ -2196,8 +2196,8 @@ export async function registerRoutes(
       console.error("Reschedule error:", err);
       res.status(500).json({ error: "Failed to reschedule" });
     }
-  )};
-            
+  });
+
   app.delete("/api/jobs/:id", async (req, res) => {
     try {
       const job = await storage.getJob(req.params.id);

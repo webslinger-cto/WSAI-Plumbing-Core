@@ -1308,8 +1308,10 @@ export const invoices = pgTable("invoices", {
   // Metadata
   notes: text("notes"),
   createdByUserId: varchar("created_by_user_id").references(() => users.id),
-}
-                                
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
 // PERMIT CENTER MODULE
 // ============================================
 
@@ -1717,10 +1719,57 @@ export const workOrders = pgTable("work_orders", {
   customerEmail: text("customer_email"),
   address: text("address"),
   serviceType: text("service_type").notNull(),
+  city: text("city"),
+  state: text("state").default("IL"),
+  zip: text("zip"),
+  datePromised: text("date_promised"),
+  serviceDate: text("service_date"),
+  workDescription: text("work_description"),
+  warrantyYears: text("warranty_years"),
+  price: decimal("price"),
+  discounts: decimal("discounts"),
+  totalPrice: decimal("total_price"),
+  depositAmount: decimal("deposit_amount"),
+  depositCheckNumber: text("deposit_check_number"),
+  balanceAmount: decimal("balance_amount"),
+  balanceCheckNumber: text("balance_check_number"),
+  paymentMethod: text("payment_method"),
+  cardLast4: text("card_last4"),
+  cardExpiration: text("card_expiration"),
+  cardholderName: text("cardholder_name"),
+  serviceTechName: text("service_tech_name"),
+  customerSignature: text("customer_signature"),
+  customerPrintName: text("customer_print_name"),
+  cardholderSignature: text("cardholder_signature"),
+  completionSignature: text("completion_signature"),
+  authorizationAccepted: boolean("authorization_accepted").default(false),
+  rightToCancelAccepted: boolean("right_to_cancel_accepted").default(false),
+  completionAcknowledged: boolean("completion_acknowledged").default(false),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
+export type WorkOrder = typeof workOrders.$inferSelect;
+
+// ============================================
+// SEASONAL FOLLOW-UP
+// ============================================
+
+export const followUps = pgTable("follow_ups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  customerId: varchar("customer_id").references(() => customers.id),
+  customerName: text("customer_name").notNull(),
+  customerPhone: text("customer_phone"),
+  customerEmail: text("customer_email"),
+  address: text("address"),
+  serviceType: text("service_type").notNull(),
   followUpDate: timestamp("follow_up_date").notNull(),
-  followUpMonths: integer("follow_up_months").notNull(), // 3, 6, 12, 18
-  message: text("message"), // custom override, otherwise auto-generated
-  status: text("status").notNull().default("scheduled"), // scheduled | sent | replied | converted | cancelled
+  followUpMonths: integer("follow_up_months").notNull(),
+  message: text("message"),
+  status: text("status").notNull().default("scheduled"),
   sentAt: timestamp("sent_at"),
   convertedToLeadId: varchar("converted_to_lead_id").references(() => leads.id),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
@@ -1797,40 +1846,6 @@ export const mctbCallLog = pgTable("mctb_call_log", {
 export const insertMctbCallLogSchema = createInsertSchema(mctbCallLog).omit({ id: true, calledAt: true });
 export type InsertMctbCallLog = z.infer<typeof insertMctbCallLogSchema>;
 export type MctbCallLog = typeof mctbCallLog.$inferSelect;
-
-  city: text("city"),
-  state: text("state").default("IL"),
-  zip: text("zip"),
-  datePromised: text("date_promised"),
-  serviceDate: text("service_date"),
-  workDescription: text("work_description"),
-  warrantyYears: text("warranty_years"),
-  price: decimal("price"),
-  discounts: decimal("discounts"),
-  totalPrice: decimal("total_price"),
-  depositAmount: decimal("deposit_amount"),
-  depositCheckNumber: text("deposit_check_number"),
-  balanceAmount: decimal("balance_amount"),
-  balanceCheckNumber: text("balance_check_number"),
-  paymentMethod: text("payment_method"),
-  cardLast4: text("card_last4"),
-  cardExpiration: text("card_expiration"),
-  cardholderName: text("cardholder_name"),
-  serviceTechName: text("service_tech_name"),
-  customerSignature: text("customer_signature"),
-  customerPrintName: text("customer_print_name"),
-  cardholderSignature: text("cardholder_signature"),
-  completionSignature: text("completion_signature"),
-  authorizationAccepted: boolean("authorization_accepted").default(false),
-  rightToCancelAccepted: boolean("right_to_cancel_accepted").default(false),
-  completionAcknowledged: boolean("completion_acknowledged").default(false),
-  createdAt: timestamp("created_at").notNull().default(sql`now()`),
-  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
-});
-
-export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({ id: true, createdAt: true, updatedAt: true });
-export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
-export type WorkOrder = typeof workOrders.$inferSelect;
 
 export const jobMedia = pgTable("job_media", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

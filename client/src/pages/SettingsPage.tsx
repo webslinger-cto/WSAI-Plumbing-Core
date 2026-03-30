@@ -1180,7 +1180,16 @@ function CopilotLicenseCard() {
             ))}
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
 
+function AICopilotLicenseCard() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
           <Sparkles className="w-5 h-5" />
           AI Copilot License
         </CardTitle>
@@ -1501,6 +1510,17 @@ function PermitCenterSettingsCard() {
             <code>payment_intent.succeeded</code>,{" "}
             <code>payment_intent.payment_failed</code>
           </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PermitCenterCard() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
           <FileText className="w-5 h-5" />
           Permit Center
         </CardTitle>
