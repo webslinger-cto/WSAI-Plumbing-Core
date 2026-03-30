@@ -64,6 +64,7 @@ export const technicians = pgTable("technicians", {
   lastLocationLat: decimal("last_location_lat"),
   lastLocationLng: decimal("last_location_lng"),
   lastLocationUpdate: timestamp("last_location_update"),
+  color: text("color"),
 });
 
 export const insertTechnicianSchema = createInsertSchema(technicians).omit({ id: true });
@@ -150,7 +151,7 @@ export const leadSources = ["eLocal", "Networx", "Angi", "HomeAdvisor", "Thumbta
 export type LeadSource = typeof leadSources[number];
 
 // Lead statuses
-export const leadStatuses = ["new", "contacted", "qualified", "scheduled", "converted", "lost", "duplicate", "spam"] as const;
+export const leadStatuses = ["new", "contacted", "qualified", "estimated", "quoted", "scheduled", "converted", "permit_pending", "assigned", "estimating", "estimate_submitted", "in_progress", "completed", "lost", "dead", "duplicate", "spam"] as const;
 export type LeadStatus = typeof leadStatuses[number];
 
 // Leads table
@@ -179,6 +180,23 @@ export const leads = pgTable("leads", {
   isDuplicate: boolean("is_duplicate").default(false),
   duplicateOfId: varchar("duplicate_of_id"),
   revenue: decimal("revenue"),
+  customerId: varchar("customer_id"), // FK to customers table (set after match-or-create)
+  // Intake form fields (from paper Daily Work Order)
+  propertyType: text("property_type"), // SFH, Townhome, 2-3 Flat, Condo/Multi-Unit, Business/Commercial
+  contactTenantName: text("contact_tenant_name"),
+  contactTenantPhone: text("contact_tenant_phone"),
+  receivedAt: timestamp("received_at"),
+  recipient: text("recipient"), // dispatcher who received the call
+  nightWeekendCall: boolean("night_weekend_call").default(false),
+  rehab: boolean("rehab").default(false),
+  estimateAmount: decimal("estimate_amount"),
+  intakeNotes: text("intake_notes"),
+  state: text("state"), // US state (e.g. IL)
+  // Lead disposition / outcome tracking
+  notConvertedReason: text("not_converted_reason"), // pricing, scheduling, permits, competitor, no_response, out_of_area, duplicate, changed_mind, other
+  dispositionNotes: text("disposition_notes"), // free-text explanation
+  dispositionSetAt: timestamp("disposition_set_at"), // when outcome was marked
+  dispositionSetBy: varchar("disposition_set_by"), // userId who marked
 });
 
 export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, createdAt: true, updatedAt: true });
@@ -217,7 +235,7 @@ export type InsertCall = z.infer<typeof insertCallSchema>;
 export type Call = typeof calls.$inferSelect;
 
 // Job statuses
-export const jobStatuses = ["pending", "assigned", "confirmed", "en_route", "on_site", "in_progress", "completed", "cancelled"] as const;
+export const jobStatuses = ["pending", "assigned", "confirmed", "en_route", "on_site", "in_progress", "awaiting_permit", "awaiting_inspection", "completed", "cancelled"] as const;
 export type JobStatus = typeof jobStatuses[number];
 
 // Jobs table
@@ -289,6 +307,28 @@ export const jobs = pgTable("jobs", {
   customerConsentInAppMessaging: boolean("customer_consent_in_app_messaging").default(false),
   // Quote linkage for customer portal access
   quoteId: varchar("quote_id"),
+  // Customer linkage
+  customerId: varchar("customer_id"), // FK to customers table
+  // Estimate fields (technician on-site estimate)
+  estimateNotes: text("estimate_notes"),
+  estimateAmount: decimal("estimate_amount"),
+  estimateRangeLow: decimal("estimate_range_low"),
+  estimateRangeHigh: decimal("estimate_range_high"),
+  estimateSubmittedAt: timestamp("estimate_submitted_at"),
+  estimateSubmittedBy: varchar("estimate_submitted_by"),
+  estimateMedia: text("estimate_media"), // JSON array of media URLs/keys
+  // Permit fields
+  permitRequired: boolean("permit_required").default(false),
+  permitJurisdiction: text("permit_jurisdiction"),
+  permitStatus: text("permit_status").default("not_required"), // not_required, draft, submitted, approved
+  permitNumber: text("permit_number"),
+  // Inspection fields
+  inspectionRequired: boolean("inspection_required").default(false),
+  inspectionType: text("inspection_type"),
+  inspectionRequestedDate: timestamp("inspection_requested_date"),
+  inspectionScheduledAt: timestamp("inspection_scheduled_at"),
+  inspectionNotes: text("inspection_notes"),
+  inspectionResult: text("inspection_result"), // passed, failed, rescheduled
 });
 
 export const insertJobSchema = createInsertSchema(jobs).omit({ id: true, createdAt: true, updatedAt: true });
@@ -314,6 +354,7 @@ export type JobTimelineEvent = typeof jobTimelineEvents.$inferSelect;
 export const quotes = pgTable("quotes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   jobId: varchar("job_id").references(() => jobs.id), // Optional - populated when quote is accepted and job is created
+  leadId: varchar("lead_id").references(() => leads.id), // Link to originating lead
   technicianId: varchar("technician_id").references(() => technicians.id),
   customerName: text("customer_name").notNull(),
   customerPhone: text("customer_phone"),
@@ -336,6 +377,28 @@ export const quotes = pgTable("quotes", {
   acceptedAt: timestamp("accepted_at"),
   declinedAt: timestamp("declined_at"),
   expiresAt: timestamp("expires_at"),
+  customerId: varchar("customer_id"), // FK to customers table
+  termsAcceptedAt: timestamp("terms_accepted_at"), // When customer acknowledged T&C
+  city: text("quote_city"),
+  zipCode: text("quote_zip_code"),
+  datePromised: text("date_promised"),
+  workDescription: text("work_description"),
+  warrantyYears: text("warranty_years"),
+  price: decimal("price"),
+  discountPercent: decimal("discount_percent").default("0"),
+  discounts: decimal("discounts").default("0"),
+  totalPrice: decimal("total_price"),
+  depositAmount: decimal("deposit_amount").default("0"),
+  depositCheckNumber: text("deposit_check_number"),
+  balanceAmount: decimal("balance_amount").default("0"),
+  balanceCheckNumber: text("balance_check_number"),
+  authorizationSignature: text("authorization_signature"),
+  authorizationPrintedName: text("authorization_printed_name"),
+  completionSignature: text("completion_signature"),
+  cardholderSignature: text("cardholder_signature"),
+  serviceTechName: text("service_tech_name"),
+  formType: text("form_type").default("legacy"),
+  permitRequired: boolean("permit_required").default(false),
 });
 
 export const insertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true });
@@ -984,6 +1047,7 @@ export const companySettings = pgTable("company_settings", {
   seoWebhookSecret: text("seo_webhook_secret"), // HMAC secret for webhook authentication
   // Lead API/Webhook integration settings
   leadApiEnabled: boolean("lead_api_enabled").notNull().default(true), // Enable/disable lead API and webhooks (Thumbtack, Angi, etc.)
+
   // Stripe Connect settings
   stripeConnectedAccountId: text("stripe_connected_account_id"), // Connected account ID (acct_xxx)
   stripeConnectOnboardingComplete: boolean("stripe_connect_onboarding_complete").default(false),
@@ -993,6 +1057,11 @@ export const companySettings = pgTable("company_settings", {
   reviewRequestDelayMinutes: integer("review_request_delay_minutes").default(120), // 2 hours
   googleReviewUrl: text("google_review_url"), // configurable Google Business review link
   yelpReviewUrl: text("yelp_review_url"), // override for Yelp link
+  // Permit Center settings
+  permitCenterEnabled: boolean("permit_center_enabled").notNull().default(false), // Enable/disable Permit Center module
+  copilotLicenseKey: text("copilot_license_key"),
+  copilotLicenseActive: boolean("copilot_license_active").notNull().default(false),
+  copilotOverrideEnabled: boolean("copilot_override_enabled").notNull().default(false),
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
 
@@ -1124,10 +1193,13 @@ export type ChatParticipantType = typeof chatParticipantTypes[number];
 // Chat threads table
 export const chatThreads = pgTable("chat_threads", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  relatedJobId: varchar("related_job_id").references(() => jobs.id), // Required for customer_visible
+  relatedLeadId: varchar("related_lead_id").references(() => leads.id), // Link to lead (chat starts here)
+  relatedQuoteId: varchar("related_quote_id").references(() => quotes.id), // Link to quote (after estimate)
+  relatedJobId: varchar("related_job_id").references(() => jobs.id), // Link to job (after acceptance)
+  customerId: varchar("customer_id"), // Direct link to customer (for customer-level threads)
   visibility: text("visibility").notNull().default("internal"), // 'internal' | 'customer_visible'
   status: text("status").notNull().default("active"), // 'active' | 'closed'
-  subject: text("subject"), // e.g. "Job #1234 - Drain Cleaning"
+  subject: text("subject"), // e.g. "Lead #1234 - Drain Cleaning"
   createdByType: text("created_by_type").notNull().default("user"), // 'user' | 'customer'
   createdById: varchar("created_by_id").notNull(), // users.id or customer identifier
   lastMessageAt: timestamp("last_message_at"),
@@ -1175,7 +1247,9 @@ export type ChatMessage = typeof chatMessages.$inferSelect;
 // Customer chat magic link sessions (for authenticated customer access)
 export const chatMagicSessions = pgTable("chat_magic_sessions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  leadId: varchar("lead_id").references(() => leads.id), // For lead-stage chat access
+  quoteId: varchar("quote_id").references(() => quotes.id), // For quote-stage chat access
+  jobId: varchar("job_id").references(() => jobs.id), // For job-stage chat access
   customerIdentifier: text("customer_identifier").notNull(), // phone or email
   tokenHash: text("token_hash").notNull(), // SHA-256 hash of token
   expiresAt: timestamp("expires_at").notNull(),
@@ -1190,7 +1264,9 @@ export type ChatMagicSession = typeof chatMagicSessions.$inferSelect;
 // Customer email notification rate limiting
 export const chatEmailNotifications = pgTable("chat_email_notifications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  leadId: varchar("lead_id").references(() => leads.id),
+  quoteId: varchar("quote_id").references(() => quotes.id),
+  jobId: varchar("job_id").references(() => jobs.id),
   customerIdentifier: text("customer_identifier").notNull(),
   lastNotifiedAt: timestamp("last_notified_at").notNull().default(sql`now()`),
 });
@@ -1232,6 +1308,30 @@ export const invoices = pgTable("invoices", {
   // Metadata
   notes: text("notes"),
   createdByUserId: varchar("created_by_user_id").references(() => users.id),
+}
+                                
+// PERMIT CENTER MODULE
+// ============================================
+
+// Permit jurisdictions (cities/counties that issue permits)
+export const permitJurisdictions = pgTable("permit_jurisdictions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(), // e.g. "City of Chicago"
+  state: text("state"), // e.g. "IL"
+  county: text("county"),
+  city: text("city"),
+  zipCodes: text("zip_codes").array(), // optional list of zips served
+  authorityName: text("authority_name"),
+  portalUrl: text("portal_url"),
+  submissionMethod: text("submission_method").default("portal"), // portal | email | in_person | mail
+  submissionEmail: text("submission_email"),
+  submissionPhone: text("submission_phone"),
+  notes: text("notes"),
+  formsPageUrl: text("forms_page_url"), // URL to page listing permit forms
+  formsPdfUrl: text("forms_pdf_url"), // direct URL to PDF form
+  lastCheckedAt: timestamp("last_checked_at"), // when forms were last checked for updates
+  lastVerifiedAt: timestamp("last_verified_at"),
+  isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
@@ -1295,6 +1395,165 @@ export const customers = pgTable("customers", {
   notes: text("notes"),
   tags: text("tags").array(),
   source: text("source"), // first-touch source (eLocal, Referral, etc.)
+});
+
+export const insertPermitJurisdictionSchema = createInsertSchema(permitJurisdictions).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPermitJurisdiction = z.infer<typeof insertPermitJurisdictionSchema>;
+export type PermitJurisdiction = typeof permitJurisdictions.$inferSelect;
+
+// Permit types (plumbing, excavation, sewer, etc.)
+export const permitTypes = pgTable("permit_types", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: text("code").notNull().unique(), // e.g. "plumbing", "excavation", "row"
+  name: text("name").notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitTypeSchema = createInsertSchema(permitTypes).omit({ id: true, createdAt: true });
+export type InsertPermitType = z.infer<typeof insertPermitTypeSchema>;
+export type PermitType = typeof permitTypes.$inferSelect;
+
+// Permit rules (decide which permit types are recommended/required for a job in a jurisdiction)
+export const permitRules = pgTable("permit_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jurisdictionId: varchar("jurisdiction_id").notNull().references(() => permitJurisdictions.id),
+  permitTypeId: varchar("permit_type_id").notNull().references(() => permitTypes.id),
+  conditions: jsonb("conditions").notNull().default({}), // { serviceTypeIncludes: ["sewer"], descriptionIncludes: ["excavat"] }
+  priority: integer("priority").notNull().default(100),
+  required: boolean("required").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitRuleSchema = createInsertSchema(permitRules).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPermitRule = z.infer<typeof insertPermitRuleSchema>;
+export type PermitRule = typeof permitRules.$inferSelect;
+
+// Permit packets (instances of permits detected/generated for a job)
+export const permitPackets = pgTable("permit_packets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  jurisdictionId: varchar("jurisdiction_id").notNull().references(() => permitJurisdictions.id),
+  permitTypeId: varchar("permit_type_id").notNull().references(() => permitTypes.id),
+  status: text("status").notNull().default("detected"), // detected | generating | ready_for_review | ready_to_submit | submitted | closed | error
+  required: boolean("required").notNull().default(false),
+  detectedReason: text("detected_reason"),
+  customerInfo: jsonb("customer_info").notNull().default({}),
+  errorMessage: text("error_message"),
+  generatedAt: timestamp("generated_at"),
+  submittedAt: timestamp("submitted_at"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitPacketSchema = createInsertSchema(permitPackets).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPermitPacket = z.infer<typeof insertPermitPacketSchema>;
+export type PermitPacket = typeof permitPackets.$inferSelect;
+
+// Permit packet documents (generated PDFs, attachments)
+export const permitPacketDocuments = pgTable("permit_packet_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  packetId: varchar("packet_id").notNull().references(() => permitPackets.id),
+  docType: text("doc_type").notNull(), // application_pdf | cover_sheet | attachment
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type").notNull().default("application/pdf"),
+  fileKey: text("file_key"), // S3 storage key
+  fileSize: integer("file_size"),
+  sha256: text("sha256"),
+  url: text("url"), // data URL or storage URL (deprecated, use file_key)
+  templateId: varchar("template_id").references(() => permitTemplates.id),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitPacketDocumentSchema = createInsertSchema(permitPacketDocuments).omit({ id: true, createdAt: true });
+export type InsertPermitPacketDocument = z.infer<typeof insertPermitPacketDocumentSchema>;
+export type PermitPacketDocument = typeof permitPacketDocuments.$inferSelect;
+
+// Permit templates (PDF forms for each jurisdiction/permit type combination)
+export const permitTemplates = pgTable("permit_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jurisdictionId: varchar("jurisdiction_id").notNull().references(() => permitJurisdictions.id),
+  permitTypeId: varchar("permit_type_id").notNull().references(() => permitTypes.id),
+  name: text("name").notNull(),
+  version: integer("version").notNull().default(1),
+  sourceUrl: text("source_url"), // URL where form was downloaded from
+  fileKey: text("file_key"), // S3 key for the template PDF
+  fileSha256: text("file_sha256"),
+  fileSize: integer("file_size"),
+  fieldMapJsonb: jsonb("field_map_jsonb").notNull().default({}), // AcroForm field name -> data source mapping
+  overlayMapJsonb: jsonb("overlay_map_jsonb").notNull().default({}), // x/y positions for overlay text
+  customerFieldPolicyJsonb: jsonb("customer_field_policy_jsonb").notNull().default({}), // which fields are customer-only
+  isActive: boolean("is_active").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitTemplateSchema = createInsertSchema(permitTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPermitTemplate = z.infer<typeof insertPermitTemplateSchema>;
+export type PermitTemplate = typeof permitTemplates.$inferSelect;
+
+// Permit webhook endpoints (tenant-scoped webhook configurations)
+export const permitWebhookEndpoints = pgTable("permit_webhook_endpoints", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id"), // optional tenant scoping
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  eventsJsonb: jsonb("events_jsonb").notNull().default([]), // array of event names to trigger
+  secretKey: text("secret_key"), // per-endpoint HMAC secret
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitWebhookEndpointSchema = createInsertSchema(permitWebhookEndpoints).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPermitWebhookEndpoint = z.infer<typeof insertPermitWebhookEndpointSchema>;
+export type PermitWebhookEndpoint = typeof permitWebhookEndpoints.$inferSelect;
+
+// Permit submissions (tracking of permit filing attempts)
+export const permitSubmissions = pgTable("permit_submissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  packetId: varchar("packet_id").notNull().references(() => permitPackets.id),
+  method: text("method").notNull(), // assisted | email | portal
+  destinationEmail: text("destination_email"),
+  confirmationNumber: text("confirmation_number"),
+  messageId: text("message_id"), // email message ID if applicable
+  statusJsonb: jsonb("status_jsonb").notNull().default({}),
+  notes: text("notes"),
+  receiptFileKey: text("receipt_file_key"), // S3 key for receipt document
+  submittedAt: timestamp("submitted_at").notNull().default(sql`now()`),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertPermitSubmissionSchema = createInsertSchema(permitSubmissions).omit({ id: true, createdAt: true });
+export type InsertPermitSubmission = z.infer<typeof insertPermitSubmissionSchema>;
+export type PermitSubmission = typeof permitSubmissions.$inferSelect;
+
+// Customer status enum
+export const customerStatuses = ["active", "do_not_service", "inactive"] as const;
+export type CustomerStatus = typeof customerStatuses[number];
+
+// Customer preferred contact method enum
+export const customerContactMethods = ["call", "text", "email"] as const;
+export type CustomerContactMethod = typeof customerContactMethods[number];
+
+// Customers table
+export const customers = pgTable("customers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerNumber: text("customer_number"), // unique per company display number
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  phonePrimary: text("phone_primary"),
+  phoneAlt: text("phone_alt"),
+  email: text("email"),
+  preferredContactMethod: text("preferred_contact_method").default("call"),
+  tags: jsonb("tags").notNull().default([]),
+  notes: text("notes"),
+  preferences: jsonb("preferences").notNull().default({}),
+  status: text("status").notNull().default("active"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
@@ -1376,6 +1635,83 @@ export const followUps = pgTable("follow_ups", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   jobId: varchar("job_id").notNull().references(() => jobs.id),
   customerId: varchar("customer_id").references(() => customers.id),
+});
+
+export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+export type Customer = typeof customers.$inferSelect;
+
+// Customer addresses table
+export const customerAddresses = pgTable("customer_addresses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerId: varchar("customer_id").notNull().references(() => customers.id),
+  label: text("label"), // e.g. "Home", "Business", "Rental Property"
+  street1: text("street1").notNull(),
+  street2: text("street2"),
+  city: text("city").notNull(),
+  state: text("state").notNull(),
+  zip: text("zip").notNull(),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertCustomerAddressSchema = createInsertSchema(customerAddresses).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertCustomerAddress = z.infer<typeof insertCustomerAddressSchema>;
+export type CustomerAddress = typeof customerAddresses.$inferSelect;
+
+// Customer payment profile type enum
+export const paymentTypes = ["cash", "card", "check", "ach"] as const;
+export type PaymentType = typeof paymentTypes[number];
+
+// Customer payment profiles table (NO card numbers - only last4, brand, etc.)
+export const customerPaymentProfiles = pgTable("customer_payment_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerId: varchar("customer_id").notNull().references(() => customers.id),
+  paymentType: text("payment_type").notNull(), // cash, card, check, ach
+  details: jsonb("details").notNull().default({}), // brand, last4, billingZip (NO full card numbers)
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertCustomerPaymentProfileSchema = createInsertSchema(customerPaymentProfiles).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertCustomerPaymentProfile = z.infer<typeof insertCustomerPaymentProfileSchema>;
+export type CustomerPaymentProfile = typeof customerPaymentProfiles.$inferSelect;
+
+// Audit Logs - tracks all user edits with field-level diffs
+export const auditActions = ["create", "update", "delete", "status_change"] as const;
+export type AuditAction = typeof auditActions[number];
+
+export const auditLogs = pgTable("audit_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  entityType: text("entity_type").notNull(), // job, quote, customer, lead, technician
+  entityId: varchar("entity_id").notNull(),
+  action: text("action").notNull(), // create, update, delete, status_change
+  userId: varchar("user_id"),
+  userName: text("user_name"),
+  userRole: text("user_role"),
+  changedFields: jsonb("changed_fields").notNull().default({}), // { fieldName: { old: x, new: y } }
+  summary: text("summary"), // human-readable summary
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
+export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+export type AuditLog = typeof auditLogs.$inferSelect;
+
+// Work Orders - digital version of the on-site service form
+export const workOrderStatuses = ["draft", "pending_signature", "signed", "completed", "voided"] as const;
+export type WorkOrderStatus = typeof workOrderStatuses[number];
+
+export const workOrders = pgTable("work_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").references(() => jobs.id),
+  technicianId: varchar("technician_id").references(() => technicians.id),
+  orderNumber: text("order_number"),
+  status: text("status").notNull().default("draft"),
   customerName: text("customer_name").notNull(),
   customerPhone: text("customer_phone"),
   customerEmail: text("customer_email"),
@@ -1461,3 +1797,118 @@ export const mctbCallLog = pgTable("mctb_call_log", {
 export const insertMctbCallLogSchema = createInsertSchema(mctbCallLog).omit({ id: true, calledAt: true });
 export type InsertMctbCallLog = z.infer<typeof insertMctbCallLogSchema>;
 export type MctbCallLog = typeof mctbCallLog.$inferSelect;
+
+  city: text("city"),
+  state: text("state").default("IL"),
+  zip: text("zip"),
+  datePromised: text("date_promised"),
+  serviceDate: text("service_date"),
+  workDescription: text("work_description"),
+  warrantyYears: text("warranty_years"),
+  price: decimal("price"),
+  discounts: decimal("discounts"),
+  totalPrice: decimal("total_price"),
+  depositAmount: decimal("deposit_amount"),
+  depositCheckNumber: text("deposit_check_number"),
+  balanceAmount: decimal("balance_amount"),
+  balanceCheckNumber: text("balance_check_number"),
+  paymentMethod: text("payment_method"),
+  cardLast4: text("card_last4"),
+  cardExpiration: text("card_expiration"),
+  cardholderName: text("cardholder_name"),
+  serviceTechName: text("service_tech_name"),
+  customerSignature: text("customer_signature"),
+  customerPrintName: text("customer_print_name"),
+  cardholderSignature: text("cardholder_signature"),
+  completionSignature: text("completion_signature"),
+  authorizationAccepted: boolean("authorization_accepted").default(false),
+  rightToCancelAccepted: boolean("right_to_cancel_accepted").default(false),
+  completionAcknowledged: boolean("completion_acknowledged").default(false),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
+export type WorkOrder = typeof workOrders.$inferSelect;
+
+export const jobMedia = pgTable("job_media", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  uploadedBy: varchar("uploaded_by").notNull(),
+  mediaType: text("media_type").notNull(),
+  fileName: text("file_name").notNull(),
+  fileSize: integer("file_size"),
+  objectPath: text("object_path").notNull(),
+  caption: text("caption"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertJobMediaSchema = createInsertSchema(jobMedia).omit({ id: true, createdAt: true });
+export type InsertJobMedia = z.infer<typeof insertJobMediaSchema>;
+export type JobMedia = typeof jobMedia.$inferSelect;
+
+// ============================================
+// CALL RECORDINGS
+// ============================================
+export const callRecordings = pgTable("call_recordings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id"),
+  jobId: varchar("job_id"),
+  recordedBy: varchar("recorded_by").notNull(),
+  recordedByName: text("recorded_by_name"),
+  duration: integer("duration"),
+  transcript: text("transcript"),
+  aiAnalysis: text("ai_analysis"),
+  aiRecommendations: text("ai_recommendations"),
+  status: text("status").notNull().default("recording"),
+  customerName: text("customer_name"),
+  customerPhone: text("customer_phone"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertCallRecordingSchema = createInsertSchema(callRecordings).omit({ id: true, createdAt: true });
+export type InsertCallRecording = z.infer<typeof insertCallRecordingSchema>;
+export type CallRecording = typeof callRecordings.$inferSelect;
+
+// ============================================================
+// LEAD VELOCITY SYSTEM
+// ============================================================
+
+export const velocityLeadStatuses = ["NEW", "CLAIMED", "CONTACTED", "QUOTED", "CLOSED", "LOST"] as const;
+export type VelocityLeadStatus = typeof velocityLeadStatuses[number];
+
+export const velocityLeads = pgTable("velocity_leads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  externalId: text("external_id"),
+  source: text("source").notNull().default("manual"),
+  customerInfo: jsonb("customer_info").notNull().default(sql`'{}'::jsonb`),
+  status: text("status").notNull().default("NEW"),
+  claimedAt: timestamp("claimed_at"),
+  claimedBy: varchar("claimed_by"),
+  claimedByName: text("claimed_by_name"),
+  firstContactAt: timestamp("first_contact_at"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  notes: text("notes"),
+  linkedLeadId: varchar("linked_lead_id"), // FK to leads.id — set when synced to main leads table
+});
+
+export const insertVelocityLeadSchema = createInsertSchema(velocityLeads).omit({ id: true, createdAt: true });
+export type InsertVelocityLead = z.infer<typeof insertVelocityLeadSchema>;
+export type VelocityLead = typeof velocityLeads.$inferSelect;
+
+export const velocityLeadAuditLog = pgTable("velocity_lead_audit_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id").notNull().references(() => velocityLeads.id),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  changedBy: varchar("changed_by"),
+  changedByName: text("changed_by_name"),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertVelocityLeadAuditLogSchema = createInsertSchema(velocityLeadAuditLog).omit({ id: true, createdAt: true });
+export type InsertVelocityLeadAuditLog = z.infer<typeof insertVelocityLeadAuditLogSchema>;
+export type VelocityLeadAuditLog = typeof velocityLeadAuditLog.$inferSelect;

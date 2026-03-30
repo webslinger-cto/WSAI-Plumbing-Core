@@ -10,12 +10,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Crown, Eye, User, Bell } from "lucide-react";
+import { Crown, Eye, User, Bell, CheckCheck, Sparkles, Code } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import type { Notification } from "@shared/schema";
 import AppSidebar from "@/components/AppSidebar";
 import LoginPage from "@/components/LoginPage";
 import PasswordSetupPage from "@/components/PasswordSetupPage";
+import CopilotPanel from "@/components/CopilotPanel";
+import { useNewLeadAlert } from "@/hooks/useNewLeadAlert";
 
 export const YELP_REVIEW_URL = "https://www.yelp.com/biz/chicago-sewer-experts-lyons-3?adjust_creative=microsoft&utm_campaign=yelp_feed&utm_medium=feed_v2&utm_source=microsoft";
 import AdminDashboard from "@/pages/AdminDashboard";
@@ -24,6 +26,7 @@ import TechniciansPage from "@/pages/TechniciansPage";
 import ImportPage from "@/pages/ImportPage";
 import OutreachPage from "@/pages/OutreachPage";
 import PayrollPage from "@/pages/PayrollPage";
+import PayTrackerPage from "@/pages/PayTrackerPage";
 import TechnicianDashboard from "@/pages/TechnicianDashboard";
 import QuotePage from "@/pages/QuotePage";
 import DispatcherDashboard from "@/pages/DispatcherDashboard";
@@ -43,9 +46,12 @@ import MarketingROIPage from "@/pages/MarketingROIPage";
 import SEOContentPage from "@/pages/seo-content";
 import EarningsPage from "@/pages/EarningsPage";
 import CallsPage from "@/pages/CallsPage";
+import FollowUpAssistantPage from "@/pages/FollowUpAssistantPage";
 import DispatchChatPage from "@/pages/DispatchChatPage";
 import TechnicianChatPage from "@/pages/TechnicianChatPage";
 import CustomerChatPage from "@/pages/CustomerChatPage";
+import LeadChatPage from "@/pages/LeadChatPage";
+import PublicChatPage from "@/pages/PublicChatPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 import BusinessIntakePage from "@/pages/business-intake";
@@ -54,6 +60,10 @@ import PublicInvoicePage from "@/pages/PublicInvoicePage";
 import SchedulePage from "@/pages/SchedulePage";
 import CustomerPortalPage from "@/pages/CustomerPortalPage";
 import CustomersPage from "@/pages/CustomersPage";
+import CustomerProfile from "@/features/customers/CustomerProfile";
+import PermitCenterPage from "@/features/permits/PermitCenterPage";
+import DocumentsPage from "@/pages/DocumentsPage";
+import WarRoomPage from "@/pages/WarRoomPage";
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -67,7 +77,7 @@ interface AuthState {
   isSuperAdmin: boolean;
 }
 
-function AdminRouter() {
+function AdminRouter({ userId, fullName }: { userId: string; fullName: string }) {
   return (
     <Switch>
       <Route path="/" component={AdminDashboard} />
@@ -77,6 +87,8 @@ function AdminRouter() {
       <Route path="/invoices" component={InvoicesPage} />
       <Route path="/schedule" component={SchedulePage} />
       <Route path="/customers" component={CustomersPage} />
+      <Route path="/customers/:id" component={CustomerProfile} />
+      <Route path="/permits" component={PermitCenterPage} />
       <Route path="/technicians" component={TechniciansPage} />
       <Route path="/map" component={TechnicianMapPage} />
       <Route path="/quote-templates" component={QuoteTemplatesPage} />
@@ -84,10 +96,15 @@ function AdminRouter() {
       <Route path="/marketing" component={MarketingROIPage} />
       <Route path="/seo-content" component={SEOContentPage} />
       <Route path="/payroll" component={PayrollPage} />
+      <Route path="/pay-tracker" component={PayTrackerPage} />
       <Route path="/import" component={ImportPage} />
       <Route path="/outreach" component={OutreachPage} />
+      <Route path="/follow-up" component={FollowUpAssistantPage} />
       <Route path="/export" component={ExportPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/documents" component={DocumentsPage} />
+      <Route path="/lead-assassin">{() => <WarRoomPage userId={userId} fullName={fullName} />}</Route>
+      <Route path="/chat">{() => <DispatchChatPage userId={userId} fullName={fullName} />}</Route>
       <Route path="/operations">{() => <OperationsMenuPage role="admin" />}</Route>
       <Route component={NotFound} />
     </Switch>
@@ -101,10 +118,15 @@ function DispatcherRouter({ userId, fullName }: { userId: string; fullName: stri
       <Route path="/schedule" component={SchedulePage} />
       <Route path="/jobs" component={JobsPage} />
       <Route path="/quotes" component={QuotesPage} />
+      <Route path="/customers" component={CustomersPage} />
+      <Route path="/customers/:id" component={CustomerProfile} />
+      <Route path="/permits" component={PermitCenterPage} />
       <Route path="/map" component={TechnicianMapPage} />
       <Route path="/staffing" component={StaffingPool} />
       <Route path="/calls" component={CallsPage} />
       <Route path="/leads" component={LeadsPage} />
+      <Route path="/follow-up" component={FollowUpAssistantPage} />
+      <Route path="/lead-assassin">{() => <WarRoomPage userId={userId} fullName={fullName} />}</Route>
       <Route path="/chat">{() => <DispatchChatPage userId={userId} fullName={fullName} />}</Route>
       <Route path="/operations">{() => <OperationsMenuPage role="dispatcher" />}</Route>
       <Route component={NotFound} />
@@ -150,6 +172,7 @@ function SalespersonRouter({ salespersonId, userId, fullName }: { salespersonId:
       <Route path="/earnings">
         {() => <EarningsPage salespersonId={salespersonId} fullName={fullName} />}
       </Route>
+      <Route path="/chat">{() => <DispatchChatPage userId={userId} fullName={fullName} />}</Route>
       <Route path="/operations">{() => <OperationsMenuPage role="salesperson" username={fullName} />}</Route>
       <Route component={NotFound} />
     </Switch>
@@ -313,12 +336,21 @@ function NotificationsBell({ userId }: NotificationsBellProps) {
       return res.json();
     },
     enabled: !!userId,
-    refetchInterval: 30000, // Poll every 30 seconds
+    refetchInterval: 10000, // Poll every 10 seconds
   });
   
   const markReadMutation = useMutation({
     mutationFn: async (notificationId: string) => {
       return apiRequest("PATCH", `/api/notifications/${notificationId}/read`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications", userId] });
+    },
+  });
+  
+  const markAllReadMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/notifications/mark-all-read", { userId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications", userId] });
@@ -352,8 +384,20 @@ function NotificationsBell({ userId }: NotificationsBellProps) {
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-80 p-0" align="end">
-        <div className="p-3 border-b">
+        <div className="p-3 border-b flex items-center justify-between gap-2">
           <h4 className="font-semibold">Notifications</h4>
+          {unreadCount > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => markAllReadMutation.mutate()}
+              disabled={markAllReadMutation.isPending}
+              data-testid="button-mark-all-read"
+            >
+              <CheckCheck className="w-4 h-4 mr-1" />
+              Mark all read
+            </Button>
+          )}
         </div>
         <ScrollArea className="h-80">
           {notifications.length === 0 ? (
@@ -393,9 +437,19 @@ function NotificationsBell({ userId }: NotificationsBellProps) {
   );
 }
 
-function App() {
-  const [location, setLocation] = useLocation();
-  const [auth, setAuth] = useState<AuthState>({
+const AUTH_STORAGE_KEY = "cse-auth-session";
+
+function loadAuthFromStorage(): AuthState {
+  try {
+    const saved = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed?.isAuthenticated && parsed?.userId) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return {
     isAuthenticated: false,
     role: null,
     username: "",
@@ -405,7 +459,21 @@ function App() {
     fullName: "",
     requiresPasswordSetup: false,
     isSuperAdmin: false,
-  });
+  };
+}
+
+function App() {
+  const [location, setLocation] = useLocation();
+  const [auth, setAuth] = useState<AuthState>(loadAuthFromStorage);
+  
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [devMode, setDevMode] = useState(() => localStorage.getItem("cse-developer-mode") === "true");
+
+  useEffect(() => {
+    const handler = (e: Event) => setDevMode((e as CustomEvent).detail);
+    window.addEventListener("devModeChange", handler);
+    return () => window.removeEventListener("devModeChange", handler);
+  }, []);
   
   // Super admin role switching - allows viewing the app as different roles
   const [viewAsRole, setViewAsRole] = useState<"admin" | "dispatcher" | "technician" | "salesperson" | null>(null);
@@ -425,13 +493,16 @@ function App() {
     : auth.isSuperAdmin && viewAsRole === "salesperson" ? viewAsSalespersonName 
     : auth.fullName;
 
+  // Global new-lead audible alert — plays for all admins/dispatchers anywhere in the app
+  useNewLeadAlert(auth.isAuthenticated, effectiveRole);
+
   // Always use dark mode for premium marble background
   useLayoutEffect(() => {
     document.documentElement.classList.add("dark");
   }, []);
 
   const handleLogin = (loginData: LoginResponse) => {
-    setAuth({
+    const newAuth: AuthState = {
       isAuthenticated: true,
       role: loginData.role,
       username: loginData.username,
@@ -441,18 +512,25 @@ function App() {
       fullName: loginData.fullName || loginData.username,
       requiresPasswordSetup: loginData.requiresPasswordSetup || false,
       isSuperAdmin: loginData.isSuperAdmin || false,
-    });
+    };
+    setAuth(newAuth);
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newAuth));
     if (!loginData.requiresPasswordSetup) {
       setLocation("/");
     }
   };
 
   const handlePasswordSetupComplete = () => {
-    setAuth(prev => ({ ...prev, requiresPasswordSetup: false }));
+    setAuth(prev => {
+      const updated = { ...prev, requiresPasswordSetup: false };
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
     setLocation("/");
   };
 
   const handleLogout = () => {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
     setAuth({
       isAuthenticated: false,
       role: null,
@@ -479,7 +557,7 @@ function App() {
       </QueryClientProvider>
     );
   }
-
+  
   // Public invoice page (customer payment — no auth required)
   if (location.startsWith('/invoice/')) {
     return (
@@ -487,6 +565,34 @@ function App() {
         <TooltipProvider>
           <Switch>
             <Route path="/invoice/:token" component={PublicInvoicePage} />
+          </Switch>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+  
+  // Public lead chat page (magic link auth)
+  if (location.startsWith('/lead-chat/')) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Switch>
+            <Route path="/lead-chat/:leadId" component={LeadChatPage} />
+          </Switch>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  // Public chat page (no auth - for website visitors) at /public-chat
+  if (location === '/public-chat' || location.startsWith('/public-chat?')) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Switch>
+            <Route path="/public-chat" component={PublicChatPage} />
           </Switch>
           <Toaster />
         </TooltipProvider>
@@ -578,6 +684,12 @@ function App() {
             <div className="flex flex-col flex-1 min-w-0 bg-background/90 backdrop-blur-sm">
               <header className="flex items-center gap-4 px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
+                {devMode && (
+                  <Badge variant="outline" className="bg-green-500/10 text-green-400 border-green-500/30 gap-1" data-testid="badge-developer-mode">
+                    <Code className="w-3 h-3" />
+                    DEV
+                  </Badge>
+                )}
                 <div className="flex-1" />
                 
                 {auth.isSuperAdmin && (
@@ -605,12 +717,21 @@ function App() {
                 )}
                 
                 {(effectiveRole === "admin" || effectiveRole === "dispatcher") && (
-                  <NotificationsBell userId={auth.userId} />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setCopilotOpen(!copilotOpen)}
+                    className={copilotOpen ? "text-primary" : ""}
+                    data-testid="button-copilot-toggle"
+                  >
+                    <Sparkles className="w-5 h-5" />
+                  </Button>
                 )}
+                <NotificationsBell userId={auth.userId} />
               </header>
               <main className="flex-1 overflow-auto p-6">
                 {effectiveRole === "admin" ? (
-                  <AdminRouter />
+                  <AdminRouter userId={auth.userId} fullName={effectiveFullName} />
                 ) : effectiveRole === "dispatcher" ? (
                   <DispatcherRouter userId={auth.userId} fullName={effectiveFullName} />
                 ) : effectiveRole === "salesperson" ? (
@@ -634,6 +755,14 @@ function App() {
               </footer>
             </div>
           </div>
+          {(effectiveRole === "admin" || effectiveRole === "dispatcher") && (
+            <CopilotPanel
+              userId={auth.userId}
+              role={effectiveRole || "dispatcher"}
+              isOpen={copilotOpen}
+              onClose={() => setCopilotOpen(false)}
+            />
+          )}
         </SidebarProvider>
         <Toaster />
       </TooltipProvider>

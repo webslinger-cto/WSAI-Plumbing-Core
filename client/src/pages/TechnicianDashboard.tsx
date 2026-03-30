@@ -2,10 +2,11 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import KPICard from "@/components/KPICard";
-import QuoteBuilder from "@/components/QuoteBuilder";
+import EstimateForm from "@/components/EstimateForm";
 import JobTimeline from "@/components/JobTimeline";
 import { JobChat } from "@/components/JobChat";
 import JobAttachments from "@/components/JobAttachments";
+import { JobMediaTab } from "@/components/JobMediaTab";
 import JobChecklist from "@/components/JobChecklist";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   ClipboardList,
   CheckCircle,
@@ -53,7 +57,11 @@ import {
   ListChecks,
   Radio,
   WifiOff,
+  FileText,
+  DollarSign,
+  Send,
 } from "lucide-react";
+import WorkOrderForm from "@/components/WorkOrderForm";
 import type { Job, Notification } from "@shared/schema";
 import { formatDistanceToNow, format } from "date-fns";
 
@@ -64,6 +72,8 @@ const jobStatusConfig: Record<string, { label: string; color: string; icon: type
   en_route: { label: "En Route", color: "bg-amber-500/20 text-amber-400", icon: Truck },
   on_site: { label: "On Site", color: "bg-purple-500/20 text-purple-400", icon: MapPin },
   in_progress: { label: "In Progress", color: "bg-primary/20 text-primary", icon: PlayCircle },
+  awaiting_permit: { label: "Awaiting Permit", color: "bg-orange-500/20 text-orange-400", icon: FileText },
+  awaiting_inspection: { label: "Awaiting Inspection", color: "bg-cyan-500/20 text-cyan-400", icon: ClipboardList },
   completed: { label: "Completed", color: "bg-green-500/20 text-green-400", icon: CheckCircle2 },
   cancelled: { label: "Cancelled", color: "bg-destructive/20 text-destructive", icon: AlertCircle },
 };
@@ -112,6 +122,71 @@ function getCurrentPosition(): Promise<{ latitude: number; longitude: number } |
       { enableHighAccuracy: false, timeout: 1500, maximumAge: 30000 }
     );
   });
+}
+
+function QuickEstimateForm({ jobId, onSubmit, isPending }: {
+  jobId: string;
+  onSubmit: (data: { estimateNotes: string; estimateAmount: string }) => void;
+  isPending: boolean;
+}) {
+  const [notes, setNotes] = useState("");
+  const [amount, setAmount] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!notes.trim() || !amount.trim()) return;
+    onSubmit({ estimateNotes: notes.trim(), estimateAmount: amount });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <Card>
+        <CardContent className="pt-6 space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <DollarSign className="w-5 h-5 text-primary" />
+            <h3 className="font-semibold">Submit On-Site Estimate</h3>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={`estimate-notes-${jobId}`}>Job Assessment / Notes</Label>
+            <Textarea
+              id={`estimate-notes-${jobId}`}
+              placeholder="Describe the work needed, conditions found on site, materials required..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="min-h-[120px]"
+              data-testid="input-estimate-notes"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={`estimate-amount-${jobId}`}>Estimated Amount ($)</Label>
+            <Input
+              id={`estimate-amount-${jobId}`}
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              data-testid="input-estimate-amount"
+            />
+          </div>
+          <Button
+            type="submit"
+            disabled={isPending || !notes.trim() || !amount.trim()}
+            className="w-full"
+            data-testid="button-submit-estimate"
+          >
+            {isPending ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Send className="w-4 h-4 mr-2" />
+            )}
+            {isPending ? "Submitting..." : "Submit Estimate to Dispatch"}
+          </Button>
+        </CardContent>
+      </Card>
+    </form>
+  );
 }
 
 export default function TechnicianDashboard({ technicianId, userId, fullName }: TechnicianDashboardProps) {
@@ -541,6 +616,26 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
     },
   });
 
+  const submitEstimateMutation = useMutation({
+    mutationFn: async (data: { jobId: string; estimateNotes: string; estimateAmount: string; estimateRangeLow?: string; estimateRangeHigh?: string }) => {
+      return apiRequest("POST", `/api/jobs/${data.jobId}/submit-estimate`, {
+        estimateNotes: data.estimateNotes,
+        estimateAmount: data.estimateAmount,
+        estimateRangeLow: data.estimateRangeLow,
+        estimateRangeHigh: data.estimateRangeHigh,
+        technicianId,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({ title: "Estimate Submitted", description: "Your estimate has been sent to dispatch." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Could not submit estimate.", variant: "destructive" });
+    },
+  });
+
   const markNotificationReadMutation = useMutation({
     mutationFn: async (notificationId: string) => {
       return apiRequest("PATCH", `/api/notifications/${notificationId}/read`, {});
@@ -773,9 +868,9 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
               </div>
             </PopoverContent>
           </Popover>
-          <Button onClick={() => setShowQuoteBuilder(true)} data-testid="button-new-quote">
+          <Button onClick={() => setShowQuoteBuilder(true)} data-testid="button-new-estimate">
             <Plus className="w-4 h-4 mr-2" />
-            New Quote
+            New Estimate
           </Button>
         </div>
       </div>
@@ -1019,9 +1114,9 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
       <Dialog open={showQuoteBuilder} onOpenChange={setShowQuoteBuilder}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Create New Quote</DialogTitle>
+            <DialogTitle>Create New Estimate</DialogTitle>
           </DialogHeader>
-          <QuoteBuilder
+          <EstimateForm
             technicianId={technicianId}
             technicianName={fullName}
             showJobSelector={true}
@@ -1049,7 +1144,15 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
                 </TabsTrigger>
                 <TabsTrigger value="timeline" className="text-xs sm:text-sm" data-testid="tab-timeline">Timeline</TabsTrigger>
                 <TabsTrigger value="chat" className="text-xs sm:text-sm" data-testid="tab-chat">Chat</TabsTrigger>
-                <TabsTrigger value="quote" className="text-xs sm:text-sm" data-testid="tab-quote">Quote</TabsTrigger>
+                <TabsTrigger value="quick-estimate" className="text-xs sm:text-sm" data-testid="tab-quick-estimate">
+                  <DollarSign className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                  Quick Estimate
+                </TabsTrigger>
+                <TabsTrigger value="quote" className="text-xs sm:text-sm" data-testid="tab-estimate">Full Estimate</TabsTrigger>
+                <TabsTrigger value="workorder" className="text-xs sm:text-sm" data-testid="tab-workorder">
+                  <FileText className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                  Work Order
+                </TabsTrigger>
               </TabsList>
               <TabsContent value="details" className="space-y-4 mt-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
@@ -1122,9 +1225,8 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
                 </div>
               </TabsContent>
               <TabsContent value="photos" className="mt-4">
-                <JobAttachments 
-                  jobId={selectedJob.id} 
-                  technicianId={technicianId} 
+                <JobMediaTab 
+                  jobId={selectedJob.id}
                 />
               </TabsContent>
               <TabsContent value="checklist" className="mt-4">
@@ -1140,15 +1242,63 @@ export default function TechnicianDashboard({ technicianId, userId, fullName }: 
               <TabsContent value="chat" className="mt-4">
                 <JobChat jobId={selectedJob.id} jobCustomerName={selectedJob.customerName} userId={userId} />
               </TabsContent>
+              <TabsContent value="quick-estimate" className="mt-4">
+                {selectedJob.estimateSubmittedAt ? (
+                  <Card>
+                    <CardContent className="pt-6 space-y-3">
+                      <div className="flex items-center gap-2 text-green-400">
+                        <CheckCircle2 className="w-5 h-5" />
+                        <span className="font-medium">Estimate Already Submitted</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-muted/30 rounded-lg p-4">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Amount</p>
+                          <p className="font-medium text-lg">${selectedJob.estimateAmount || `${selectedJob.estimateRangeLow}-${selectedJob.estimateRangeHigh}`}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Submitted</p>
+                          <p className="font-medium">{format(new Date(selectedJob.estimateSubmittedAt), "MMM d, yyyy h:mm a")}</p>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <p className="text-sm text-muted-foreground">Notes</p>
+                          <p className="font-medium">{selectedJob.estimateNotes}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <QuickEstimateForm
+                    jobId={selectedJob.id}
+                    onSubmit={(data) => submitEstimateMutation.mutate({ jobId: selectedJob.id, ...data })}
+                    isPending={submitEstimateMutation.isPending}
+                  />
+                )}
+              </TabsContent>
               <TabsContent value="quote" className="mt-4">
-                <QuoteBuilder
+                <EstimateForm
                   jobId={selectedJob.id}
                   technicianId={technicianId}
                   customerName={selectedJob.customerName}
                   customerPhone={selectedJob.customerPhone || ""}
-                  customerAddress={`${selectedJob.address}${selectedJob.city ? `, ${selectedJob.city}` : ""}`}
+                  customerEmail={selectedJob.customerEmail || ""}
+                  customerAddress={selectedJob.address || ""}
+                  customerCity={selectedJob.city || ""}
+                  customerZip={selectedJob.zipCode || ""}
                   technicianName={fullName}
                   onQuoteCreated={() => setSelectedJob(null)}
+                />
+              </TabsContent>
+              <TabsContent value="workorder" className="mt-4">
+                <WorkOrderForm
+                  jobId={selectedJob.id}
+                  technicianId={technicianId}
+                  technicianName={fullName}
+                  customerName={selectedJob.customerName}
+                  customerPhone={selectedJob.customerPhone || ""}
+                  customerEmail={selectedJob.customerEmail || ""}
+                  address={selectedJob.address}
+                  city={selectedJob.city || ""}
+                  zip={selectedJob.zipCode || ""}
                 />
               </TabsContent>
             </Tabs>

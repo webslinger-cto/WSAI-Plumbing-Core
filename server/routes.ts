@@ -1,9 +1,13 @@
 import type { Express } from "express";
+import express from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { requireRole } from "./middleware/requireRole";
 import { logAudit } from "./services/auditLog";
+import { db } from "./db";
+import { chatMagicSessions, payrollPeriods, payrollRecords, insertWorkOrderSchema } from "@shared/schema";
+import { eq, sql } from "drizzle-orm";
 import {
   insertLeadSchema,
   insertCallSchema,
@@ -33,9 +37,11 @@ import {
   insertJobLeadFeeSchema,
   insertJobRevenueEventSchema,
   insertQuoteLineItemSchema,
+  insertCallRecordingSchema,
   type InsertLead,
 } from "@shared/schema";
 import { sendEmail, generateLeadAcknowledgmentEmail } from "./services/email";
+import { calculateTaxes } from "./taxCalculation";
 import { isWithinRadius } from "./geocoding";
 import { 
   autoContactLead, 
@@ -56,8 +62,74 @@ import {
 } from "./services/automation";
 import * as smsService from "./services/sms";
 import { dispatchToClosestTechnician } from "./services/dispatch";
+import { permitService } from "./modules/permits/service";
 import { generateApplicationPDF, generateComparisonPDF, generateHouseCallProComparisonPDF, generateTestResultsPDF, generateThreeWayComparisonPDF, generateReadmePDF, generateChatSystemPDF } from "./services/pdf-generator";
 import { pushJobToBuilder1 } from "./services/builder1-integration";
+import { registerPermitRoutes } from "./modules/permits";
+import { registerCustomerRoutes } from "./modules/customers/routes";
+import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
+import { insertJobMediaSchema } from "@shared/schema";
+import type { Request } from "express";
+
+function computeFieldDiffs(oldObj: Record<string, unknown>, newUpdates: Record<string, unknown>): Record<string, { old: unknown; new: unknown }> {
+  const diffs: Record<string, { old: unknown; new: unknown }> = {};
+  const skipFields = ["updatedAt", "createdAt", "id"];
+  for (const key of Object.keys(newUpdates)) {
+    if (skipFields.includes(key)) continue;
+    const oldVal = oldObj[key as keyof typeof oldObj];
+    const newVal = newUpdates[key];
+    const oldStr = oldVal instanceof Date ? oldVal.toISOString() : JSON.stringify(oldVal);
+    const newStr = newVal instanceof Date ? (newVal as Date).toISOString() : JSON.stringify(newVal);
+    if (oldStr !== newStr) {
+      diffs[key] = { old: oldVal ?? null, new: newVal ?? null };
+    }
+  }
+  return diffs;
+}
+
+function buildAuditSummary(entityType: string, action: string, diffs: Record<string, { old: unknown; new: unknown }>): string {
+  const fields = Object.keys(diffs);
+  if (fields.length === 0) return `${action} ${entityType} (no changes)`;
+  if (fields.includes("status")) {
+    return `Changed ${entityType} status from "${diffs.status.old}" to "${diffs.status.new}"${fields.length > 1 ? ` and ${fields.length - 1} other field(s)` : ""}`;
+  }
+  if (fields.length <= 3) return `Updated ${entityType}: ${fields.join(", ")}`;
+  return `Updated ${entityType}: ${fields.slice(0, 3).join(", ")} and ${fields.length - 3} more`;
+}
+
+async function logAudit(
+  entityType: string,
+  entityId: string,
+  action: string,
+  changedFields: Record<string, { old: unknown; new: unknown }>,
+  req: Request,
+  summary?: string
+) {
+  try {
+    const user = (req as any).session?.passport?.user;
+    const userId = (req as any).user?.id || user || null;
+    let userName: string | null = null;
+    let userRole: string | null = null;
+    if (userId) {
+      const u = await storage.getUser(userId);
+      if (u) { userName = u.fullName || u.username; userRole = u.role; }
+    }
+    await storage.createAuditLog({
+      entityType,
+      entityId,
+      action,
+      userId,
+      userName,
+      userRole,
+      changedFields,
+      summary: summary || buildAuditSummary(entityType, action, changedFields),
+      ipAddress: req.ip || req.headers["x-forwarded-for"] as string || null,
+      userAgent: req.headers["user-agent"] || null,
+    });
+  } catch (err) {
+    console.error("Audit log error:", err);
+  }
+}
 
 // Helper: Notify all dispatchers about technician status changes
 async function notifyDispatchersOfStatusChange(
@@ -124,6 +196,289 @@ async function notifyDispatchersOfStatusChange(
   }
 }
 
+// Helper: Send notification to all staff (dispatchers + admins) or specific roles
+async function notifyStaff(config: {
+  type: string;
+  title: string;
+  message: string;
+  jobId?: string;
+  actionUrl?: string;
+  excludeUserId?: string;
+  targetRoles?: string[];
+}) {
+  try {
+    const users = await storage.getUsers();
+    const roles = config.targetRoles || ["dispatcher", "admin", "salesperson", "technician"];
+    const recipients = users.filter(u => 
+      roles.includes(u.role) && u.id !== config.excludeUserId
+    );
+    for (const user of recipients) {
+      await storage.createNotification({
+        userId: user.id,
+        type: config.type,
+        title: config.title,
+        message: config.message,
+        jobId: config.jobId || undefined,
+        actionUrl: config.actionUrl || undefined,
+        isRead: false,
+      });
+    }
+  } catch (error) {
+    console.error("Failed to send staff notification:", error);
+  }
+}
+
+// Helper: Send notification to a specific user
+async function notifyUser(userId: string, config: {
+  type: string;
+  title: string;
+  message: string;
+  jobId?: string;
+  actionUrl?: string;
+}) {
+  try {
+    await storage.createNotification({
+      userId,
+      type: config.type,
+      title: config.title,
+      message: config.message,
+      jobId: config.jobId || undefined,
+      actionUrl: config.actionUrl || undefined,
+      isRead: false,
+    });
+  } catch (error) {
+    console.error(`Failed to notify user ${userId}:`, error);
+  }
+}
+
+// Helper: Post job status update to chat threads (internal + customer-visible if exists)
+async function postJobStatusChatUpdate(job: any, newStatus: string, actorName?: string) {
+  try {
+    const statusMessages: Record<string, { internal: string; customer: string }> = {
+      assigned: {
+        internal: `Job assigned to ${actorName || "a technician"}. Status: Assigned.`,
+        customer: `Great news! A technician has been assigned to your ${job.serviceType || "service"} job. We'll keep you updated on their arrival.`,
+      },
+      confirmed: {
+        internal: `Technician ${actorName || ""} confirmed the assignment.`,
+        customer: `Your technician has confirmed the job assignment and will be with you as scheduled.`,
+      },
+      en_route: {
+        internal: `Technician ${actorName || ""} is en route to ${job.address || "the job site"}.`,
+        customer: `Your technician is on the way! They should arrive at your location shortly.`,
+      },
+      on_site: {
+        internal: `Technician ${actorName || ""} has arrived on site at ${job.address || "the job location"}.`,
+        customer: `Your technician has arrived at your location and will begin work shortly.`,
+      },
+      in_progress: {
+        internal: `Work has started on the job at ${job.address || "the site"}.`,
+        customer: `Work has begun on your ${job.serviceType || "service"} job. We'll update you when it's complete.`,
+      },
+      completed: {
+        internal: `Job completed by ${actorName || "the technician"} at ${job.address || "the site"}.`,
+        customer: `Your ${job.serviceType || "service"} job has been completed! Thank you for choosing Emergency Chicago Sewer Experts. If you have any questions, don't hesitate to reach out.`,
+      },
+      cancelled: {
+        internal: `Job at ${job.address || "the site"} has been cancelled.`,
+        customer: `Your scheduled ${job.serviceType || "service"} job has been cancelled. Please contact us if you'd like to reschedule.`,
+      },
+    };
+
+    const msgs = statusMessages[newStatus];
+    if (!msgs) return;
+
+    const isDuplicateMessage = async (threadId: string, status: string): Promise<boolean> => {
+      const recentMsgs = await storage.getChatMessages(threadId, { limit: 3 });
+      return recentMsgs.some((m: any) => {
+        if (m.meta && typeof m.meta === "object" && (m.meta as any).source === "job_status_update" && (m.meta as any).newStatus === status) {
+          const msgTime = new Date(m.createdAt).getTime();
+          return Date.now() - msgTime < 30000;
+        }
+        return false;
+      });
+    };
+
+    const internalThread = await storage.getChatThreadByJob(job.id, "internal");
+    if (internalThread && internalThread.status === "active") {
+      const isDupe = await isDuplicateMessage(internalThread.id, newStatus);
+      if (!isDupe) {
+        await storage.createChatMessage({
+          threadId: internalThread.id,
+          senderType: "user",
+          senderId: "system",
+          senderDisplayName: "System",
+          body: msgs.internal,
+          meta: { source: "job_status_update", newStatus },
+        });
+      }
+    }
+
+    const customerThread = await storage.getChatThreadByJob(job.id, "customer_visible");
+    if (customerThread && customerThread.status === "active") {
+      const isDupe = await isDuplicateMessage(customerThread.id, newStatus);
+      if (!isDupe) {
+        await storage.createChatMessage({
+          threadId: customerThread.id,
+          senderType: "user",
+          senderId: "system",
+          senderDisplayName: "Emergency Chicago Sewer Experts",
+          body: msgs.customer,
+          meta: { source: "job_status_update", newStatus },
+        });
+      }
+    }
+
+    if (job.assignedTechnicianId && ["assigned", "cancelled", "completed"].includes(newStatus)) {
+      const tech = await storage.getTechnician(job.assignedTechnicianId);
+      if (tech?.userId) {
+        await notifyUser(tech.userId, {
+          type: "job_status_update",
+          title: `Job Status: ${newStatus.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}`,
+          message: msgs.internal,
+          jobId: job.id,
+          actionUrl: `/jobs/${job.id}`,
+        });
+      }
+    }
+
+    const dispatcherIds = new Set<string>();
+    if (job.dispatcherId) dispatcherIds.add(job.dispatcherId);
+    if (["en_route", "on_site", "completed", "cancelled"].includes(newStatus)) {
+      const users = await storage.getUsers();
+      users.filter(u => u.role === "dispatcher" || u.role === "admin").forEach(u => dispatcherIds.add(u.id));
+    }
+    for (const uid of dispatcherIds) {
+      if (uid === "system") continue;
+      await notifyUser(uid, {
+        type: "job_status_update",
+        title: `Job Status: ${newStatus.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}`,
+        message: msgs.internal,
+        jobId: job.id,
+        actionUrl: `/jobs/${job.id}`,
+      });
+    }
+  } catch (error) {
+    console.error(`Failed to post job status chat update for job ${job.id}:`, error);
+  }
+}
+
+// Helper: Create revenue event for a completed job (idempotent - checks for existing)
+async function createRevenueEventForJob(job: any) {
+  try {
+    const existing = await storage.getJobRevenueEventsByJob(job.id);
+    if (existing.length > 0) return;
+
+    const techId = job.assignedTechnicianId;
+    if (!techId) return;
+
+    const tech = await storage.getTechnician(techId);
+    if (!tech) return;
+
+    let totalRevenue = parseFloat(job.totalRevenue || "0");
+
+    if (totalRevenue === 0) {
+      const workOrders = await storage.getWorkOrdersByJob(job.id);
+      const completedOrder = workOrders.find((wo: any) => wo.status === "completed" || wo.status === "submitted");
+      if (completedOrder) {
+        totalRevenue = parseFloat(completedOrder.totalPrice || "0");
+        if (totalRevenue > 0) {
+          await storage.updateJob(job.id, { totalRevenue: totalRevenue.toFixed(2) });
+        }
+      }
+    }
+
+    if (totalRevenue === 0) {
+      const jobQuotes = await storage.getQuotesByJob(job.id);
+      const acceptedQuote = jobQuotes.find((q: any) => q.status === "accepted") || jobQuotes[0];
+      if (acceptedQuote) {
+        totalRevenue = parseFloat(acceptedQuote.total || "0");
+        if (totalRevenue > 0) {
+          await storage.updateJob(job.id, { totalRevenue: totalRevenue.toFixed(2) });
+        }
+      }
+    }
+
+    const laborCost = parseFloat(job.laborCost || "0");
+    const materialsCost = parseFloat(job.materialsCost || "0");
+    const travelExpense = parseFloat(job.travelExpense || "0");
+    const equipmentCost = parseFloat(job.equipmentCost || "0");
+    const otherExpenses = parseFloat(job.otherExpenses || "0");
+    const totalCost = laborCost + materialsCost + travelExpense + equipmentCost + otherExpenses;
+    const netProfit = totalRevenue - totalCost;
+    const commissionRate = parseFloat(String(tech.commissionRate) || "0.1");
+    const commissionAmount = netProfit > 0 ? netProfit * commissionRate : 0;
+
+    await storage.createJobRevenueEvent({
+      jobId: job.id,
+      technicianId: techId,
+      totalRevenue: totalRevenue.toFixed(2),
+      laborCost: (laborCost + travelExpense + equipmentCost + otherExpenses).toFixed(2),
+      materialCost: materialsCost.toFixed(2),
+      marketingCost: "0",
+      netProfit: netProfit.toFixed(2),
+      commissionAmount: commissionAmount.toFixed(2),
+    });
+    console.log(`[Revenue] Created event for job ${job.id} - Revenue: $${totalRevenue}, Net: $${netProfit}, Commission: $${commissionAmount}`);
+  } catch (error) {
+    console.error(`Failed to create revenue event for job ${job.id}:`, error);
+  }
+}
+
+// Helper: Create chat thread when a lead is created
+async function createLeadChatThread(
+  lead: { id: string; customerName: string; customerPhone: string; serviceType?: string | null },
+  createdByUserId: string
+): Promise<void> {
+  try {
+    // Create a customer-visible chat thread for this lead
+    const thread = await storage.createChatThread({
+      relatedLeadId: lead.id,
+      visibility: 'customer_visible',
+      status: 'active',
+      subject: `${lead.customerName} - ${lead.serviceType || 'Service Request'}`,
+      createdByType: 'user',
+      createdById: createdByUserId,
+    });
+
+    // Add the creating user as a participant
+    const creator = await storage.getUser(createdByUserId);
+    if (creator) {
+      await storage.addChatThreadParticipant({
+        threadId: thread.id,
+        participantType: 'user',
+        participantId: createdByUserId,
+        roleAtTime: creator.role,
+        displayName: creator.fullName || creator.username,
+      });
+    }
+
+    // Add the customer as a participant using their phone number
+    await storage.addChatThreadParticipant({
+      threadId: thread.id,
+      participantType: 'customer',
+      participantId: lead.customerPhone,
+      roleAtTime: 'customer',
+      displayName: lead.customerName,
+    });
+
+    // Add initial welcome message from system
+    await storage.createChatMessage({
+      threadId: thread.id,
+      senderType: 'user',
+      senderId: createdByUserId,
+      senderDisplayName: 'Chicago Sewer Experts',
+      body: `Hello ${lead.customerName}! Thank you for contacting Chicago Sewer Experts. A team member will be in touch shortly to discuss your ${lead.serviceType || 'service request'}. You can reply to this message at any time.`,
+      meta: { automated: true },
+    });
+
+    console.log(`Created chat thread ${thread.id} for lead ${lead.id}`);
+  } catch (error) {
+    console.error(`Failed to create chat thread for lead ${lead.id}:`, error);
+    // Don't throw - chat thread creation failure shouldn't break lead creation
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -149,6 +504,15 @@ export async function registerRoutes(
     const user = await getChatUser(req);
     return user !== null;
   };
+  
+  // Register permit center module routes
+  registerPermitRoutes(app, { isAuthenticatedUser });
+  
+  // Register customer module routes
+  registerCustomerRoutes(app, { isAuthenticatedUser });
+
+  // Register object storage routes
+  registerObjectStorageRoutes(app);
   
   // Health check
   app.get("/api/health", async (req, res) => {
@@ -441,6 +805,73 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/admin/users/:userId", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { fullName, email, phone, role, isActive } = req.body;
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const updates: Partial<User> = {};
+      if (fullName !== undefined) updates.fullName = fullName || null;
+      if (email !== undefined) updates.email = email || null;
+      if (phone !== undefined) updates.phone = phone || null;
+      if (isActive !== undefined) {
+        if (user.isSuperAdmin && !isActive) {
+          return res.status(403).json({ error: "Cannot deactivate super admin account" });
+        }
+        updates.isActive = isActive;
+      }
+      if (role !== undefined && !user.isSuperAdmin) {
+        const oldRole = user.role;
+        updates.role = role;
+
+        if (oldRole === "technician" && role !== "technician") {
+          await storage.deleteTechnicianByUserId(userId);
+        } else if (oldRole === "salesperson" && role !== "salesperson") {
+          await storage.deleteSalespersonByUserId(userId);
+        }
+
+        if (role === "technician" && oldRole !== "technician") {
+          await storage.createTechnician({
+            userId,
+            fullName: fullName || user.fullName || user.username,
+            phone: phone || user.phone || "",
+            email: email || user.email || null,
+            status: "off_duty",
+            skillLevel: "standard",
+          });
+        } else if (role === "salesperson" && oldRole !== "salesperson") {
+          await storage.createSalesperson({
+            userId,
+            fullName: fullName || user.fullName || user.username,
+            phone: phone || user.phone || "",
+            email: email || user.email || null,
+            status: "off_duty",
+          });
+        }
+      }
+
+      const updated = await storage.updateUser(userId, updates);
+      res.json({
+        id: updated!.id,
+        username: updated!.username,
+        fullName: updated!.fullName,
+        role: updated!.role,
+        email: updated!.email,
+        phone: updated!.phone,
+        isActive: updated!.isActive,
+        isSuperAdmin: updated!.isSuperAdmin,
+      });
+    } catch (error) {
+      console.error("Error updating user:", error);
+      res.status(500).json({ error: "Failed to update user" });
+    }
+  });
+
   // Delete user
   app.delete("/api/admin/users/:userId", async (req, res) => {
     try {
@@ -456,6 +887,16 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Cannot delete super admin account" });
       }
 
+      // Nullify all FK references to this user so the DELETE doesn't violate constraints
+      await db.execute(sql`UPDATE time_entries SET user_id = NULL WHERE user_id = ${userId}`);
+      await db.execute(sql`UPDATE payroll_records SET user_id = NULL WHERE user_id = ${userId}`);
+      await db.execute(sql`UPDATE payroll_periods SET processed_by = NULL WHERE processed_by = ${userId}`);
+      await db.execute(sql`UPDATE employee_pay_rates SET user_id = NULL WHERE user_id = ${userId}`);
+      await db.execute(sql`UPDATE job_messages SET sender_user_id = NULL WHERE sender_user_id = ${userId}`);
+      await db.execute(sql`UPDATE permit_packets SET created_by = NULL WHERE created_by = ${userId}`);
+      await db.execute(sql`UPDATE content_packs SET reviewed_by = NULL WHERE reviewed_by = ${userId}`);
+      await db.execute(sql`UPDATE content_items SET reviewed_by = NULL WHERE reviewed_by = ${userId}`);
+
       // Delete linked technician/salesperson record if exists
       if (user.role === "technician") {
         await storage.deleteTechnicianByUserId(userId);
@@ -465,9 +906,9 @@ export async function registerRoutes(
 
       await storage.deleteUser(userId);
       res.json({ success: true });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting user:", error);
-      res.status(500).json({ error: "Failed to delete user" });
+      res.status(500).json({ error: error.message || "Failed to delete user" });
     }
   });
 
@@ -823,8 +1264,37 @@ export async function registerRoutes(
   }
 
   app.post("/api/leads", async (req, res) => {
-    const result = insertLeadSchema.safeParse(req.body);
+    try {
+    const body = { ...req.body };
+    if (body.receivedAt && typeof body.receivedAt === "string") {
+      body.receivedAt = new Date(body.receivedAt);
+    }
+    if (body.convertedAt && typeof body.convertedAt === "string") {
+      body.convertedAt = new Date(body.convertedAt);
+    }
+    if (body.contactedAt && typeof body.contactedAt === "string") {
+      body.contactedAt = new Date(body.contactedAt);
+    }
+    if (body.slaDeadline && typeof body.slaDeadline === "string") {
+      body.slaDeadline = new Date(body.slaDeadline);
+    }
+    const numericFields = ["cost", "estimateAmount", "revenue"];
+    for (const field of numericFields) {
+      if (body[field] === "" || body[field] === undefined) {
+        body[field] = null;
+      }
+    }
+    const stringFields = ["customerEmail", "address", "city", "zipCode", "serviceType", "description", "assignedTo", "propertyType", "contactTenantName", "contactTenantPhone", "recipient", "intakeNotes", "state"];
+    for (const field of stringFields) {
+      if (body[field] === "") {
+        body[field] = null;
+      }
+    }
+    const result = insertLeadSchema.safeParse(body);
     if (!result.success) return res.status(400).json({ error: result.error });
+    
+    // Get the user who is creating this lead (for chat thread creation)
+    const creatorUserId = req.headers['x-user-id'] as string;
     
     // Calculate lead score before creating
     const leadScore = calculateLeadScore(result.data);
@@ -861,9 +1331,29 @@ export async function registerRoutes(
       notifyLeadRecipients(lead).catch(err => 
         console.error(`Team notification failed for lead ${lead.id}:`, err)
       );
+      
+      // In-app notification for all dispatchers/admins
+      notifyStaff({
+        type: "new_lead",
+        title: "New Lead Received",
+        message: `${lead.customerName} - ${lead.serviceType || lead.source || "New inquiry"}${lead.address ? ` at ${lead.address}` : ""}`,
+        actionUrl: "/leads",
+        excludeUserId: creatorUserId,
+      }).catch(err => console.error("Lead notification error:", err));
+      
+      // Create chat thread for customer communication (requires user context)
+      if (creatorUserId) {
+        createLeadChatThread(lead, creatorUserId).catch(err =>
+          console.error(`Chat thread creation failed for lead ${lead.id}:`, err)
+        );
+      }
     }
     
     res.status(201).json({ ...lead, wasDuplicateDetected: isDuplicate });
+    } catch (error: any) {
+      console.error("Error creating lead:", error);
+      res.status(500).json({ error: error.message || "Failed to create lead" });
+    }
   });
   
   // Check for duplicate leads
@@ -1160,9 +1650,61 @@ export async function registerRoutes(
   });
 
   app.patch("/api/leads/:id", async (req, res) => {
-    const lead = await storage.updateLead(req.params.id, req.body);
-    if (!lead) return res.status(404).json({ error: "Lead not found" });
-    res.json(lead);
+    try {
+      const oldLead = await storage.getLead(req.params.id);
+      if (!oldLead) return res.status(404).json({ error: "Lead not found" });
+
+      const body = { ...req.body };
+      const leadDateFields = ['receivedAt', 'convertedAt', 'contactedAt', 'slaDeadline', 'dispositionSetAt'];
+      leadDateFields.forEach(field => {
+        if (body[field] && typeof body[field] === 'string') {
+          body[field] = new Date(body[field]);
+        }
+      });
+      const numericFields = ["cost", "estimateAmount", "revenue"];
+      for (const field of numericFields) {
+        if (body[field] === "" || body[field] === undefined) {
+          body[field] = null;
+        }
+      }
+      const stringFields = ["customerEmail", "address", "city", "zipCode", "serviceType", "description", "assignedTo", "propertyType", "contactTenantName", "contactTenantPhone", "recipient", "intakeNotes", "state"];
+      for (const field of stringFields) {
+        if (body[field] === "") {
+          body[field] = null;
+        }
+      }
+
+      const lead = await storage.updateLead(req.params.id, body);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+      const diffs = computeFieldDiffs(oldLead as unknown as Record<string, unknown>, body);
+      if (Object.keys(diffs).length > 0) {
+        const action = diffs.status ? "status_change" : "update";
+        await logAudit("lead", req.params.id, action, diffs, req);
+      }
+
+      res.json(lead);
+    } catch (error) {
+      console.error("Error updating lead:", error);
+      res.status(500).json({ error: "Failed to update lead" });
+    }
+  });
+
+  app.delete("/api/leads/:id", async (req, res) => {
+    try {
+      const lead = await storage.getLead(req.params.id);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+      const success = await storage.deleteLead(req.params.id);
+      if (success) {
+        await logAudit("lead", req.params.id, "delete", { customerName: { old: lead.customerName, new: null } }, req, `Deleted lead "${lead.customerName}" and all related data`);
+        res.json({ success: true, message: `Lead "${lead.customerName}" and all related data deleted` });
+      } else {
+        res.status(500).json({ error: "Failed to delete lead" });
+      }
+    } catch (error: any) {
+      console.error("Error deleting lead:", error);
+      res.status(500).json({ error: error.message || "Failed to delete lead" });
+    }
   });
 
   // Mark lead as contacted and check SLA
@@ -1389,6 +1931,23 @@ export async function registerRoutes(
     }
   });
 
+  // Dispatcher Queue: Jobs needing permit/inspection (must be before :id)
+  app.get("/api/jobs/permit-inspection-queue", async (req, res) => {
+    try {
+      const allJobs = await storage.getJobs();
+      const queue = allJobs.filter(j => 
+        j.status === "awaiting_permit" || 
+        j.status === "awaiting_inspection" ||
+        (j.permitRequired && j.permitStatus !== "approved") ||
+        (j.inspectionRequired && !j.inspectionScheduledAt)
+      );
+      res.json(queue);
+    } catch (error) {
+      console.error("Error fetching permit/inspection queue:", error);
+      res.status(500).json({ error: "Failed to fetch queue" });
+    }
+  });
+
   app.get("/api/jobs/:id", async (req, res) => {
     const job = await storage.getJob(req.params.id);
     if (!job) return res.status(404).json({ error: "Job not found" });
@@ -1402,13 +1961,17 @@ export async function registerRoutes(
       if (body.scheduledDate && typeof body.scheduledDate === 'string') {
         body.scheduledDate = new Date(body.scheduledDate);
       }
-      // Handle timestamp fields that might come as strings
       const timestampFields = ['assignedAt', 'confirmedAt', 'enRouteAt', 'arrivedAt', 'startedAt', 'completedAt', 'cancelledAt'];
       timestampFields.forEach(field => {
         if (body[field] && typeof body[field] === 'string') {
           body[field] = new Date(body[field]);
         }
       });
+      for (const field of Object.keys(body)) {
+        if (body[field] === "" && !["customerName", "customerPhone", "status", "serviceType"].includes(field)) {
+          body[field] = null;
+        }
+      }
       
       const result = insertJobSchema.safeParse(body);
       if (!result.success) return res.status(400).json({ error: result.error });
@@ -1418,6 +1981,24 @@ export async function registerRoutes(
       notifyJobCreated(job).catch(err => 
         console.error(`Job creation notification failed for job ${job.id}:`, err)
       );
+      
+      // In-app notification for all staff
+      notifyStaff({
+        type: "new_job",
+        title: "New Job Created",
+        message: `${job.serviceType || "Service"} for ${job.customerName}${job.address ? ` at ${job.address}` : ""}`,
+        jobId: job.id,
+        actionUrl: `/jobs?jobId=${job.id}`,
+        targetRoles: ["dispatcher", "admin"],
+      }).catch(err => console.error("Job creation notification error:", err));
+      
+      // Server-side Lead→Job sync: mark lead as converted when job is created
+      if (job.leadId) {
+        await storage.updateLead(job.leadId, { 
+          status: "converted", 
+          convertedAt: new Date() 
+        });
+      }
       
       // Push job to Builder 1 for SEO content tracking
       const lead = job.leadId ? await storage.getLead(job.leadId) : undefined;
@@ -1434,7 +2015,9 @@ export async function registerRoutes(
 
   app.patch("/api/jobs/:id", async (req, res) => {
     try {
-      // Convert timestamp strings to Date objects
+      const oldJob = await storage.getJob(req.params.id);
+      if (!oldJob) return res.status(404).json({ error: "Job not found" });
+
       const body = { ...req.body };
       const timestampFields = ['assignedAt', 'confirmedAt', 'enRouteAt', 'arrivedAt', 'startedAt', 'completedAt', 'cancelledAt'];
       timestampFields.forEach(field => {
@@ -1448,13 +2031,97 @@ export async function registerRoutes(
       
       const job = await storage.updateJob(req.params.id, body);
       if (!job) return res.status(404).json({ error: "Job not found" });
+
+      const diffs = computeFieldDiffs(oldJob as unknown as Record<string, unknown>, body);
+      if (Object.keys(diffs).length > 0) {
+        const action = diffs.status ? "status_change" : "update";
+        await logAudit("job", req.params.id, action, diffs, req);
+      }
+
+      if (body.status === "completed" && oldJob.status !== "completed") {
+        createRevenueEventForJob(job).catch(err =>
+          console.error(`Revenue event creation failed for job ${req.params.id}:`, err)
+        );
+      }
+
+      if (body.status === "scheduled" && oldJob.status !== "scheduled") {
+        (async () => {
+          try {
+            let hasDeposit = false;
+            if (job.quoteId) {
+              const quote = await storage.getQuote(job.quoteId);
+              if (quote && parseFloat(String(quote.depositAmount || "0")) > 0) {
+                hasDeposit = true;
+              }
+            }
+            if (!hasDeposit) {
+              const allQuotes = await storage.getQuotesByJob(job.id);
+              hasDeposit = allQuotes.some(q => q.status === "accepted" && parseFloat(String(q.depositAmount || "0")) > 0);
+            }
+
+            if (hasDeposit) {
+              const result = await permitService.autoFilePermitsForJob(
+                job.id,
+                "job_scheduled_with_deposit"
+              );
+              if (result.detected > 0) {
+                console.log(`[AutoPermit] Job ${job.id} scheduled with deposit: ${result.detected} permits detected, ${result.generated} generated, ${result.finalized} ready to submit`);
+                await storage.createJobTimelineEvent({
+                  jobId: job.id,
+                  type: "permit_auto_filed",
+                  title: "Permits Auto-Filed",
+                  description: `${result.detected} permit(s) automatically detected and ${result.finalized} prepared for submission (triggered by job scheduling with customer deposit).`,
+                } as any);
+              }
+            }
+          } catch (err) {
+            console.error(`[AutoPermit] Failed for job ${req.params.id}:`, err);
+          }
+        })();
+      }
+
+      // Server-side Lead↔Job status sync
+      if (body.status && body.status !== oldJob.status && job.leadId) {
+        const jobToLeadMap: Record<string, string> = {
+          assigned: "assigned",
+          confirmed: "assigned",
+          estimating: "in_progress",
+          estimate_submitted: "estimated",
+          en_route: "in_progress",
+          on_site: "in_progress",
+          in_progress: "in_progress",
+          awaiting_permit: "permit_pending",
+          awaiting_inspection: "permit_pending",
+          completed: "completed",
+          cancelled: "lost",
+        };
+        const newLeadStatus = jobToLeadMap[body.status];
+        if (newLeadStatus) {
+          await storage.updateLead(job.leadId, { 
+            status: newLeadStatus,
+            ...(body.status === "completed" ? { convertedAt: new Date() } : {}),
+          });
+        }
+      }
+
+      if (body.status && body.status !== oldJob.status) {
+        let actorName: string | undefined;
+        if (job.assignedTechnicianId) {
+          const tech = await storage.getTechnician(job.assignedTechnicianId);
+          if (tech) actorName = tech.fullName;
+        }
+        postJobStatusChatUpdate(job, body.status, actorName).catch(err =>
+          console.error(`Chat update failed for job ${req.params.id}:`, err)
+        );
+      }
+
       res.json(job);
     } catch (error) {
       console.error("Error updating job:", error);
       res.status(500).json({ error: "Failed to update job" });
     }
   });
-
+  
   // ─── Schedule reschedule with double-booking guard ─────────────────────────
   app.patch("/api/schedule/reschedule/:jobId", requireRole("admin", "dispatcher"), async (req, res) => {
     try {
@@ -1528,6 +2195,23 @@ export async function registerRoutes(
     } catch (err) {
       console.error("Reschedule error:", err);
       res.status(500).json({ error: "Failed to reschedule" });
+    }
+  )};
+            
+  app.delete("/api/jobs/:id", async (req, res) => {
+    try {
+      const job = await storage.getJob(req.params.id);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      const success = await storage.deleteJob(req.params.id);
+      if (success) {
+        await logAudit("job", req.params.id, "delete", { customerName: { old: job.customerName, new: null } }, req, `Deleted job "${job.customerName}" and all related data`);
+        res.json({ success: true, message: `Job "${job.customerName}" and all related data deleted` });
+      } else {
+        res.status(500).json({ error: "Failed to delete job" });
+      }
+    } catch (error: any) {
+      console.error("Error deleting job:", error);
+      res.status(500).json({ error: error.message || "Failed to delete job" });
     }
   });
 
@@ -1617,6 +2301,15 @@ export async function registerRoutes(
       console.error(`Job assignment notification failed for job ${req.params.id}:`, err)
     );
     
+    // Server-side Lead sync on job assignment
+    if (job.leadId) {
+      await storage.updateLead(job.leadId, { status: "assigned", assignedTo: technicianId });
+    }
+    
+    postJobStatusChatUpdate(updated!, "assigned", tech.fullName).catch(err =>
+      console.error(`Chat update failed for job ${req.params.id}:`, err)
+    );
+    
     res.json(updated);
   });
 
@@ -1669,6 +2362,11 @@ export async function registerRoutes(
       createdBy: technicianId,
     });
     
+    const confirmTech = technicianId ? await storage.getTechnician(technicianId) : null;
+    postJobStatusChatUpdate(updated!, "confirmed", confirmTech?.fullName).catch(err =>
+      console.error(`Chat update failed for job ${req.params.id}:`, err)
+    );
+    
     res.json(updated);
   });
 
@@ -1706,6 +2404,10 @@ export async function registerRoutes(
     }
     notifyDispatchersOfStatusChange(req.params.id, job, techName, "en_route").catch(err =>
       console.error(`Dispatcher notification failed for job ${req.params.id} en_route:`, err)
+    );
+    
+    postJobStatusChatUpdate(updated!, "en_route", techName).catch(err =>
+      console.error(`Chat update failed for job ${req.params.id}:`, err)
     );
     
     res.json(updated);
@@ -1776,6 +2478,10 @@ export async function registerRoutes(
       console.error(`Dispatcher notification failed for job ${req.params.id} arrived:`, err)
     );
     
+    postJobStatusChatUpdate(updated!, "on_site", techName).catch(err =>
+      console.error(`Chat update failed for job ${req.params.id}:`, err)
+    );
+    
     res.json(updated);
   });
 
@@ -1802,6 +2508,13 @@ export async function registerRoutes(
       const tech = await storage.getTechnician(technicianId);
       notifyJobApproved(updated!, tech?.fullName).catch(err => 
         console.error(`Job in-progress notification failed for job ${req.params.id}:`, err)
+      );
+      postJobStatusChatUpdate(updated!, "in_progress", tech?.fullName).catch(err =>
+        console.error(`Chat update failed for job ${req.params.id}:`, err)
+      );
+    } else {
+      postJobStatusChatUpdate(updated!, "in_progress").catch(err =>
+        console.error(`Chat update failed for job ${req.params.id}:`, err)
       );
     }
     
@@ -1858,6 +2571,9 @@ export async function registerRoutes(
         notifyDispatchersOfStatusChange(id, job, techName, "completed").catch(err =>
           console.error(`Dispatcher notification failed for job ${id} completed:`, err)
         );
+        postJobStatusChatUpdate(job, "completed", techName).catch(err =>
+          console.error(`Chat update failed for job ${id}:`, err)
+        );
       }
 
       logAudit(req, "job.completed", "job", id, {
@@ -1887,6 +2603,147 @@ export async function registerRoutes(
     const event = await storage.createJobTimelineEvent(result.data);
     res.status(201).json(event);
   });
+
+  // === Estimate Submission (technician submits on-site estimate) ===
+  app.post("/api/jobs/:id/submit-estimate", async (req, res) => {
+    try {
+      const job = await storage.getJob(req.params.id);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+
+      const { estimateNotes, estimateAmount, estimateRangeLow, estimateRangeHigh, estimateMedia, technicianId } = req.body;
+      if (!estimateNotes || (!estimateAmount && !estimateRangeLow)) {
+        return res.status(400).json({ error: "estimateNotes and estimateAmount (or estimateRangeLow/High) are required" });
+      }
+
+      const now = new Date();
+      const updated = await storage.updateJob(req.params.id, {
+        estimateNotes,
+        estimateAmount: estimateAmount || null,
+        estimateRangeLow: estimateRangeLow || null,
+        estimateRangeHigh: estimateRangeHigh || null,
+        estimateMedia: estimateMedia ? JSON.stringify(estimateMedia) : null,
+        estimateSubmittedAt: now,
+        estimateSubmittedBy: technicianId || null,
+      });
+
+      await storage.createJobTimelineEvent({
+        jobId: req.params.id,
+        eventType: "note",
+        description: `Estimate submitted: $${estimateAmount || `${estimateRangeLow}-${estimateRangeHigh}`}`,
+        createdBy: technicianId || null,
+      });
+
+      // Server-side Lead sync
+      if (job.leadId) {
+        await storage.updateLead(job.leadId, { 
+          status: "estimate_submitted",
+          estimateAmount: estimateAmount || estimateRangeLow || null,
+        });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error submitting estimate:", error);
+      res.status(500).json({ error: "Failed to submit estimate" });
+    }
+  });
+
+  // === Permit Update (dispatcher manages permit workflow) ===
+  app.patch("/api/jobs/:id/permit", async (req, res) => {
+    try {
+      const job = await storage.getJob(req.params.id);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+
+      const { permitRequired, permitStatus, permitNumber, permitJurisdiction } = req.body;
+
+      const updateData: Record<string, any> = {};
+      if (permitRequired !== undefined) updateData.permitRequired = permitRequired;
+      if (permitStatus !== undefined) updateData.permitStatus = permitStatus;
+      if (permitNumber !== undefined) updateData.permitNumber = permitNumber;
+      if (permitJurisdiction !== undefined) updateData.permitJurisdiction = permitJurisdiction;
+
+      if (permitRequired && permitStatus !== "approved" && !["completed", "cancelled"].includes(job.status)) {
+        updateData.status = "awaiting_permit";
+      }
+      if (permitStatus === "approved" && job.status === "awaiting_permit") {
+        updateData.status = job.inspectionRequired ? "awaiting_inspection" : "in_progress";
+      }
+
+      const updated = await storage.updateJob(req.params.id, updateData);
+
+      await storage.createJobTimelineEvent({
+        jobId: req.params.id,
+        eventType: "note",
+        description: `Permit updated: ${permitStatus}${permitNumber ? ` (#${permitNumber})` : ""}`,
+        createdBy: req.body.userId || null,
+      });
+
+      // Sync lead status
+      if (job.leadId && updateData.status) {
+        const leadStatus = updateData.status === "awaiting_permit" ? "permit_pending" : "in_progress";
+        await storage.updateLead(job.leadId, { status: leadStatus });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating permit:", error);
+      res.status(500).json({ error: "Failed to update permit" });
+    }
+  });
+
+  // === Inspection Update (dispatcher schedules/manages inspection) ===
+  app.patch("/api/jobs/:id/inspection", async (req, res) => {
+    try {
+      const job = await storage.getJob(req.params.id);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+
+      const { inspectionRequired, inspectionType, inspectionRequestedDate, inspectionScheduledAt, inspectionNotes, inspectionResult } = req.body;
+
+      const updateData: Record<string, any> = {};
+      if (inspectionRequired !== undefined) updateData.inspectionRequired = inspectionRequired;
+      if (inspectionType !== undefined) updateData.inspectionType = inspectionType;
+      if (inspectionRequestedDate) updateData.inspectionRequestedDate = new Date(inspectionRequestedDate);
+      if (inspectionScheduledAt) updateData.inspectionScheduledAt = new Date(inspectionScheduledAt);
+      if (inspectionNotes !== undefined) updateData.inspectionNotes = inspectionNotes;
+      if (inspectionResult !== undefined) updateData.inspectionResult = inspectionResult;
+
+      if (inspectionRequired && !["completed", "cancelled"].includes(job.status)) {
+        updateData.status = "awaiting_inspection";
+      }
+      if (inspectionResult === "passed") {
+        updateData.status = "in_progress";
+      }
+      if (inspectionResult === "failed") {
+        updateData.inspectionScheduledAt = null;
+      }
+
+      const updated = await storage.updateJob(req.params.id, updateData);
+
+      const eventDesc = inspectionResult 
+        ? `Inspection result: ${inspectionResult}` 
+        : inspectionScheduledAt 
+          ? `Inspection scheduled: ${new Date(inspectionScheduledAt).toLocaleDateString()}`
+          : "Inspection updated";
+
+      await storage.createJobTimelineEvent({
+        jobId: req.params.id,
+        eventType: "note",
+        description: eventDesc,
+        createdBy: req.body.userId || null,
+      });
+
+      if (job.leadId && updateData.status) {
+        const leadStatus = updateData.status === "awaiting_inspection" ? "permit_pending" : "in_progress";
+        await storage.updateLead(job.leadId, { status: leadStatus });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating inspection:", error);
+      res.status(500).json({ error: "Failed to update inspection" });
+    }
+  });
+
 
   // Quotes
   app.get("/api/quotes", async (req, res) => {
@@ -1924,6 +2781,17 @@ export async function registerRoutes(
           body[field] = new Date(body[field]);
         }
       });
+      const quoteNumericFields = ["subtotal", "taxRate", "taxAmount", "total", "laborTotal", "price", "discounts", "totalPrice", "depositAmount", "balanceAmount"];
+      for (const field of quoteNumericFields) {
+        if (body[field] === "" || body[field] === undefined) {
+          body[field] = null;
+        }
+      }
+      for (const field of Object.keys(body)) {
+        if (body[field] === "" && !["customerName", "customerPhone", "status"].includes(field)) {
+          body[field] = null;
+        }
+      }
       
       const result = insertQuoteSchema.safeParse(body);
       if (!result.success) return res.status(400).json({ error: result.error });
@@ -1954,6 +2822,16 @@ export async function registerRoutes(
       }).catch(err => 
         console.error(`Quote notification failed for quote ${quote.id}:`, err)
       );
+      
+      // In-app notification for dispatchers/admins
+      notifyStaff({
+        type: "new_quote",
+        title: "New Quote Created",
+        message: `Quote for ${quote.customerName} - $${parseFloat(quote.total || "0").toFixed(2)}`,
+        jobId: quote.jobId || undefined,
+        actionUrl: "/quotes",
+        targetRoles: ["dispatcher", "admin"],
+      }).catch(err => console.error("Quote notification error:", err));
       
       // Send email to customer if status is 'sent' and email is provided
       if (result.data.status === 'sent' && result.data.customerEmail && quote.publicToken) {
@@ -2085,9 +2963,14 @@ Emergency Chicago Sewer Experts Team
       const originalQuote = await storage.getQuote(req.params.id);
       if (!originalQuote) return res.status(404).json({ error: "Quote not found" });
       
-      // Update the quote
       const quote = await storage.updateQuote(req.params.id, updates);
       if (!quote) return res.status(404).json({ error: "Quote not found" });
+
+      const quoteDiffs = computeFieldDiffs(originalQuote as unknown as Record<string, unknown>, updates);
+      if (Object.keys(quoteDiffs).length > 0) {
+        const quoteAction = quoteDiffs.status ? "status_change" : "update";
+        await logAudit("quote", req.params.id, quoteAction, quoteDiffs, req);
+      }
       
       // If status changed to 'accepted', automatically create a job
       if (updates.status === 'accepted' && originalQuote.status !== 'accepted') {
@@ -2135,6 +3018,27 @@ Emergency Chicago Sewer Experts Team
           eventType: 'job_created',
           description: `Job created from accepted quote. Total: $${quote.total}`,
         });
+
+        // Auto-file permits if permitRequired is checked on the quote
+        if (quote.permitRequired) {
+          try {
+            const result = await permitService.autoFilePermitsForJob(
+              newJob.id,
+              "quote_accepted_permit_required"
+            );
+            if (result.detected > 0) {
+              console.log(`[AutoPermit] Internal quote accepted with permitRequired: ${result.detected} permits detected, ${result.generated} generated, ${result.finalized} ready to submit`);
+              await storage.createJobTimelineEvent({
+                jobId: newJob.id,
+                type: "permit_auto_filed",
+                title: "Permits Auto-Filed",
+                description: `${result.detected} permit(s) automatically detected and ${result.finalized} prepared for submission (triggered by quote acceptance with permit required).`,
+              } as any);
+            }
+          } catch (err) {
+            console.error(`[AutoPermit] Failed for internal accepted quote job ${newJob.id}:`, err);
+          }
+        }
         
         return res.json({ quote, job: newJob });
       }
@@ -2293,6 +3197,15 @@ Emergency Chicago Sewer Experts Team
       // Mark as viewed if first time viewing
       if (!quote.viewedAt) {
         await storage.updateQuote(quote.id, { viewedAt: new Date(), status: 'viewed' });
+        
+        // Notify staff that customer opened the quote
+        notifyStaff({
+          type: "quote_viewed",
+          title: "Quote Viewed by Customer",
+          message: `${quote.customerName} opened their quote ($${parseFloat(quote.total || "0").toFixed(2)})`,
+          actionUrl: "/quotes",
+          targetRoles: ["dispatcher", "admin", "salesperson"],
+        }).catch(err => console.error("Quote viewed notification error:", err));
       }
       
       res.json(quote);
@@ -2308,8 +3221,8 @@ Emergency Chicago Sewer Experts Team
       const quote = await storage.getQuoteByToken(req.params.token);
       if (!quote) return res.status(404).json({ error: "Quote not found" });
       
-      // Parse consent from request body
-      const { consent } = req.body as {
+      // Parse consent and T&C acceptance from request body
+      const { consent, termsAccepted } = req.body as {
         consent?: {
           smsOptIn?: boolean;
           emailOptIn?: boolean;
@@ -2318,7 +3231,14 @@ Emergency Chicago Sewer Experts Team
           disclosureVersion?: string;
           disclosureText?: string;
         };
+        termsAccepted?: boolean;
       };
+      
+      if (!termsAccepted) {
+        return res.status(400).json({ 
+          error: "You must read and agree to the Terms & Conditions before accepting this quote." 
+        });
+      }
       
       // Validate consent: if opted in, ownership must be confirmed
       if (consent?.smsOptIn && !consent?.smsOwnershipConfirmed) {
@@ -2340,10 +3260,11 @@ Emergency Chicago Sewer Experts Team
         : (req.socket?.remoteAddress || null);
       const consentUserAgent = req.headers["user-agent"] || null;
       
-      // Update quote status to accepted
+      // Update quote status to accepted with T&C acknowledgment timestamp
       const updatedQuote = await storage.updateQuote(quote.id, { 
         status: 'accepted', 
-        acceptedAt: new Date() 
+        acceptedAt: new Date(),
+        termsAcceptedAt: new Date(),
       });
       
       // When quote is accepted, automatically create a job
@@ -2417,8 +3338,36 @@ Emergency Chicago Sewer Experts Team
         description: `Job created from accepted quote. Total: $${quote.total}`,
       });
       
-      // Note: Automated notifications (48hr, 24hr, day-of reminders) 
-      // will be triggered by the automation service when the job gets scheduled
+      // Auto-file permits if permitRequired is checked on the quote
+      if (quote.permitRequired) {
+        try {
+          const result = await permitService.autoFilePermitsForJob(
+            newJob.id,
+            "quote_accepted_permit_required"
+          );
+          if (result.detected > 0) {
+            console.log(`[AutoPermit] Quote accepted with permitRequired: ${result.detected} permits detected, ${result.generated} generated, ${result.finalized} ready to submit`);
+            await storage.createJobTimelineEvent({
+              jobId: newJob.id,
+              type: "permit_auto_filed",
+              title: "Permits Auto-Filed",
+              description: `${result.detected} permit(s) automatically detected and ${result.finalized} prepared for submission (triggered by quote acceptance with permit required).`,
+            } as any);
+          }
+        } catch (err) {
+          console.error(`[AutoPermit] Failed for accepted quote job ${newJob.id}:`, err);
+        }
+      }
+
+      // In-app notification: Quote accepted
+      notifyStaff({
+        type: "quote_accepted",
+        title: "Quote Accepted!",
+        message: `${quote.customerName} accepted quote for $${parseFloat(quote.total || "0").toFixed(2)} - Job #${newJob.id.substring(0, 8)} created`,
+        jobId: newJob.id,
+        actionUrl: `/jobs?jobId=${newJob.id}`,
+        targetRoles: ["dispatcher", "admin", "salesperson"],
+      }).catch(err => console.error("Quote accepted notification error:", err));
       
       res.json({ quote: updatedQuote, job: newJob });
     } catch (error) {
@@ -2436,6 +3385,15 @@ Emergency Chicago Sewer Experts Team
         status: 'declined', 
         declinedAt: new Date() 
       });
+      
+      // In-app notification: Quote declined
+      notifyStaff({
+        type: "quote_declined",
+        title: "Quote Declined",
+        message: `${quote.customerName} declined quote for $${parseFloat(quote.total || "0").toFixed(2)}`,
+        actionUrl: "/quotes",
+        targetRoles: ["dispatcher", "admin", "salesperson"],
+      }).catch(err => console.error("Quote declined notification error:", err));
       
       res.json(updatedQuote);
     } catch (error) {
@@ -3498,6 +4456,14 @@ Emergency Chicago Sewer Experts Team
         console.error(`Team notification failed for lead ${lead.id}:`, err)
       );
       
+      // In-app notification
+      notifyStaff({
+        type: "new_lead",
+        title: "New eLocal Lead",
+        message: `${lead.customerName} - ${lead.serviceType || "Service request"}${lead.address ? ` at ${lead.address}` : ""}`,
+        actionUrl: "/leads",
+      }).catch(err => console.error("eLocal lead notification error:", err));
+      
       res.status(200).json({ success: true, leadId: lead.id });
     } catch (error) {
       console.error("eLocal webhook error:", error);
@@ -3559,6 +4525,14 @@ Emergency Chicago Sewer Experts Team
       notifyLeadRecipients(lead).catch(err => 
         console.error(`Team notification failed for lead ${lead.id}:`, err)
       );
+      
+      // In-app notification
+      notifyStaff({
+        type: "new_lead",
+        title: "New Angi Lead",
+        message: `${lead.customerName} - ${lead.serviceType || "Service request"}${lead.address ? ` at ${lead.address}` : ""}`,
+        actionUrl: "/leads",
+      }).catch(err => console.error("Angi lead notification error:", err));
       
       res.status(200).json({ success: true, leadId: lead.id });
     } catch (error) {
@@ -3633,6 +4607,14 @@ Emergency Chicago Sewer Experts Team
         console.error(`Team notification failed for lead ${lead.id}:`, err)
       );
       
+      // In-app notification
+      notifyStaff({
+        type: "new_lead",
+        title: "New Thumbtack Lead",
+        message: `${lead.customerName} - ${lead.serviceType || "Service request"}${lead.address ? ` at ${lead.address}` : ""}`,
+        actionUrl: "/leads",
+      }).catch(err => console.error("Thumbtack lead notification error:", err));
+      
       res.status(200).json({ success: true, leadId: lead.id, thumbtackLeadId: leadID });
     } catch (error) {
       console.error("Thumbtack webhook error:", error);
@@ -3683,6 +4665,14 @@ Emergency Chicago Sewer Experts Team
       notifyLeadRecipients(lead).catch(err => 
         console.error(`Team notification failed for lead ${lead.id}:`, err)
       );
+      
+      // In-app notification
+      notifyStaff({
+        type: "new_lead",
+        title: "New Networx Lead",
+        message: `${lead.customerName} - ${lead.serviceType || "Service request"}${lead.address ? ` at ${lead.address}` : ""}`,
+        actionUrl: "/leads",
+      }).catch(err => console.error("Networx lead notification error:", err));
       
       res.status(200).json({ success: true, leadId: lead.id });
     } catch (error) {
@@ -5582,7 +6572,21 @@ ${emailContent}
   // ============================================
   // TIME ENTRIES (Clock In/Out)
   // ============================================
-  
+
+  app.get("/api/time-entries/all", async (req, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      const entries = await storage.getAllTimeEntries(
+        startDate ? new Date(startDate as string) : undefined,
+        endDate ? new Date(endDate as string) : undefined
+      );
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching all time entries:", error);
+      res.status(500).json({ error: "Failed to fetch time entries" });
+    }
+  });
+
   app.get("/api/time-entries", async (req, res) => {
     try {
       const { userId, technicianId, startDate, endDate } = req.query;
@@ -5781,6 +6785,396 @@ ${emailContent}
   });
 
   // ============================================
+  // PROCESS PAYROLL (bulk)
+  // ============================================
+
+  app.post("/api/payroll/process", async (req, res) => {
+    try {
+      const { startDate, endDate } = req.body;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: "startDate and endDate are required" });
+      }
+
+      const periodStart = new Date(startDate);
+      const periodEnd = new Date(endDate);
+
+      if (periodEnd <= periodStart) {
+        return res.status(400).json({ error: "endDate must be after startDate" });
+      }
+
+      const allTechnicians = await storage.getTechnicians();
+      const allJobs = await storage.getJobs();
+
+      const periodJobs = allJobs.filter(j => {
+        if (j.status !== "completed" || !j.completedAt) return false;
+        const completedAt = new Date(j.completedAt);
+        return completedAt >= periodStart && completedAt <= periodEnd;
+      });
+
+      const result = await db.transaction(async (tx) => {
+        const [period] = await tx.insert(payrollPeriods).values({
+          startDate: periodStart,
+          endDate: periodEnd,
+          status: "processing",
+          processedAt: new Date(),
+          processedBy: (req as any).user?.id || null,
+        }).returning();
+
+        const records: any[] = [];
+
+        for (const tech of allTechnicians) {
+          const techJobs = periodJobs.filter(j => j.assignedTechnicianId === tech.id);
+          if (techJobs.length === 0) continue;
+
+          const hourlyRate = parseFloat(String(tech.hourlyRate)) || 25;
+          const commissionRate = parseFloat(String(tech.commissionRate)) || 0.1;
+          const emergencyMultiplier = parseFloat(String(tech.emergencyRate)) || 1.5;
+
+          let regularHours = 0;
+          let overtimeHours = 0;
+
+          techJobs.forEach(job => {
+            if (job.startedAt && job.completedAt) {
+              const started = new Date(job.startedAt);
+              const completed = new Date(job.completedAt);
+              const hours = (completed.getTime() - started.getTime()) / (1000 * 60 * 60);
+              const isEmergency = job.priority === "urgent" || job.priority === "high";
+              if (isEmergency) {
+                overtimeHours += hours;
+              } else {
+                regularHours += hours;
+              }
+            } else if (job.estimatedDuration) {
+              regularHours += job.estimatedDuration / 60;
+            }
+          });
+
+          const totalRevenue = techJobs.reduce((sum, j) => sum + (parseFloat(String(j.totalRevenue)) || 0), 0);
+          const regularPay = regularHours * hourlyRate;
+          const overtimePay = overtimeHours * hourlyRate * emergencyMultiplier;
+          const commissionPay = totalRevenue * commissionRate;
+          const leadFeeDeductions = techJobs.length * 125;
+          const grossPay = regularPay + overtimePay + commissionPay;
+
+          let payRate = null;
+          if (tech.userId) {
+            payRate = await storage.getActiveEmployeePayRate(tech.userId);
+          }
+          const employmentType = payRate?.employmentType === "salary" ? "salary" : "hourly";
+
+          const taxResult = calculateTaxes({
+            grossPay,
+            employmentType,
+            residenceState: "IL",
+            filingStatus: "single",
+          });
+
+          const totalDeductions = leadFeeDeductions;
+          const netPay = grossPay - taxResult.totalTax - totalDeductions;
+          const userId = tech.userId || tech.id;
+
+          const [record] = await tx.insert(payrollRecords).values({
+            userId,
+            technicianId: tech.id,
+            periodId: period.id,
+            employmentType,
+            regularHours: String(Math.round(regularHours * 100) / 100),
+            overtimeHours: String(Math.round(overtimeHours * 100) / 100),
+            hourlyRate: String(hourlyRate),
+            overtimeRate: String(Math.round(hourlyRate * emergencyMultiplier * 100) / 100),
+            regularPay: String(Math.round(regularPay * 100) / 100),
+            overtimePay: String(Math.round(overtimePay * 100) / 100),
+            commissionPay: String(Math.round(commissionPay * 100) / 100),
+            bonusPay: "0",
+            leadFeeDeductions: String(leadFeeDeductions),
+            materialDeductions: "0",
+            permitDeductions: "0",
+            deductions: String(totalDeductions),
+            federalTax: String(taxResult.federalTax),
+            stateTax: String(taxResult.stateTax),
+            socialSecurity: String(taxResult.socialSecurity),
+            medicare: String(taxResult.medicare),
+            grossPay: String(Math.round(grossPay * 100) / 100),
+            netPay: String(Math.round(netPay * 100) / 100),
+            isPaid: false,
+          }).returning();
+
+          records.push({
+            ...record,
+            technicianName: tech.fullName,
+            jobsInPeriod: techJobs.length,
+            totalRevenue,
+          });
+        }
+
+        await tx.update(payrollPeriods)
+          .set({ status: "closed" })
+          .where(eq(payrollPeriods.id, period.id));
+
+        return {
+          period: { ...period, status: "closed" },
+          records,
+          summary: {
+            totalEmployees: records.length,
+            totalGrossPay: records.reduce((s: number, r: any) => s + parseFloat(r.grossPay), 0),
+            totalNetPay: records.reduce((s: number, r: any) => s + parseFloat(r.netPay), 0),
+            totalJobs: periodJobs.length,
+          },
+        };
+      });
+
+      res.status(201).json(result);
+    } catch (error) {
+      console.error("Error processing payroll:", error);
+      res.status(500).json({ error: "Failed to process payroll" });
+    }
+  });
+
+  // ============================================
+  // PAY TRACKER - Per-employee earnings view
+  // ============================================
+
+  app.get("/api/pay-tracker", async (req, res) => {
+    try {
+      const { userId, technicianId } = req.query;
+      
+      const allTechnicians = await storage.getTechnicians();
+      const allJobs = await storage.getJobs();
+      const allRevenueEvents = await storage.getAllJobRevenueEvents();
+      const allPayrollPeriods = await storage.getPayrollPeriods();
+      const allLeadFees = await storage.getAllJobLeadFees();
+      const allQuotes = await storage.getAllQuotes();
+      
+      let targetTechs = allTechnicians;
+      if (technicianId) {
+        targetTechs = allTechnicians.filter(t => t.id === technicianId);
+      } else if (userId) {
+        targetTechs = allTechnicians.filter(t => t.userId === userId);
+      }
+
+      const trackers = await Promise.all(targetTechs.map(async (tech) => {
+        const techJobs = allJobs.filter(j => j.assignedTechnicianId === tech.id);
+        const completedJobs = techJobs.filter(j => j.status === "completed");
+        const activeJobs = techJobs.filter(j => ["assigned", "confirmed", "en_route", "on_site", "in_progress"].includes(j.status || ""));
+        const techRevEvents = allRevenueEvents.filter(e => e.technicianId === tech.id);
+        const techLeadFees = allLeadFees.filter(f => f.technicianId === tech.id);
+        
+        const hourlyRate = parseFloat(String(tech.hourlyRate)) || 25;
+        const commissionRate = parseFloat(String(tech.commissionRate)) || 0.1;
+
+        const completedJobDetails = completedJobs.map(job => {
+          const revEvent = techRevEvents.find(e => e.jobId === job.id);
+          let revenue = revEvent 
+            ? parseFloat(String(revEvent.totalRevenue)) || 0
+            : parseFloat(job.totalRevenue || "0");
+          
+          if (revenue === 0) {
+            const jobQuote = allQuotes.find(q => q.jobId === job.id && q.status === "accepted");
+            if (jobQuote) {
+              revenue = parseFloat(String(jobQuote.total) || "0");
+            }
+          }
+
+          const commission = revEvent && parseFloat(String(revEvent.commissionAmount)) > 0
+            ? parseFloat(String(revEvent.commissionAmount))
+            : (revenue > 0 ? revenue * commissionRate : 0);
+          
+          let hoursWorked = 0;
+          if (parseFloat(String(job.laborHours || "0")) > 0) {
+            hoursWorked = parseFloat(String(job.laborHours));
+          } else if (job.startedAt && job.completedAt) {
+            const diff = (new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / (1000 * 60 * 60);
+            hoursWorked = diff > 0.05 ? diff : 0;
+          }
+          if (hoursWorked === 0 && job.estimatedDuration) {
+            hoursWorked = job.estimatedDuration / 60;
+          }
+          
+          const hourlyPay = hoursWorked * hourlyRate;
+          const isEmergency = job.priority === "urgent" || job.priority === "high";
+          const emergencyMultiplier = isEmergency ? (parseFloat(String(tech.emergencyRate)) || 1.5) : 1;
+
+          const jobLeadFee = techLeadFees.find(f => f.jobId === job.id);
+          const leadFeeAmount = jobLeadFee ? parseFloat(String(jobLeadFee.amount)) || 0 : 0;
+          
+          return {
+            jobId: job.id,
+            customerName: job.customerName,
+            serviceType: job.serviceType,
+            address: job.address,
+            completedAt: job.completedAt,
+            revenue,
+            hoursWorked: Math.round(hoursWorked * 100) / 100,
+            hourlyPay: Math.round(hourlyPay * emergencyMultiplier * 100) / 100,
+            commission: Math.round(commission * 100) / 100,
+            totalEarned: Math.round((hourlyPay * emergencyMultiplier + commission) * 100) / 100,
+            isEmergency,
+            leadFee: Math.round(leadFeeAmount * 100) / 100,
+          };
+        });
+
+        const projectedJobs = activeJobs.map(job => {
+          let estRevenue = parseFloat(job.totalRevenue || "0");
+          if (estRevenue === 0) {
+            const jobQuote = allQuotes.find(q => q.jobId === job.id && q.status === "accepted");
+            if (jobQuote) {
+              estRevenue = parseFloat(String(jobQuote.total) || "0");
+            }
+          }
+          const estHours = job.estimatedDuration ? job.estimatedDuration / 60 : 2;
+          const estCommission = estRevenue > 0 ? estRevenue * commissionRate : 0;
+          const estHourlyPay = estHours * hourlyRate;
+          const jobLeadFee = techLeadFees.find(f => f.jobId === job.id);
+          const leadFeeAmount = jobLeadFee ? parseFloat(String(jobLeadFee.amount)) || 0 : 0;
+          return {
+            jobId: job.id,
+            customerName: job.customerName,
+            serviceType: job.serviceType,
+            address: job.address,
+            status: job.status,
+            scheduledDate: job.scheduledDate,
+            estimatedRevenue: Math.round(estRevenue * 100) / 100,
+            estimatedHours: Math.round(estHours * 100) / 100,
+            estimatedHourlyPay: Math.round(estHourlyPay * 100) / 100,
+            estimatedCommission: Math.round(estCommission * 100) / 100,
+            estimatedTotal: Math.round((estHourlyPay + estCommission) * 100) / 100,
+            leadFee: Math.round(leadFeeAmount * 100) / 100,
+          };
+        });
+
+        const techRecords: any[] = [];
+        for (const period of allPayrollPeriods) {
+          const records = await storage.getPayrollRecordsByPeriod(period.id);
+          const techRecord = records.find(r => r.technicianId === tech.id);
+          if (techRecord) {
+            techRecords.push({
+              ...techRecord,
+              periodStartDate: period.startDate,
+              periodEndDate: period.endDate,
+              periodStatus: period.status,
+            });
+          }
+        }
+
+        const totalEarnedFromCompleted = completedJobDetails.reduce((sum, j) => sum + j.totalEarned, 0);
+        const totalLeadFees = completedJobDetails.reduce((sum, j) => sum + j.leadFee, 0);
+        const totalRevenue = completedJobDetails.reduce((sum, j) => sum + j.revenue, 0);
+        const totalHoursWorked = completedJobDetails.reduce((sum, j) => sum + j.hoursWorked, 0);
+        const totalCommission = completedJobDetails.reduce((sum, j) => sum + j.commission, 0);
+        const totalHourlyPay = completedJobDetails.reduce((sum, j) => sum + j.hourlyPay, 0);
+        const projectedEarnings = projectedJobs.reduce((sum, j) => sum + j.estimatedTotal, 0);
+        const projectedLeadFees = projectedJobs.reduce((sum, j) => sum + j.leadFee, 0);
+
+        const totalPaidFromRecords = techRecords
+          .filter(r => r.isPaid)
+          .reduce((sum: number, r: any) => sum + parseFloat(r.netPay || "0"), 0);
+
+        return {
+          technicianId: tech.id,
+          technicianName: tech.fullName,
+          userId: tech.userId,
+          hourlyRate,
+          commissionRate,
+          status: tech.status,
+          summary: {
+            totalJobsCompleted: completedJobs.length,
+            totalActiveJobs: activeJobs.length,
+            totalRevenue: Math.round(totalRevenue * 100) / 100,
+            totalHoursWorked: Math.round(totalHoursWorked * 100) / 100,
+            totalHourlyPay: Math.round(totalHourlyPay * 100) / 100,
+            totalCommission: Math.round(totalCommission * 100) / 100,
+            totalLeadFees: Math.round(totalLeadFees * 100) / 100,
+            totalEarned: Math.round(totalEarnedFromCompleted * 100) / 100,
+            netEarned: Math.round((totalEarnedFromCompleted - totalLeadFees) * 100) / 100,
+            totalPaid: Math.round(totalPaidFromRecords * 100) / 100,
+            projectedEarnings: Math.round(projectedEarnings * 100) / 100,
+            projectedLeadFees: Math.round(projectedLeadFees * 100) / 100,
+            projectedNet: Math.round((projectedEarnings - projectedLeadFees) * 100) / 100,
+          },
+          completedJobs: completedJobDetails.sort((a, b) => 
+            new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime()
+          ),
+          projectedJobs,
+          payrollHistory: techRecords.sort((a: any, b: any) => 
+            new Date(b.periodStartDate || 0).getTime() - new Date(a.periodStartDate || 0).getTime()
+          ),
+        };
+      }));
+
+      res.json(trackers);
+    } catch (error) {
+      console.error("Error fetching pay tracker:", error);
+      res.status(500).json({ error: "Failed to fetch pay tracker data" });
+    }
+  });
+
+  app.post("/api/admin/backfill-revenue-events", async (req, res) => {
+    try {
+      const allJobs = await storage.getJobs();
+      const allQuotes = await storage.getAllQuotes();
+      const completedJobs = allJobs.filter(j => j.status === "completed");
+      let created = 0;
+      let updated = 0;
+      let skipped = 0;
+      
+      for (const job of completedJobs) {
+        const existing = await storage.getJobRevenueEventsByJob(job.id);
+        
+        if (existing.length > 0) {
+          const revEvent = existing[0];
+          const existingRevenue = parseFloat(String(revEvent.totalRevenue)) || 0;
+          if (existingRevenue === 0) {
+            let revenue = parseFloat(job.totalRevenue || "0");
+            if (revenue === 0) {
+              const jobQuote = allQuotes.find(q => q.jobId === job.id && q.status === "accepted");
+              if (jobQuote) {
+                revenue = parseFloat(String(jobQuote.total) || "0");
+              }
+            }
+            if (revenue > 0) {
+              const techId = job.assignedTechnicianId;
+              const tech = techId ? await storage.getTechnician(techId) : null;
+              const commissionRate = tech ? parseFloat(String(tech.commissionRate) || "0.1") : 0.1;
+              const laborCost = parseFloat(job.laborCost || "0");
+              const materialsCost = parseFloat(job.materialsCost || "0");
+              const totalCost = laborCost + materialsCost;
+              const netProfit = revenue - totalCost;
+              const commissionAmount = netProfit > 0 ? netProfit * commissionRate : 0;
+              
+              await storage.updateJobRevenueEvent(revEvent.id, {
+                totalRevenue: revenue.toFixed(2),
+                netProfit: netProfit.toFixed(2),
+                commissionAmount: commissionAmount.toFixed(2),
+              });
+              if (!job.totalRevenue || parseFloat(job.totalRevenue) === 0) {
+                await storage.updateJob(job.id, { totalRevenue: revenue.toFixed(2) });
+              }
+              updated++;
+              continue;
+            }
+          }
+          skipped++;
+          continue;
+        }
+        await createRevenueEventForJob(job);
+        created++;
+      }
+      
+      res.json({ 
+        success: true, 
+        message: `Backfilled: ${created} created, ${updated} updated with revenue, ${skipped} already correct`,
+        created,
+        updated,
+        skipped,
+        totalCompleted: completedJobs.length,
+      });
+    } catch (error) {
+      console.error("Error backfilling revenue events:", error);
+      res.status(500).json({ error: "Failed to backfill revenue events" });
+    }
+  });
+
+  // ============================================
   // EMPLOYEE PAY RATES
   // ============================================
   
@@ -5897,7 +7291,7 @@ ${emailContent}
       } else if (technicianId) {
         events = await storage.getJobRevenueEventsByTechnician(technicianId as string);
       } else {
-        return res.status(400).json({ error: "jobId or technicianId required" });
+        events = await storage.getAllJobRevenueEvents();
       }
       res.json(events);
     } catch (error) {
@@ -6325,6 +7719,12 @@ ${emailContent}
           job = await storage.getJob(thread.relatedJobId);
         }
         
+        // Get lead info if related
+        let lead = null;
+        if (thread.relatedLeadId) {
+          lead = await storage.getLead(thread.relatedLeadId);
+        }
+        
         return {
           ...thread,
           participants,
@@ -6339,6 +7739,12 @@ ${emailContent}
             customerName: job.customerName,
             serviceType: job.serviceType,
             status: job.status
+          } : null,
+          lead: lead ? {
+            id: lead.id,
+            customerName: lead.customerName,
+            serviceType: lead.serviceType,
+            status: lead.status
           } : null
         };
       }));
@@ -6463,6 +7869,12 @@ ${emailContent}
         job = await storage.getJob(thread.relatedJobId);
       }
       
+      // Get lead info
+      let lead = null;
+      if (thread.relatedLeadId) {
+        lead = await storage.getLead(thread.relatedLeadId);
+      }
+      
       res.json({
         ...thread,
         participants,
@@ -6474,6 +7886,14 @@ ${emailContent}
           address: job.address,
           serviceType: job.serviceType,
           status: job.status
+        } : null,
+        lead: lead ? {
+          id: lead.id,
+          customerName: lead.customerName,
+          customerPhone: lead.customerPhone,
+          address: lead.address,
+          serviceType: lead.serviceType,
+          status: lead.status
         } : null
       });
     } catch (error) {
@@ -8024,6 +9444,1760 @@ ${emailContent}
   app.post("/api/webhooks/mctb/voice-fallback", async (req, res) => {
     console.error(`[MCTB Webhook] Voice fallback hit — primary webhook failed`);
     res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`);
+  });
+
+  // ============================================
+  // LEAD-BASED CUSTOMER CHAT ENDPOINTS
+  // Chat starts at lead creation and persists through quote → job
+  // ============================================
+
+  // Get lead chat thread (public - using lead token)
+  app.get("/api/chat/leads/:leadId/thread", async (req, res) => {
+    try {
+      const { token } = req.query as { token: string };
+      const leadId = req.params.leadId;
+      
+      if (!token) {
+        return res.status(401).json({ error: "Token required" });
+      }
+      
+      const crypto = await import('crypto');
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      
+      // Validate the magic session for this lead
+      const session = await storage.getChatMagicSessionByLead(leadId, tokenHash);
+      if (!session) {
+        return res.status(401).json({ error: "Invalid or expired session" });
+      }
+      
+      // Update last used
+      await storage.updateChatMagicSessionLastUsed(session.id);
+      
+      // Get the thread
+      const thread = await storage.getChatThreadByLead(leadId, 'customer_visible');
+      if (!thread) {
+        return res.status(404).json({ error: "No chat thread exists for this lead" });
+      }
+      
+      // Get lead info
+      const lead = await storage.getLead(leadId);
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      
+      const participants = await storage.getChatThreadParticipants(thread.id);
+      const messages = await storage.getChatMessages(thread.id, { limit: 100 });
+      
+      res.json({
+        ...thread,
+        lead: {
+          id: lead.id,
+          customerName: lead.customerName,
+          serviceType: lead.serviceType,
+          status: lead.status
+        },
+        participants: participants.filter(p => p.participantType === 'user').map(p => ({
+          displayName: p.displayName,
+          roleAtTime: p.roleAtTime
+        })),
+        messages
+      });
+    } catch (error) {
+      console.error("Error fetching lead thread:", error);
+      res.status(500).json({ error: "Failed to fetch thread" });
+    }
+  });
+
+  // Send message to lead chat (public - using lead token)
+  app.post("/api/chat/leads/:leadId/thread/messages", async (req, res) => {
+    try {
+      const { token, body: messageBody, client_msg_id } = req.body as { 
+        token: string; 
+        body: string; 
+        client_msg_id?: string 
+      };
+      const leadId = req.params.leadId;
+      
+      if (!token || !messageBody) {
+        return res.status(400).json({ error: "Token and message body required" });
+      }
+      
+      const crypto = await import('crypto');
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      
+      const session = await storage.getChatMagicSessionByLead(leadId, tokenHash);
+      if (!session) {
+        return res.status(401).json({ error: "Invalid or expired session" });
+      }
+      
+      await storage.updateChatMagicSessionLastUsed(session.id);
+      
+      const thread = await storage.getChatThreadByLead(leadId, 'customer_visible');
+      if (!thread) {
+        return res.status(404).json({ error: "No chat thread exists for this lead" });
+      }
+      
+      if (thread.status === 'closed') {
+        return res.status(403).json({ error: "This conversation has been closed" });
+      }
+      
+      // Get lead for customer name
+      const lead = await storage.getLead(leadId);
+      
+      const message = await storage.createChatMessage({
+        threadId: thread.id,
+        senderType: 'customer',
+        senderId: session.customerIdentifier,
+        senderDisplayName: lead?.customerName || 'Customer',
+        body: messageBody.trim(),
+        clientMsgId: client_msg_id,
+        meta: {
+          ip: req.ip,
+          userAgent: req.headers['user-agent']
+        }
+      });
+      
+      res.status(201).json(message);
+    } catch (error) {
+      console.error("Error sending lead message:", error);
+      res.status(500).json({ error: "Failed to send message" });
+    }
+  });
+
+  // Generate magic link for lead chat (staff endpoint)
+  app.post("/api/chat/leads/:leadId/customer-session", async (req, res) => {
+    try {
+      const user = await getChatUser(req);
+      if (!user || !['dispatcher', 'technician', 'admin', 'god'].includes(user.role)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const lead = await storage.getLead(req.params.leadId);
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      
+      const customerIdentifier = lead.customerPhone || lead.customerEmail;
+      if (!customerIdentifier) {
+        return res.status(400).json({ error: "Lead has no contact information" });
+      }
+      
+      // Generate a secure token
+      const crypto = await import('crypto');
+      const token = crypto.randomBytes(32).toString('hex');
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      
+      // Create session with 7-day expiry
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+      
+      await storage.createChatMagicSession({
+        leadId: lead.id,
+        customerIdentifier,
+        tokenHash,
+        expiresAt
+      });
+      
+      const baseUrl = process.env.PRODUCTION_DOMAIN || 'https://chicagosewerexpertsapp.com';
+      const magicLink = `${baseUrl}/lead-chat/${lead.id}?token=${token}`;
+      
+      res.json({
+        magicLink,
+        expiresAt,
+        customerIdentifier
+      });
+    } catch (error) {
+      console.error("Error creating lead customer session:", error);
+      res.status(500).json({ error: "Failed to create customer session" });
+    }
+  });
+
+  // ============================================
+  // LEAD TO QUOTE CONVERSION
+  // When technician provides estimate, lead becomes quote
+  // ============================================
+
+  app.post("/api/leads/:leadId/convert-to-quote", async (req, res) => {
+    try {
+      const user = await getChatUser(req);
+      if (!user || !['dispatcher', 'technician', 'admin', 'god'].includes(user.role)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const lead = await storage.getLead(req.params.leadId);
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      
+      // Get quote data from request body (line items, total, etc.)
+      const { lineItems, notes, validDays } = req.body as {
+        lineItems?: Array<{ description: string; quantity: number; unitPrice: string; total: string }>;
+        notes?: string;
+        validDays?: number;
+      };
+      
+      // Calculate total from line items
+      let totalAmount = "0";
+      if (lineItems && lineItems.length > 0) {
+        totalAmount = lineItems.reduce((sum, item) => sum + parseFloat(item.total || "0"), 0).toString();
+      }
+      
+      // Generate public token for quote
+      const crypto = await import('crypto');
+      const publicToken = crypto.randomBytes(16).toString('hex');
+      
+      // Create the quote
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + (validDays || 30));
+      
+      const quote = await storage.createQuote({
+        leadId: lead.id,
+        customerName: lead.customerName,
+        customerPhone: lead.customerPhone,
+        customerEmail: lead.customerEmail || null,
+        address: lead.address || '',
+        city: lead.city || null,
+        zipCode: lead.zipCode || null,
+        serviceType: lead.serviceType || 'general',
+        description: lead.description || null,
+        status: 'draft',
+        totalAmount,
+        notes: notes || null,
+        publicToken,
+        expiresAt,
+        createdBy: user.id,
+        lineItems: lineItems || [],
+      });
+      
+      // Update lead status to indicate it's been converted to quote
+      await storage.updateLead(lead.id, { 
+        status: 'quoted',
+        convertedAt: new Date()
+      });
+      
+      // Link the existing chat thread to this quote
+      const thread = await storage.getChatThreadByLead(lead.id, 'customer_visible');
+      if (thread) {
+        await storage.linkChatThreadToQuote(thread.id, quote.id);
+        
+        // Add system message about quote
+        await storage.createChatMessage({
+          threadId: thread.id,
+          senderType: 'user',
+          senderId: user.id,
+          senderDisplayName: user.fullName || user.username,
+          body: `An estimate has been prepared for you. Total: $${parseFloat(totalAmount).toFixed(2)}. You'll receive the full quote details shortly.`,
+          meta: { automated: true, quoteId: quote.id }
+        });
+      }
+      
+      res.status(201).json({
+        quote,
+        quoteUrl: `/quote/${publicToken}`
+      });
+    } catch (error) {
+      console.error("Error converting lead to quote:", error);
+      res.status(500).json({ error: "Failed to convert lead to quote" });
+    }
+  });
+
+  // Get chat thread by lead ID (staff endpoint)
+  app.get("/api/chat/threads/by-lead/:leadId", async (req, res) => {
+    try {
+      const user = await getChatUser(req);
+      if (!user) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const thread = await storage.getChatThreadByLead(req.params.leadId, 'customer_visible');
+      if (!thread) {
+        return res.status(404).json({ error: "No thread found for this lead" });
+      }
+      
+      // Check if user is participant
+      const isParticipant = await storage.isUserParticipant(thread.id, user.id);
+      if (!isParticipant && !['admin', 'god'].includes(user.role)) {
+        // Add user as participant if they're viewing
+        await storage.addChatThreadParticipant({
+          threadId: thread.id,
+          participantType: 'user',
+          participantId: user.id,
+          roleAtTime: user.role,
+          displayName: user.fullName || user.username
+        });
+      }
+      
+      const participants = await storage.getChatThreadParticipants(thread.id);
+      const messages = await storage.getChatMessages(thread.id, { limit: 100 });
+      const unreadCount = await storage.getUnreadCountForParticipant(thread.id, 'user', user.id);
+      
+      res.json({
+        ...thread,
+        participants,
+        messages,
+        unreadCount
+      });
+    } catch (error) {
+      console.error("Error fetching lead thread:", error);
+      res.status(500).json({ error: "Failed to fetch thread" });
+    }
+  });
+
+  // ============================================
+  // PUBLIC CHAT ENDPOINTS (Website Lead Capture)
+  // ============================================
+
+  // Start a public chat - creates lead and chat thread
+  app.post("/api/public/chat/start", async (req, res) => {
+    try {
+      const { customerName, customerPhone, customerEmail, address, serviceType, initialMessage } = req.body;
+      
+      if (!customerName || !customerPhone || !initialMessage) {
+        return res.status(400).json({ error: "Name, phone, and message are required" });
+      }
+      
+      // Create a new lead from the public chat
+      const lead = await storage.createLead({
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        customerEmail: customerEmail?.trim() || null,
+        address: address?.trim() || null,
+        serviceType: serviceType || null,
+        source: 'website_chat',
+        status: 'new',
+        priority: 'normal',
+        notes: `Chat initiated from website: "${initialMessage.trim()}"`,
+        estimatedValue: null,
+        scheduledDate: null,
+        scheduledTimeSlot: null,
+      });
+      
+      console.log(`[PUBLIC CHAT] Created lead ${lead.id} from website chat for ${customerName}`);
+      
+      // Create a unique customer identifier
+      const customerIdentifier = `public_chat_${lead.id}`;
+      
+      // Create a customer-visible chat thread linked to the lead
+      const thread = await storage.createChatThread({
+        visibility: 'customer_visible',
+        subject: `Website Chat: ${customerName}`,
+        status: 'active',
+        relatedLeadId: lead.id,
+        createdByType: 'customer',
+        createdById: customerIdentifier,
+      });
+      
+      // Add customer as participant
+      await storage.addChatThreadParticipant({
+        threadId: thread.id,
+        participantType: 'customer',
+        participantId: customerIdentifier,
+        roleAtTime: 'customer',
+        displayName: customerName.trim(),
+      });
+      
+      // Get all dispatchers and add them as participants
+      const users = await storage.getUsers();
+      const dispatchers = users.filter(u => u.role === 'dispatcher' || u.role === 'admin' || u.role === 'god');
+      
+      for (const dispatcher of dispatchers) {
+        await storage.addChatThreadParticipant({
+          threadId: thread.id,
+          participantType: 'user',
+          participantId: dispatcher.id,
+          roleAtTime: dispatcher.role,
+          displayName: dispatcher.fullName || dispatcher.username,
+        });
+      }
+      
+      // Send the initial message from the customer
+      await storage.createChatMessage({
+        threadId: thread.id,
+        senderType: 'customer',
+        senderId: customerIdentifier,
+        senderDisplayName: customerName.trim(),
+        body: initialMessage.trim(),
+        clientMsgId: `init_${Date.now()}`,
+        meta: {
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+          source: 'website_chat'
+        }
+      });
+      
+      // Generate a session token for the customer
+      const crypto = await import('crypto');
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      
+      // Store the magic session for the customer
+      await storage.createChatMagicSession({
+        leadId: lead.id,
+        jobId: null,
+        customerIdentifier,
+        tokenHash,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      });
+      
+      console.log(`[PUBLIC CHAT] Created chat thread ${thread.id} with session for lead ${lead.id}`);
+      
+      // Notify all dispatchers/admins about new website chat
+      notifyStaff({
+        type: "new_chat",
+        title: "New Website Chat",
+        message: `${customerName} started a chat: "${initialMessage.substring(0, 80)}${initialMessage.length > 80 ? '...' : ''}"`,
+        actionUrl: "/chat",
+      }).catch(err => console.error("Public chat notification error:", err));
+      
+      res.status(201).json({
+        sessionToken: rawToken,
+        leadId: lead.id,
+        threadId: thread.id,
+      });
+    } catch (error) {
+      console.error("Error starting public chat:", error);
+      res.status(500).json({ error: "Failed to start chat" });
+    }
+  });
+
+  // Get messages for public chat
+  app.get("/api/public/chat/messages", async (req, res) => {
+    try {
+      const { token } = req.query as { token?: string };
+      
+      if (!token) {
+        return res.status(400).json({ error: "Token required" });
+      }
+      
+      const crypto = await import('crypto');
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      
+      // Find session by token hash
+      const allSessions = await db.select().from(chatMagicSessions).where(eq(chatMagicSessions.tokenHash, tokenHash));
+      if (allSessions.length === 0) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+      
+      const session = allSessions[0];
+      if (new Date(session.expiresAt) < new Date()) {
+        return res.status(401).json({ error: "Session expired" });
+      }
+      
+      // Get thread by lead from session
+      const thread = await storage.getChatThreadByLead(session.leadId!, 'customer_visible');
+      if (!thread) {
+        return res.status(404).json({ error: "Chat thread not found" });
+      }
+      
+      const messages = await storage.getChatMessages(thread.id, { limit: 100 });
+      res.json(messages);
+    } catch (error) {
+      console.error("Error fetching public chat messages:", error);
+      res.status(500).json({ error: "Failed to fetch messages" });
+    }
+  });
+
+  // Send message to public chat
+  app.post("/api/public/chat/send", async (req, res) => {
+    try {
+      const { token, body: messageBody, client_msg_id } = req.body;
+      
+      if (!token || !messageBody) {
+        return res.status(400).json({ error: "Token and message body required" });
+      }
+      
+      const crypto = await import('crypto');
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      
+      // Find session by token hash
+      const allSessions = await db.select().from(chatMagicSessions).where(eq(chatMagicSessions.tokenHash, tokenHash));
+      if (allSessions.length === 0) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+      
+      const session = allSessions[0];
+      if (new Date(session.expiresAt) < new Date()) {
+        return res.status(401).json({ error: "Session expired" });
+      }
+      
+      // Update last used
+      await storage.updateChatMagicSessionLastUsed(session.id);
+      
+      // Get thread by lead
+      const thread = await storage.getChatThreadByLead(session.leadId!, 'customer_visible');
+      if (!thread) {
+        return res.status(404).json({ error: "Chat thread not found" });
+      }
+      
+      if (thread.status === 'closed') {
+        return res.status(403).json({ error: "This conversation has been closed" });
+      }
+      
+      // Get lead for customer name
+      const lead = await storage.getLead(session.leadId!);
+      
+      const message = await storage.createChatMessage({
+        threadId: thread.id,
+        senderType: 'customer',
+        senderId: session.customerIdentifier,
+        senderDisplayName: lead?.customerName || 'Customer',
+        body: messageBody.trim(),
+        clientMsgId: client_msg_id,
+        meta: {
+          ip: req.ip,
+          userAgent: req.headers['user-agent']
+        }
+      });
+      
+      res.status(201).json(message);
+    } catch (error) {
+      console.error("Error sending public chat message:", error);
+      res.status(500).json({ error: "Failed to send message" });
+    }
+  });
+
+  // Audit Logs
+  app.get("/api/audit-logs", async (req, res) => {
+    try {
+      const entityType = req.query.entityType as string | undefined;
+      const entityId = req.query.entityId as string | undefined;
+      const limit = parseInt(req.query.limit as string) || 100;
+      
+      if (entityType && entityId) {
+        const logs = await storage.getAuditLogsByEntity(entityType, entityId);
+        return res.json(logs);
+      }
+      
+      const logs = await storage.getAuditLogs(limit);
+      res.json(logs);
+    } catch (error) {
+      console.error("Get audit logs error:", error);
+      res.status(500).json({ error: "Failed to get audit logs" });
+    }
+  });
+
+  app.post("/api/audit-logs", async (req, res) => {
+    try {
+      const log = await storage.createAuditLog(req.body);
+      res.json(log);
+    } catch (error) {
+      console.error("Create audit log error:", error);
+      res.status(500).json({ error: "Failed to create audit log" });
+    }
+  });
+
+  // ============================================
+  // WORK ORDERS
+  // ============================================
+
+  app.get("/api/work-orders", async (req, res) => {
+    try {
+      const { jobId, technicianId } = req.query;
+      let orders;
+      if (jobId) {
+        orders = await storage.getWorkOrdersByJob(jobId as string);
+      } else if (technicianId) {
+        orders = await storage.getWorkOrdersByTechnician(technicianId as string);
+      } else {
+        orders = await storage.getAllWorkOrders();
+      }
+      res.json(orders);
+    } catch (error) {
+      console.error("Error fetching work orders:", error);
+      res.status(500).json({ error: "Failed to fetch work orders" });
+    }
+  });
+
+  app.get("/api/work-orders/:id", async (req, res) => {
+    try {
+      const order = await storage.getWorkOrder(req.params.id);
+      if (!order) return res.status(404).json({ error: "Work order not found" });
+      res.json(order);
+    } catch (error) {
+      console.error("Error fetching work order:", error);
+      res.status(500).json({ error: "Failed to fetch work order" });
+    }
+  });
+
+  app.post("/api/work-orders", async (req, res) => {
+    try {
+      const validatedData = insertWorkOrderSchema.parse(req.body);
+      const order = await storage.createWorkOrder(validatedData);
+      
+      // Notify dispatchers/admins about new work order
+      const job = order.jobId ? await storage.getJob(order.jobId) : null;
+      notifyStaff({
+        type: "work_order_created",
+        title: "Work Order Submitted",
+        message: `Work order submitted for ${job?.customerName || "customer"}${job?.address ? ` at ${job.address}` : ""} - $${parseFloat(order.totalPrice || "0").toFixed(2)}`,
+        jobId: order.jobId || undefined,
+        actionUrl: order.jobId ? `/jobs?jobId=${order.jobId}` : undefined,
+        targetRoles: ["dispatcher", "admin"],
+      }).catch(err => console.error("Work order notification error:", err));
+      
+      res.status(201).json(order);
+    } catch (error: any) {
+      if (error?.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid work order data", details: error.errors });
+      }
+      console.error("Error creating work order:", error);
+      res.status(500).json({ error: "Failed to create work order" });
+    }
+  });
+
+  app.patch("/api/work-orders/:id", async (req, res) => {
+    try {
+      const oldOrder = await storage.getWorkOrder(req.params.id);
+      const order = await storage.updateWorkOrder(req.params.id, req.body);
+      if (!order) return res.status(404).json({ error: "Work order not found" });
+      
+      // Notify on status changes (draft -> signed, signed -> completed)
+      if (oldOrder && req.body.status && req.body.status !== oldOrder.status) {
+        const job = order.jobId ? await storage.getJob(order.jobId) : null;
+        const statusLabel = req.body.status === "signed" ? "Signed by Customer" : req.body.status === "completed" ? "Completed" : req.body.status;
+        notifyStaff({
+          type: "work_order_updated",
+          title: `Work Order ${statusLabel}`,
+          message: `Work order for ${job?.customerName || "customer"} is now ${statusLabel.toLowerCase()} - $${parseFloat(order.totalPrice || "0").toFixed(2)}`,
+          jobId: order.jobId || undefined,
+          actionUrl: order.jobId ? `/jobs?jobId=${order.jobId}` : undefined,
+          targetRoles: ["dispatcher", "admin"],
+        }).catch(err => console.error("Work order update notification error:", err));
+      }
+      
+      res.json(order);
+    } catch (error) {
+      console.error("Error updating work order:", error);
+      res.status(500).json({ error: "Failed to update work order" });
+    }
+  });
+
+  // ===================== JOB MEDIA =====================
+
+  app.get("/api/jobs/:jobId/media", async (req, res) => {
+    try {
+      if (!(await isAuthenticatedUser(req))) return res.status(401).json({ error: "Unauthorized" });
+      const media = await storage.getJobMedia(req.params.jobId);
+      res.json(media);
+    } catch (error) {
+      console.error("Error fetching job media:", error);
+      res.status(500).json({ error: "Failed to fetch job media" });
+    }
+  });
+
+  app.post("/api/jobs/:jobId/media", async (req, res) => {
+    try {
+      if (!(await isAuthenticatedUser(req))) return res.status(401).json({ error: "Unauthorized" });
+      const user = (req as any).session?.passport?.user;
+      const userId = (req as any).user?.id || user || "unknown";
+      const parsed = insertJobMediaSchema.safeParse({
+        ...req.body,
+        jobId: req.params.jobId,
+        uploadedBy: userId,
+      });
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten().fieldErrors });
+      }
+      const { objectPath, mediaType } = parsed.data;
+      const allowedTypes = ["image", "video"];
+      if (!allowedTypes.includes(mediaType)) {
+        return res.status(400).json({ error: "mediaType must be 'image' or 'video'" });
+      }
+      if (!objectPath.startsWith("/objects/uploads/")) {
+        return res.status(400).json({ error: "Invalid object path" });
+      }
+      const media = await storage.createJobMedia(parsed.data);
+      res.status(201).json(media);
+    } catch (error) {
+      console.error("Error creating job media:", error);
+      res.status(500).json({ error: "Failed to create job media" });
+    }
+  });
+
+  app.delete("/api/jobs/:jobId/media/:mediaId", async (req, res) => {
+    try {
+      if (!(await isAuthenticatedUser(req))) return res.status(401).json({ error: "Unauthorized" });
+      const deleted = await storage.deleteJobMedia(req.params.mediaId);
+      if (!deleted) return res.status(404).json({ error: "Media not found" });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting job media:", error);
+      res.status(500).json({ error: "Failed to delete job media" });
+    }
+  });
+
+  // ============================================
+  // AI COPILOT AGENT ROUTES
+  // ============================================
+  const { generatePlan, executeAction, getAvailableTools } = await import("./services/agent");
+
+  const COPILOT_OVERRIDE_PASSWORD = "131381";
+  const MASTER_LICENSE_KEY = "WSA-MASTER-2026-UNIVERSAL";
+
+  const checkCopilotLicense = async (): Promise<boolean> => {
+    const settings = await storage.getCompanySettings();
+    if (settings?.copilotOverrideEnabled === true) return true;
+    return settings?.copilotLicenseActive === true && !!settings?.copilotLicenseKey;
+  };
+
+  const getAgentUser = async (req: any): Promise<User | null> => {
+    const headerUser = await getChatUser(req);
+    if (headerUser) return headerUser;
+    const sessionUserId = req.session?.passport?.user;
+    if (sessionUserId) {
+      const user = await storage.getUser(sessionUserId);
+      return user as User | null;
+    }
+    return null;
+  };
+
+  app.get("/api/agent/license", async (req, res) => {
+    try {
+      const settings = await storage.getCompanySettings();
+      const overrideEnabled = settings?.copilotOverrideEnabled === true;
+      const licenseActive = settings?.copilotLicenseActive === true && !!settings?.copilotLicenseKey;
+      res.json({
+        active: overrideEnabled || licenseActive,
+        hasKey: !!settings?.copilotLicenseKey,
+        overrideEnabled,
+      });
+    } catch (error: any) {
+      console.error("License check error:", error);
+      res.status(500).json({ error: "Failed to check license" });
+    }
+  });
+
+  app.post("/api/agent/license/override", async (req, res) => {
+    try {
+      const { password, enabled } = req.body;
+      if (password !== COPILOT_OVERRIDE_PASSWORD) {
+        return res.status(403).json({ error: "Incorrect override password" });
+      }
+      await storage.updateCompanySettings({
+        copilotOverrideEnabled: enabled === true,
+      });
+      res.json({ success: true, overrideEnabled: enabled === true });
+    } catch (error: any) {
+      console.error("Override toggle error:", error);
+      res.status(500).json({ error: "Failed to update override" });
+    }
+  });
+
+  app.post("/api/agent/license/activate", async (req, res) => {
+    try {
+      const { licenseKey } = req.body;
+      if (!licenseKey || typeof licenseKey !== "string" || licenseKey.trim().length < 8) {
+        return res.status(400).json({ error: "A valid license key is required (minimum 8 characters)" });
+      }
+      const trimmedKey = licenseKey.trim();
+      const isMasterKey = trimmedKey === MASTER_LICENSE_KEY;
+      const isValid = isMasterKey || (trimmedKey.startsWith("WSA-") && trimmedKey.length >= 12);
+      if (!isValid) {
+        return res.status(400).json({ error: "Invalid license key format. Keys should start with WSA- and be at least 12 characters." });
+      }
+      await storage.updateCompanySettings({
+        copilotLicenseKey: trimmedKey,
+        copilotLicenseActive: true,
+      });
+      res.json({ success: true, message: "AI Copilot license activated successfully" });
+    } catch (error: any) {
+      console.error("License activation error:", error);
+      res.status(500).json({ error: "Failed to activate license" });
+    }
+  });
+
+  app.post("/api/agent/license/deactivate", async (req, res) => {
+    try {
+      await storage.updateCompanySettings({
+        copilotLicenseKey: null,
+        copilotLicenseActive: false,
+      });
+      res.json({ success: true, message: "AI Copilot license deactivated" });
+    } catch (error: any) {
+      console.error("License deactivation error:", error);
+      res.status(500).json({ error: "Failed to deactivate license" });
+    }
+  });
+
+  app.post("/api/agent/plan", async (req, res) => {
+    try {
+      const user = await getChatUser(req);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      if (user.role !== "admin" && user.role !== "dispatcher") {
+        return res.status(403).json({ error: "Copilot is only available to admins and dispatchers" });
+      }
+      if (!(await checkCopilotLicense())) {
+        return res.status(403).json({ error: "AI Copilot requires an active WebSlingerAI license. Please contact your administrator." });
+      }
+      const { message, history } = req.body;
+      if (!message || typeof message !== "string") {
+        return res.status(400).json({ error: "message is required" });
+      }
+      const plan = await generatePlan(message, user.role, history || []);
+      res.json(plan);
+    } catch (error: any) {
+      console.error("Agent plan error:", error);
+      res.status(500).json({ error: "Failed to generate plan", details: error.message });
+    }
+  });
+
+  app.post("/api/agent/execute", async (req, res) => {
+    try {
+      const user = await getChatUser(req);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      if (user.role !== "admin" && user.role !== "dispatcher") {
+        return res.status(403).json({ error: "Copilot is only available to admins and dispatchers" });
+      }
+      if (!(await checkCopilotLicense())) {
+        return res.status(403).json({ error: "AI Copilot requires an active WebSlingerAI license." });
+      }
+      const { action } = req.body;
+      if (!action || !action.toolName) {
+        return res.status(400).json({ error: "action with toolName is required" });
+      }
+      const result = await executeAction(action, user.role, user.id);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Agent execute error:", error);
+      res.status(500).json({ error: "Failed to execute action", details: error.message });
+    }
+  });
+
+  app.get("/api/agent/tools", async (req, res) => {
+    try {
+      const user = await getChatUser(req);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      if (user.role !== "admin" && user.role !== "dispatcher") {
+        return res.status(403).json({ error: "Copilot is only available to admins and dispatchers" });
+      }
+      if (!(await checkCopilotLicense())) {
+        return res.status(403).json({ error: "AI Copilot requires an active WebSlingerAI license." });
+      }
+      res.json(getAvailableTools(user.role));
+    } catch (error: any) {
+      console.error("Agent tools error:", error);
+      res.status(500).json({ error: "Failed to get tools" });
+    }
+  });
+
+  // ============================================
+  // CALL RECORDINGS - Transcribe & Auto-Create Intake
+  // ============================================
+  const audioBodyParser = express.json({ limit: "50mb" });
+
+  app.get("/api/call-recordings", async (req, res) => {
+    try {
+      const { leadId, jobId } = req.query;
+      const recordings = await storage.getCallRecordings({
+        leadId: leadId as string,
+        jobId: jobId as string,
+      });
+      res.json(recordings);
+    } catch (error: any) {
+      console.error("Error fetching call recordings:", error);
+      res.status(500).json({ error: "Failed to fetch call recordings" });
+    }
+  });
+
+  app.get("/api/call-recordings/:id", async (req, res) => {
+    try {
+      const recording = await storage.getCallRecording(req.params.id);
+      if (!recording) return res.status(404).json({ error: "Recording not found" });
+      res.json(recording);
+    } catch (error: any) {
+      console.error("Error fetching call recording:", error);
+      res.status(500).json({ error: "Failed to fetch call recording" });
+    }
+  });
+
+  app.post("/api/call-recordings", async (req, res) => {
+    try {
+      const parsed = insertCallRecordingSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid recording data", details: parsed.error.errors });
+      }
+      const recording = await storage.createCallRecording(parsed.data);
+      res.status(201).json(recording);
+    } catch (error: any) {
+      console.error("Error creating call recording:", error);
+      res.status(500).json({ error: "Failed to create call recording" });
+    }
+  });
+
+  app.patch("/api/call-recordings/:id", async (req, res) => {
+    try {
+      const updated = await storage.updateCallRecording(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: "Recording not found" });
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating call recording:", error);
+      res.status(500).json({ error: "Failed to update call recording" });
+    }
+  });
+
+  app.post("/api/call-recordings/transcribe", audioBodyParser, async (req, res) => {
+    try {
+      const { audio, recordingId } = req.body;
+      if (!audio) {
+        return res.status(400).json({ error: "Audio data (base64) required" });
+      }
+
+      const { speechToText, ensureCompatibleFormat } = await import("./replit_integrations/audio/client");
+      const rawBuffer = Buffer.from(audio, "base64");
+      const { buffer: audioBuffer, format: inputFormat } = await ensureCompatibleFormat(rawBuffer);
+      const transcript = await speechToText(audioBuffer, inputFormat);
+
+      if (recordingId) {
+        await storage.updateCallRecording(recordingId, {
+          transcript,
+          status: "transcribed",
+        });
+      }
+
+      res.json({ transcript });
+    } catch (error: any) {
+      console.error("Error transcribing audio:", error);
+      res.status(500).json({ error: "Failed to transcribe audio" });
+    }
+  });
+
+  app.post("/api/call-recordings/analyze", async (req, res) => {
+    try {
+      const { transcript, recordingId } = req.body;
+      if (!transcript) {
+        return res.status(400).json({ error: "Transcript is required" });
+      }
+
+      const { openai } = await import("./replit_integrations/audio/client");
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are an AI assistant for Emergency Chicago Sewer Experts, a sewer and plumbing services company in Chicago, IL. Analyze the following phone call transcript between a dispatcher and a customer. Extract the customer intake information and return it as a JSON object with these fields:
+{
+  "customerName": "Full name of the customer",
+  "customerPhone": "Phone number mentioned",
+  "customerEmail": "Email if mentioned, or empty string",
+  "address": "Street address of the service location",
+  "city": "City (default to Chicago if not mentioned but address is in Chicago area)",
+  "zipCode": "ZIP code if mentioned",
+  "serviceType": "One of: sewer_main, drain_cleaning, plumbing, water_heater, sump_pump, ejector_pit, rodding, camera_inspection, hydro_jetting, excavation, other",
+  "description": "Detailed description of the problem as described by the customer",
+  "priority": "One of: low, normal, high, urgent - based on severity described",
+  "propertyType": "One of: SFH, Townhome, 2-3 Flat, Condo/Multi-Unit, Business/Commercial - if mentioned",
+  "contactTenantName": "If someone other than the property owner is the contact, their name",
+  "contactTenantPhone": "If a different contact phone was given",
+  "notes": "Any other important details from the call like scheduling preferences, access instructions, previous work done, etc.",
+  "aiRecommendations": "Your recommendations for the dispatcher: suggested service approach, estimated urgency, any questions to follow up on"
+}
+Return ONLY the JSON object, no other text.`
+          },
+          {
+            role: "user",
+            content: transcript,
+          },
+        ],
+        response_format: { type: "json_object" },
+      });
+
+      const analysisText = completion.choices[0]?.message?.content || "{}";
+      let analysis;
+      try {
+        analysis = JSON.parse(analysisText);
+      } catch {
+        analysis = { error: "Failed to parse AI response", raw: analysisText };
+      }
+
+      if (recordingId) {
+        await storage.updateCallRecording(recordingId, {
+          aiAnalysis: JSON.stringify(analysis),
+          aiRecommendations: analysis.aiRecommendations || "",
+          customerName: analysis.customerName || null,
+          customerPhone: analysis.customerPhone || null,
+          status: "analyzed",
+        });
+      }
+
+      res.json({ analysis });
+    } catch (error: any) {
+      console.error("Error analyzing transcript:", error);
+      res.status(500).json({ error: "Failed to analyze transcript" });
+    }
+  });
+
+  app.post("/api/call-recordings/create-lead", async (req, res) => {
+    try {
+      const { analysis, recordingId, recordedBy } = req.body;
+      if (!analysis || typeof analysis !== "object") {
+        return res.status(400).json({ error: "Analysis data is required and must be an object" });
+      }
+      if (!analysis.customerName || typeof analysis.customerName !== "string" || analysis.customerName.trim().length === 0) {
+        return res.status(400).json({ error: "Customer name is required" });
+      }
+
+      const safeStr = (val: any): string | undefined => (typeof val === "string" && val.trim() ? val.trim() : undefined);
+
+      const leadData: InsertLead = {
+        source: "phone_call",
+        customerName: String(analysis.customerName).trim(),
+        customerPhone: safeStr(analysis.customerPhone) || "",
+        customerEmail: safeStr(analysis.customerEmail),
+        address: safeStr(analysis.address),
+        city: safeStr(analysis.city) || "Chicago",
+        zipCode: safeStr(analysis.zipCode),
+        serviceType: safeStr(analysis.serviceType) || "other",
+        description: safeStr(analysis.description) || "",
+        priority: safeStr(analysis.priority) || "normal",
+        propertyType: safeStr(analysis.propertyType),
+        contactTenantName: safeStr(analysis.contactTenantName),
+        contactTenantPhone: safeStr(analysis.contactTenantPhone),
+        assignedTo: safeStr(recordedBy),
+      };
+
+      const lead = await storage.createLead(leadData);
+
+      if (recordingId) {
+        await storage.updateCallRecording(recordingId, {
+          leadId: lead.id,
+          status: "lead_created",
+        });
+      }
+
+      res.status(201).json({ lead });
+    } catch (error: any) {
+      console.error("Error creating lead from recording:", error);
+      res.status(500).json({ error: "Failed to create lead" });
+    }
+  });
+
+  // Follow-Up Assistant - Get stale/open quotes needing follow-up
+  app.get("/api/follow-up/stale-quotes", async (req, res) => {
+    try {
+      const allQuotes = await storage.getAllQuotes();
+      const now = new Date();
+      const staleQuotes = allQuotes
+        .filter((q: any) => ["draft", "sent", "viewed"].includes(q.status))
+        .map((q: any) => {
+          const createdDate = new Date(q.createdAt);
+          const daysSinceCreated = Math.floor((now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+          const lastActivity = q.viewedAt || q.sentAt || q.createdAt;
+          const lastActivityDate = new Date(lastActivity);
+          const daysSinceLastActivity = Math.floor((now.getTime() - lastActivityDate.getTime()) / (1000 * 60 * 60 * 24));
+          let urgency: "low" | "medium" | "high" | "critical" = "low";
+          if (daysSinceLastActivity >= 14) urgency = "critical";
+          else if (daysSinceLastActivity >= 7) urgency = "high";
+          else if (daysSinceLastActivity >= 3) urgency = "medium";
+          return {
+            ...q,
+            daysSinceCreated,
+            daysSinceLastActivity,
+            lastActivityType: q.viewedAt ? "viewed" : q.sentAt ? "sent" : "created",
+            lastActivityDate: lastActivity,
+            urgency,
+          };
+        })
+        .sort((a: any, b: any) => b.daysSinceLastActivity - a.daysSinceLastActivity);
+      res.json(staleQuotes);
+    } catch (error) {
+      console.error("Error fetching stale quotes:", error);
+      res.status(500).json({ error: "Failed to fetch stale quotes" });
+    }
+  });
+
+  // Follow-Up Assistant - Get unconverted leads needing follow-up
+  app.get("/api/follow-up/unconverted-leads", async (req, res) => {
+    try {
+      const allLeads = await storage.getLeads();
+      const now = new Date();
+      const unconvertedLeads = allLeads
+        .filter((l: any) => ["new", "contacted", "qualified", "estimated", "quoted"].includes(l.status))
+        .map((l: any) => {
+          const createdDate = new Date(l.createdAt);
+          const daysSinceCreated = Math.floor((now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+          const lastUpdated = l.updatedAt || l.createdAt;
+          const lastUpdatedDate = new Date(lastUpdated);
+          const daysSinceLastUpdate = Math.floor((now.getTime() - lastUpdatedDate.getTime()) / (1000 * 60 * 60 * 24));
+          let urgency: "low" | "medium" | "high" | "critical" = "low";
+          if (daysSinceLastUpdate >= 14) urgency = "critical";
+          else if (daysSinceLastUpdate >= 7) urgency = "high";
+          else if (daysSinceLastUpdate >= 3) urgency = "medium";
+          return {
+            ...l,
+            daysSinceCreated,
+            daysSinceLastUpdate,
+            urgency,
+          };
+        })
+        .sort((a: any, b: any) => b.daysSinceLastUpdate - a.daysSinceLastUpdate);
+      res.json(unconvertedLeads);
+    } catch (error) {
+      console.error("Error fetching unconverted leads:", error);
+      res.status(500).json({ error: "Failed to fetch unconverted leads" });
+    }
+  });
+
+  // Follow-Up Assistant - Get follow-up history for a lead or quote
+  app.get("/api/follow-up/history", async (req, res) => {
+    try {
+      const { leadId, jobId } = req.query;
+      let contacts: any[] = [];
+      if (leadId && typeof leadId === "string") {
+        contacts = await storage.getContactAttemptsByLead(leadId);
+      } else if (jobId && typeof jobId === "string") {
+        contacts = await storage.getContactAttemptsByJob(jobId);
+      }
+      res.json(contacts);
+    } catch (error) {
+      console.error("Error fetching follow-up history:", error);
+      res.status(500).json({ error: "Failed to fetch follow-up history" });
+    }
+  });
+
+  // Follow-Up Assistant - AI-generate a follow-up message
+  app.post("/api/follow-up/generate-message", async (req, res) => {
+    try {
+      const { type, customerName, customerPhone, customerEmail, address, serviceType, description, quoteTotal, status, daysSinceLastActivity, channel } = req.body;
+      if (!customerName || !type) {
+        return res.status(400).json({ error: "Customer name and type required" });
+      }
+
+      const openai = new (await import("openai")).default({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const channelInstructions = channel === "email"
+        ? "Write a professional but warm follow-up email. Include a subject line on the first line formatted as 'Subject: ...' followed by the email body. Use HTML formatting for the body."
+        : "Write a concise, friendly SMS follow-up message. Keep it under 160 characters if possible, max 320 characters. Do not include a subject line.";
+
+      const prompt = `You are a customer follow-up specialist for Emergency Chicago Sewer Experts, a sewer and plumbing services company in Chicago.
+
+Generate a personalized ${channel || "sms"} follow-up message for a customer.
+
+Customer Details:
+- Name: ${customerName}
+- Type: ${type === "quote" ? "Open Quote" : "Unconverted Lead"}
+- Status: ${status}
+- Service: ${serviceType || "Sewer/Plumbing Service"}
+- Address: ${address || "Not specified"}
+${description ? `- Description: ${description}` : ""}
+${quoteTotal ? `- Quote Amount: $${quoteTotal}` : ""}
+- Days since last activity: ${daysSinceLastActivity || "Unknown"}
+
+${channelInstructions}
+
+Important guidelines:
+- Be professional but friendly and conversational
+- Reference their specific service need
+- Create urgency without being pushy
+- Offer to answer questions or schedule a visit
+- Include a call-to-action
+- Sign off as Emergency Chicago Sewer Experts
+- Do NOT include any placeholder text like [Your Name]`;
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 500,
+        temperature: 0.7,
+      });
+
+      const message = completion.choices[0]?.message?.content || "";
+      let subject = "";
+      let body = message;
+
+      if (channel === "email") {
+        const subjectMatch = message.match(/^Subject:\s*(.+?)[\n\r]/i);
+        if (subjectMatch) {
+          subject = subjectMatch[1].trim();
+          body = message.replace(/^Subject:\s*.+?[\n\r]+/i, "").trim();
+        }
+      }
+
+      res.json({ message: body, subject, channel: channel || "sms" });
+    } catch (error) {
+      console.error("Error generating follow-up message:", error);
+      res.status(500).json({ error: "Failed to generate follow-up message" });
+    }
+  });
+
+  // Follow-Up Assistant - Send follow-up and log contact attempt
+  app.post("/api/follow-up/send", async (req, res) => {
+    try {
+      const { channel, to, message, subject, leadId, jobId, customerName } = req.body;
+      if (!channel || !to || !message) {
+        return res.status(400).json({ error: "Channel, recipient, and message required" });
+      }
+
+      let result: { success: boolean; messageId?: string; error?: string };
+
+      if (channel === "sms") {
+        result = await smsService.sendSMS(to, message);
+      } else if (channel === "email") {
+        result = await sendEmail({
+          to,
+          subject: subject || "Follow-up from Emergency Chicago Sewer Experts",
+          html: message,
+          text: message.replace(/<[^>]*>/g, ""),
+        });
+      } else {
+        return res.status(400).json({ error: "Invalid channel. Use 'sms' or 'email'" });
+      }
+
+      await storage.createContactAttempt({
+        leadId: leadId || null,
+        jobId: jobId || null,
+        type: channel,
+        direction: "outbound",
+        status: result.success ? "sent" : "failed",
+        subject: subject || null,
+        content: message,
+        templateId: "ai_followup",
+        externalId: result.messageId || null,
+        recipientEmail: channel === "email" ? to : null,
+        recipientPhone: channel === "sms" ? to : null,
+        sentBy: "ai_followup_assistant",
+        sentAt: result.success ? new Date() : null,
+        failedReason: result.error || null,
+      });
+
+      if (result.success && leadId) {
+        const lead = await storage.getLead(leadId);
+        if (lead && lead.status === "new") {
+          await storage.updateLead(leadId, { status: "contacted" });
+        }
+      }
+
+      res.json({ success: result.success, messageId: result.messageId, error: result.error });
+    } catch (error: any) {
+      console.error("Error sending follow-up:", error);
+      res.status(500).json({ error: "Failed to send follow-up" });
+    }
+  });
+
+  // Follow-Up Assistant - Get follow-up metrics/stats
+  app.get("/api/follow-up/metrics", async (req, res) => {
+    try {
+      const allQuotes = await storage.getAllQuotes();
+      const allLeads = await storage.getLeads();
+      const now = new Date();
+
+      const openQuotes = allQuotes.filter((q: any) => ["draft", "sent", "viewed"].includes(q.status));
+      const unconvertedLeads = allLeads.filter((l: any) => ["new", "contacted", "qualified", "estimated", "quoted"].includes(l.status));
+      const criticalQuotes = openQuotes.filter((q: any) => {
+        const lastActivity = q.viewedAt || q.sentAt || q.createdAt;
+        const days = Math.floor((now.getTime() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24));
+        return days >= 14;
+      });
+      const criticalLeads = unconvertedLeads.filter((l: any) => {
+        const lastUpdated = l.updatedAt || l.createdAt;
+        const days = Math.floor((now.getTime() - new Date(lastUpdated).getTime()) / (1000 * 60 * 60 * 24));
+        return days >= 14;
+      });
+
+      const totalQuoteValue = openQuotes.reduce((sum: number, q: any) => sum + (parseFloat(q.total) || 0), 0);
+      const recentlyConverted = allQuotes.filter((q: any) => {
+        if (q.status !== "accepted") return false;
+        const acceptedDate = new Date(q.acceptedAt || q.createdAt);
+        const daysSince = Math.floor((now.getTime() - acceptedDate.getTime()) / (1000 * 60 * 60 * 24));
+        return daysSince <= 30;
+      });
+
+      res.json({
+        openQuotes: openQuotes.length,
+        unconvertedLeads: unconvertedLeads.length,
+        criticalQuotes: criticalQuotes.length,
+        criticalLeads: criticalLeads.length,
+        totalQuoteValue: totalQuoteValue.toFixed(2),
+        recentConversions: recentlyConverted.length,
+        totalQuotes: allQuotes.length,
+        conversionRate: allQuotes.length > 0 ? ((recentlyConverted.length / allQuotes.length) * 100).toFixed(1) : "0",
+      });
+    } catch (error) {
+      console.error("Error fetching follow-up metrics:", error);
+      res.status(500).json({ error: "Failed to fetch metrics" });
+    }
+  });
+
+  app.get("/api/docs/pdf/:docName", async (req, res) => {
+    try {
+      const { docName } = req.params;
+      const fs = await import("fs");
+      const path = await import("path");
+      const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
+
+      let filePath: string;
+      let title: string;
+
+      if (docName === "ai-capabilities") {
+        filePath = path.resolve("AI_INTEGRATION_AND_CAPABILITIES.md");
+        title = "AI Integration and Capabilities";
+      } else if (docName === "system-readme") {
+        filePath = path.resolve("replit.md");
+        title = "Emergency Chicago Sewer Experts CRM - System Documentation";
+      } else {
+        return res.status(404).json({ error: "Document not found" });
+      }
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "Document file not found" });
+      }
+
+      const mdContent = fs.readFileSync(filePath, "utf-8");
+      const lines = mdContent.split("\n");
+
+      const pdf = await PDFDocument.create();
+      const helvetica = await pdf.embedFont(StandardFonts.Helvetica);
+      const helveticaBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+      const courier = await pdf.embedFont(StandardFonts.Courier);
+
+      const PAGE_WIDTH = 612;
+      const PAGE_HEIGHT = 792;
+      const MARGIN_LEFT = 50;
+      const MARGIN_RIGHT = 50;
+      const MARGIN_TOP = 50;
+      const MARGIN_BOTTOM = 50;
+      const CONTENT_WIDTH = PAGE_WIDTH - MARGIN_LEFT - MARGIN_RIGHT;
+
+      let currentPage = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+      let yPos = PAGE_HEIGHT - MARGIN_TOP;
+
+      const ensureSpace = (needed: number) => {
+        if (yPos - needed < MARGIN_BOTTOM) {
+          currentPage = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+          yPos = PAGE_HEIGHT - MARGIN_TOP;
+        }
+      };
+
+      const wrapText = (text: string, font: any, fontSize: number, maxWidth: number): string[] => {
+        const words = text.split(/\s+/);
+        const wrappedLines: string[] = [];
+        let currentLine = "";
+        for (const word of words) {
+          const test = currentLine ? `${currentLine} ${word}` : word;
+          const width = font.widthOfTextAtSize(test, fontSize);
+          if (width > maxWidth && currentLine) {
+            wrappedLines.push(currentLine);
+            currentLine = word;
+          } else {
+            currentLine = test;
+          }
+        }
+        if (currentLine) wrappedLines.push(currentLine);
+        return wrappedLines.length ? wrappedLines : [""];
+      };
+
+      const drawText = (text: string, font: any, fontSize: number, color = rgb(0.1, 0.1, 0.1), indent = 0) => {
+        const wrapped = wrapText(text, font, fontSize, CONTENT_WIDTH - indent);
+        for (const line of wrapped) {
+          ensureSpace(fontSize + 4);
+          currentPage.drawText(line, { x: MARGIN_LEFT + indent, y: yPos, size: fontSize, font, color });
+          yPos -= fontSize + 4;
+        }
+      };
+
+      const brandBlue = rgb(0.11, 0.42, 0.73);
+      const darkGray = rgb(0.2, 0.2, 0.2);
+      const medGray = rgb(0.4, 0.4, 0.4);
+      const lightGray = rgb(0.85, 0.85, 0.85);
+
+      currentPage.drawRectangle({ x: 0, y: PAGE_HEIGHT - 100, width: PAGE_WIDTH, height: 100, color: rgb(0.08, 0.15, 0.27) });
+      currentPage.drawText("Emergency Chicago Sewer Experts", { x: MARGIN_LEFT, y: PAGE_HEIGHT - 45, size: 18, font: helveticaBold, color: rgb(1, 1, 1) });
+      currentPage.drawText(title, { x: MARGIN_LEFT, y: PAGE_HEIGHT - 70, size: 12, font: helvetica, color: rgb(0.7, 0.8, 0.95) });
+      currentPage.drawText("February 2026", { x: MARGIN_LEFT, y: PAGE_HEIGHT - 88, size: 10, font: helvetica, color: rgb(0.6, 0.7, 0.85) });
+      yPos = PAGE_HEIGHT - 120;
+
+      let inCodeBlock = false;
+      let codeLines: string[] = [];
+      let inTable = false;
+      let tableRows: string[][] = [];
+
+      const flushTable = () => {
+        if (tableRows.length === 0) return;
+        const colCount = tableRows[0]?.length || 1;
+        const colWidth = CONTENT_WIDTH / colCount;
+        for (let r = 0; r < tableRows.length; r++) {
+          const row = tableRows[r];
+          const rowHeight = 16;
+          ensureSpace(rowHeight + 2);
+          if (r === 0) {
+            currentPage.drawRectangle({ x: MARGIN_LEFT, y: yPos - 3, width: CONTENT_WIDTH, height: rowHeight, color: rgb(0.12, 0.2, 0.35) });
+          } else if (r % 2 === 0) {
+            currentPage.drawRectangle({ x: MARGIN_LEFT, y: yPos - 3, width: CONTENT_WIDTH, height: rowHeight, color: rgb(0.95, 0.95, 0.97) });
+          }
+          for (let c = 0; c < row.length; c++) {
+            const cellText = row[c].trim();
+            const truncated = cellText.length > 40 ? cellText.substring(0, 37) + "..." : cellText;
+            const font = r === 0 ? helveticaBold : helvetica;
+            const color = r === 0 ? rgb(1, 1, 1) : darkGray;
+            currentPage.drawText(truncated, { x: MARGIN_LEFT + c * colWidth + 4, y: yPos, size: 7.5, font, color });
+          }
+          yPos -= rowHeight + 1;
+        }
+        yPos -= 6;
+        tableRows = [];
+        inTable = false;
+      };
+
+      const flushCode = () => {
+        if (codeLines.length === 0) return;
+        const blockHeight = codeLines.length * 10 + 12;
+        ensureSpace(Math.min(blockHeight, 300));
+        currentPage.drawRectangle({ x: MARGIN_LEFT, y: yPos - blockHeight + 8, width: CONTENT_WIDTH, height: blockHeight, color: rgb(0.94, 0.94, 0.96), borderColor: rgb(0.8, 0.8, 0.82), borderWidth: 0.5 });
+        for (const codeLine of codeLines) {
+          const truncated = codeLine.length > 95 ? codeLine.substring(0, 92) + "..." : codeLine;
+          ensureSpace(12);
+          currentPage.drawText(truncated, { x: MARGIN_LEFT + 8, y: yPos, size: 6.5, font: courier, color: rgb(0.2, 0.2, 0.3) });
+          yPos -= 10;
+        }
+        yPos -= 8;
+        codeLines = [];
+        inCodeBlock = false;
+      };
+
+      for (const line of lines) {
+        if (line.startsWith("```")) {
+          if (inCodeBlock) {
+            flushCode();
+          } else {
+            if (inTable) flushTable();
+            inCodeBlock = true;
+            codeLines = [];
+          }
+          continue;
+        }
+
+        if (inCodeBlock) {
+          codeLines.push(line);
+          continue;
+        }
+
+        if (line.startsWith("|") && line.includes("|")) {
+          if (line.replace(/[|\-\s]/g, "").length === 0) continue;
+          const cells = line.split("|").filter((c) => c.trim() !== "");
+          if (!inTable) inTable = true;
+          tableRows.push(cells);
+          continue;
+        } else if (inTable) {
+          flushTable();
+        }
+
+        const trimmed = line.trim();
+        if (trimmed === "") {
+          yPos -= 6;
+          continue;
+        }
+
+        if (trimmed === "---") {
+          ensureSpace(12);
+          currentPage.drawLine({ start: { x: MARGIN_LEFT, y: yPos }, end: { x: PAGE_WIDTH - MARGIN_RIGHT, y: yPos }, thickness: 0.5, color: lightGray });
+          yPos -= 12;
+          continue;
+        }
+
+        if (trimmed.startsWith("# ")) {
+          ensureSpace(36);
+          yPos -= 10;
+          drawText(trimmed.replace(/^# /, ""), helveticaBold, 20, brandBlue);
+          yPos -= 6;
+        } else if (trimmed.startsWith("## ")) {
+          ensureSpace(30);
+          yPos -= 8;
+          drawText(trimmed.replace(/^## /, ""), helveticaBold, 15, brandBlue);
+          yPos -= 4;
+        } else if (trimmed.startsWith("### ")) {
+          ensureSpace(24);
+          yPos -= 6;
+          drawText(trimmed.replace(/^### /, ""), helveticaBold, 12, darkGray);
+          yPos -= 2;
+        } else if (trimmed.startsWith("#### ")) {
+          ensureSpace(20);
+          yPos -= 4;
+          drawText(trimmed.replace(/^#### /, ""), helveticaBold, 10, medGray);
+        } else if (trimmed.startsWith("- **") || trimmed.startsWith("* **")) {
+          const clean = trimmed.replace(/^[-*]\s+/, "").replace(/\*\*/g, "");
+          drawText(`  ${clean}`, helvetica, 9, darkGray, 10);
+        } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+          const clean = trimmed.replace(/^[-*]\s+/, "").replace(/\*\*/g, "").replace(/`/g, "");
+          drawText(`  ${clean}`, helvetica, 9, darkGray, 10);
+        } else if (/^\d+\.\s/.test(trimmed)) {
+          const clean = trimmed.replace(/\*\*/g, "").replace(/`/g, "");
+          drawText(clean, helvetica, 9, darkGray, 10);
+        } else {
+          const clean = trimmed.replace(/\*\*/g, "").replace(/`/g, "");
+          drawText(clean, helvetica, 9, darkGray);
+        }
+      }
+
+      if (inCodeBlock) flushCode();
+      if (inTable) flushTable();
+
+      const pageCount = pdf.getPageCount();
+      for (let i = 0; i < pageCount; i++) {
+        const pg = pdf.getPage(i);
+        pg.drawText(`Page ${i + 1} of ${pageCount}`, { x: PAGE_WIDTH - 120, y: 20, size: 8, font: helvetica, color: medGray });
+        pg.drawText("Emergency Chicago Sewer Experts - Confidential", { x: MARGIN_LEFT, y: 20, size: 8, font: helvetica, color: medGray });
+      }
+
+      const pdfBytes = await pdf.save();
+      const fileName = docName === "ai-capabilities" ? "AI_Integration_and_Capabilities.pdf" : "CRM_System_Documentation.pdf";
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      res.setHeader("Content-Length", pdfBytes.length.toString());
+      res.send(Buffer.from(pdfBytes));
+    } catch (error: any) {
+      console.error("Error generating PDF:", error);
+      res.status(500).json({ error: "Failed to generate PDF" });
+    }
+  });
+
+  app.get("/api/docs/available", async (_req, res) => {
+    res.json([
+      { id: "ai-capabilities", title: "AI Integration and Capabilities", description: "Complete documentation of all AI features, workflow schematics, tool registry, and security controls.", url: "/api/docs/pdf/ai-capabilities" },
+      { id: "system-readme", title: "CRM System Documentation", description: "Full system architecture, feature modules, external dependencies, and project structure.", url: "/api/docs/pdf/system-readme" },
+    ]);
+  });
+
+  // ============================================================
+  // LEAD VELOCITY SYSTEM ROUTES
+  // ============================================================
+  const { emitNewLead, emitLeadUpdate } = await import("./socket");
+
+  // Webhook intake endpoint - returns 200 immediately, designed for lead providers
+  app.post("/api/v1/lead-ingest", async (req, res) => {
+    try {
+      const body = req.body;
+      const customerInfo = body.customerInfo || body.customer_info || body;
+      const phone = customerInfo?.phone || body?.phone || "";
+      const email = customerInfo?.email || body?.email || "";
+      const source = body.source || body.provider || "webhook";
+      const externalId = body.id || body.external_id || body.lead_id || null;
+
+      // Return 200 immediately to satisfy lead provider SLA requirements
+      res.status(200).json({ status: "received", message: "Lead intake acknowledged." });
+
+      // Then process asynchronously
+      setImmediate(async () => {
+        try {
+          // Check for duplicate within 24h window
+          const duplicate = await storage.findDuplicateVelocityLead(phone, email);
+          if (duplicate) {
+            console.log(`[LeadVelocity] Duplicate lead detected for phone: ${phone}, skipping.`);
+            return;
+          }
+
+          const customerName = customerInfo?.name || customerInfo?.customerName || body?.name || "Unknown";
+          const serviceType = customerInfo?.serviceType || body?.serviceType || body?.service_type || "";
+          const description = customerInfo?.description || body?.description || body?.notes || "";
+          const address = customerInfo?.address || body?.address || "";
+
+          // Create a record in the main leads table so it shows in the Leads tab
+          const mainLead = await storage.createLead({
+            source,
+            customerName,
+            customerPhone: phone,
+            customerEmail: email || undefined,
+            address: address || undefined,
+            serviceType: serviceType || undefined,
+            description: description || undefined,
+            status: "new",
+            priority: "high", // all webhook leads are high priority
+          });
+
+          const lead = await storage.createVelocityLead({
+            externalId,
+            source,
+            customerInfo: {
+              name: customerName,
+              phone,
+              email,
+              address,
+              serviceType,
+              description,
+            },
+            status: "NEW",
+            linkedLeadId: mainLead.id,
+          });
+
+          // Audit log
+          await storage.createVelocityLeadAuditLog({
+            leadId: lead.id,
+            fromStatus: null,
+            toStatus: "NEW",
+            changedBy: null,
+            changedByName: "System",
+            note: `Lead received from ${source} — synced to Leads tab (ID: ${mainLead.id})`,
+          });
+
+          // Emit real-time event to all connected clients
+          emitNewLead(lead);
+          console.log(`[LeadVelocity] New lead created: ${lead.id} from ${source} (linked to lead ${mainLead.id})`);
+        } catch (err) {
+          console.error("[LeadVelocity] Async processing error:", err);
+        }
+      });
+    } catch (error: any) {
+      console.error("Lead ingest error:", error);
+      res.status(500).json({ error: "Failed to process lead" });
+    }
+  });
+
+  // List velocity leads
+  app.get("/api/velocity-leads", async (req, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const leads = await storage.getVelocityLeads(status ? { status } : undefined);
+      res.json(leads);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch velocity leads" });
+    }
+  });
+
+  // Get single velocity lead
+  app.get("/api/velocity-leads/:id", async (req, res) => {
+    try {
+      const lead = await storage.getVelocityLead(req.params.id);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+      res.json(lead);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch lead" });
+    }
+  });
+
+  // Claim a lead
+  app.post("/api/velocity-leads/:id/claim", async (req, res) => {
+    try {
+      const userId = req.headers["x-user-id"] as string;
+      const user = userId ? await storage.getUser(userId) : null;
+      const lead = await storage.getVelocityLead(req.params.id);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+      if (lead.status !== "NEW") return res.status(409).json({ error: `Lead is already ${lead.status}` });
+
+      const updated = await storage.updateVelocityLead(req.params.id, {
+        status: "CLAIMED",
+        claimedAt: new Date(),
+        claimedBy: userId || null,
+        claimedByName: user?.fullName || user?.username || "Unknown",
+      });
+
+      await storage.createVelocityLeadAuditLog({
+        leadId: lead.id,
+        fromStatus: "NEW",
+        toStatus: "CLAIMED",
+        changedBy: userId || null,
+        changedByName: user?.fullName || user?.username || "Unknown",
+        note: "Lead claimed",
+      });
+
+      emitLeadUpdate(updated!);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to claim lead" });
+    }
+  });
+
+  // Log first contact (updates firstContactAt and status to CONTACTED)
+  app.post("/api/velocity-leads/:id/contact", async (req, res) => {
+    try {
+      const userId = req.headers["x-user-id"] as string;
+      const user = userId ? await storage.getUser(userId) : null;
+      const lead = await storage.getVelocityLead(req.params.id);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+      const prevStatus = lead.status;
+      const updates: any = {
+        status: "CONTACTED",
+        firstContactAt: lead.firstContactAt || new Date(),
+      };
+
+      const updated = await storage.updateVelocityLead(req.params.id, updates);
+
+      await storage.createVelocityLeadAuditLog({
+        leadId: lead.id,
+        fromStatus: prevStatus,
+        toStatus: "CONTACTED",
+        changedBy: userId || null,
+        changedByName: user?.fullName || user?.username || "Unknown",
+        note: req.body?.note || "Contact logged",
+      });
+
+      emitLeadUpdate(updated!);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to log contact" });
+    }
+  });
+
+  // Update velocity lead status
+  app.patch("/api/velocity-leads/:id", async (req, res) => {
+    try {
+      const userId = req.headers["x-user-id"] as string;
+      const user = userId ? await storage.getUser(userId) : null;
+      const lead = await storage.getVelocityLead(req.params.id);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+      const prevStatus = lead.status;
+      const updated = await storage.updateVelocityLead(req.params.id, req.body);
+
+      if (req.body.status && req.body.status !== prevStatus) {
+        await storage.createVelocityLeadAuditLog({
+          leadId: lead.id,
+          fromStatus: prevStatus,
+          toStatus: req.body.status,
+          changedBy: userId || null,
+          changedByName: user?.fullName || user?.username || "Unknown",
+          note: req.body.note || `Status changed to ${req.body.status}`,
+        });
+      }
+
+      emitLeadUpdate(updated!);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to update lead" });
+    }
+  });
+
+  // Get audit log for a velocity lead
+  app.get("/api/velocity-leads/:id/audit", async (req, res) => {
+    try {
+      const log = await storage.getVelocityLeadAuditLog(req.params.id);
+      res.json(log);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch audit log" });
+    }
+  });
+
+  // Create a manual velocity lead (from War Room UI)
+  app.post("/api/velocity-leads", async (req, res) => {
+    try {
+      const userId = req.headers["x-user-id"] as string;
+      const user = userId ? await storage.getUser(userId) : null;
+      const { customerInfo, source, notes } = req.body;
+
+      const lead = await storage.createVelocityLead({
+        source: source || "manual",
+        customerInfo: customerInfo || {},
+        status: "NEW",
+        notes: notes || null,
+      });
+
+      await storage.createVelocityLeadAuditLog({
+        leadId: lead.id,
+        fromStatus: null,
+        toStatus: "NEW",
+        changedBy: userId || null,
+        changedByName: user?.fullName || user?.username || "Staff",
+        note: "Lead created manually",
+      });
+
+      emitNewLead(lead);
+      res.status(201).json(lead);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to create lead" });
+    }
   });
 
   return httpServer;

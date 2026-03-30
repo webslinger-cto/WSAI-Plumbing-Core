@@ -27,12 +27,13 @@ export interface Lead {
   name: string;
   phone: string;
   email?: string;
+  address?: string;
   city: string;
   state: string;
   zipCode: string;
   source: string;
   service: string;
-  status: "new" | "contacted" | "converted" | "lost" | "spam" | "duplicate" | "qualified" | "scheduled";
+  status: "new" | "contacted" | "converted" | "lost" | "spam" | "duplicate" | "qualified" | "scheduled" | "estimated" | "quoted" | "assigned" | "in_progress" | "completed" | "dead";
   cost: number;
   date: string;
   slaDeadline?: string | null;
@@ -42,6 +43,11 @@ export interface Lead {
   leadScore?: number;
   isDuplicate?: boolean;
   duplicateOfId?: string | null;
+  notConvertedReason?: string | null;
+  dispositionNotes?: string | null;
+  dispositionSetAt?: string | null;
+  dispositionSetBy?: string | null;
+  convertedAt?: string | null;
 }
 
 interface LeadsTableProps {
@@ -54,8 +60,14 @@ const statusStyles: Record<string, string> = {
   contacted: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
   qualified: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30",
   scheduled: "bg-indigo-500/10 text-indigo-400 border-indigo-500/30",
+  estimated: "bg-orange-500/10 text-orange-400 border-orange-500/30",
+  quoted: "bg-teal-500/10 text-teal-400 border-teal-500/30",
   converted: "bg-green-500/10 text-green-400 border-green-500/30",
+  assigned: "bg-indigo-500/10 text-indigo-400 border-indigo-500/30",
+  in_progress: "bg-amber-500/10 text-amber-400 border-amber-500/30",
+  completed: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
   lost: "bg-red-500/10 text-red-400 border-red-500/30",
+  dead: "bg-gray-500/10 text-gray-400 border-gray-500/30",
   spam: "bg-gray-500/10 text-gray-400 border-gray-500/30",
   duplicate: "bg-purple-500/10 text-purple-400 border-purple-500/30",
 };
@@ -161,10 +173,16 @@ export default function LeadsTable({ leads, onLeadClick }: LeadsTableProps) {
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="new">New</SelectItem>
                 <SelectItem value="contacted">Contacted</SelectItem>
+                <SelectItem value="estimated">Estimated</SelectItem>
+                <SelectItem value="quoted">Quoted</SelectItem>
                 <SelectItem value="qualified">Qualified</SelectItem>
                 <SelectItem value="scheduled">Scheduled</SelectItem>
                 <SelectItem value="converted">Converted</SelectItem>
+                <SelectItem value="assigned">Assigned</SelectItem>
+                <SelectItem value="in_progress">In Progress</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
                 <SelectItem value="lost">Lost</SelectItem>
+                <SelectItem value="dead">Dead</SelectItem>
                 <SelectItem value="spam">Spam</SelectItem>
                 <SelectItem value="duplicate">Duplicate</SelectItem>
               </SelectContent>

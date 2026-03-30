@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import JobTimeline from "@/components/JobTimeline";
 import { JobChat } from "@/components/JobChat";
+import { PermitCenterCard } from "@/features/permits/PermitCenterCard";
 import {
   Select,
   SelectContent,
@@ -52,9 +54,13 @@ import {
   ClipboardList,
 } from "lucide-react";
 import type { Job, Lead, Call, Technician, Quote, PricebookItem } from "@shared/schema";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { formatDistanceToNow, format } from "date-fns";
-import { DollarSign, Trash2, Save, Send, X, Edit3 } from "lucide-react";
+import { DollarSign, Trash2, Save, Send, X, Edit3, Flame } from "lucide-react";
+import DispatcherCalendar from "@/components/DispatcherCalendar";
+import RecordDetailPanel from "@/components/RecordDetailPanel";
+import CustomerIntakeForm from "@/components/CustomerIntakeForm";
+import { CallRecorder } from "@/components/CallRecorder";
 
 const jobStatusConfig: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   pending: { label: "Pending", color: "bg-muted text-muted-foreground", icon: Clock },
@@ -1502,11 +1508,14 @@ interface DispatcherDashboardProps {
 
 export default function DispatcherDashboard({ userId }: DispatcherDashboardProps = {}) {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [activeTab, setActiveTab] = useState("dispatch");
+  const [activeTab, setActiveTab] = useState("intake");
   const [showCustomerSnapshot, setShowCustomerSnapshot] = useState(false);
+  const [showIntakeForm, setShowIntakeForm] = useState(false);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
 
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
     queryKey: ["/api/jobs"],
@@ -1527,6 +1536,28 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
   const { data: quotes = [], isLoading: quotesLoading, isError: quotesError } = useQuery<Quote[]>({
     queryKey: ["/api/quotes"],
   });
+
+  const { data: permitJobIdsList = [] } = useQuery<string[]>({
+    queryKey: ["/api/permits/job-ids"],
+  });
+
+  const { data: velocityLeads = [] } = useQuery<{ id: string; status: string }[]>({
+    queryKey: ["/api/velocity-leads"],
+    refetchInterval: 30000,
+  });
+  const newVelocityCount = velocityLeads.filter(l => l.status === "NEW").length;
+
+  const estimateJobIds = useMemo(() => {
+    const ids = new Set<string>();
+    quotes.forEach(q => {
+      if ((q as any).formType === "estimate" && q.jobId) {
+        ids.add(q.jobId);
+      }
+    });
+    return ids;
+  }, [quotes]);
+
+  const permitJobIds = useMemo(() => new Set(permitJobIdsList), [permitJobIdsList]);
 
   const pendingQuotes = quotes.filter(q => q.status === "draft");
 
@@ -1579,14 +1610,18 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
           <h1 className="text-2xl font-bold" data-testid="text-page-title">Dispatch Center</h1>
           <p className="text-muted-foreground">Manage jobs, calls, and technician assignments</p>
         </div>
-        <Button onClick={() => setActiveTab("quotebuilder")} data-testid="button-new-quote">
-          <Plus className="w-4 h-4 mr-2" />
-          New Quote
+        <Button onClick={() => setActiveTab("calendar")} data-testid="button-view-calendar">
+          <Calendar className="w-4 h-4 mr-2" />
+          Calendar
         </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList>
+          <TabsTrigger value="intake" data-testid="tab-intake">
+            <ClipboardList className="w-4 h-4 mr-2" />
+            Customer Intake
+          </TabsTrigger>
           <TabsTrigger value="dispatch" data-testid="tab-dispatch">
             <Truck className="w-4 h-4 mr-2" />
             Dispatch Board
@@ -1599,11 +1634,150 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
             <FileText className="w-4 h-4 mr-2" />
             Quotes ({pendingQuotes.length})
           </TabsTrigger>
-          <TabsTrigger value="quotebuilder" data-testid="tab-quotebuilder">
-            <DollarSign className="w-4 h-4 mr-2" />
-            Quote Builder
+          <TabsTrigger value="calendar" data-testid="tab-calendar">
+            <Calendar className="w-4 h-4 mr-2" />
+            Calendar
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="intake" className="space-y-6">
+          {showIntakeForm ? (
+            <CustomerIntakeForm
+              lead={selectedLead}
+              onClose={() => {
+                setShowIntakeForm(false);
+                setSelectedLead(null);
+              }}
+              onLeadCreated={(newLead) => {
+                setShowIntakeForm(false);
+                setSelectedLead(newLead);
+                setShowIntakeForm(true);
+              }}
+            />
+          ) : (
+            <div className="space-y-4">
+              <CallRecorder
+                userId={userId || "dispatcher"}
+                userName="Dispatcher"
+                onLeadCreated={(newLead) => {
+                  setSelectedLead(newLead);
+                  setShowIntakeForm(true);
+                }}
+              />
+
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <h2 className="text-lg font-semibold">Recent Intakes</h2>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    className="border-orange-500/50 text-orange-400 hover:bg-orange-950/30 relative"
+                    onClick={() => navigate("/lead-assassin")}
+                    data-testid="button-lead-assassin"
+                  >
+                    <Flame className="w-4 h-4 mr-2" />
+                    Lead Assassin
+                    {newVelocityCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse">
+                        {newVelocityCount}
+                      </span>
+                    )}
+                  </Button>
+                  <Button onClick={() => { setSelectedLead(null); setShowIntakeForm(true); }} data-testid="button-new-intake">
+                    <Plus className="w-4 h-4 mr-2" />
+                    New Customer Intake
+                  </Button>
+                </div>
+              </div>
+              
+              {leadsLoading ? (
+                <div className="text-center py-8 text-muted-foreground">Loading intakes...</div>
+              ) : leads.length === 0 ? (
+                <Card>
+                  <CardContent className="py-8 text-center text-muted-foreground">
+                    <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p className="font-medium">No customer intakes yet</p>
+                    <p className="text-sm mt-1">Click "New Customer Intake" to get started</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-2">
+                  {[...leads]
+                    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                    .map(lead => {
+                      const statusColors: Record<string, string> = {
+                        new: "bg-blue-500/20 text-blue-400",
+                        estimated: "bg-amber-500/20 text-amber-400",
+                        quoted: "bg-purple-500/20 text-purple-400",
+                        converted: "bg-green-500/20 text-green-400",
+                        assigned: "bg-emerald-500/20 text-emerald-400",
+                        contacted: "bg-sky-500/20 text-sky-400",
+                        lost: "bg-destructive/20 text-destructive",
+                      };
+                      return (
+                        <Card
+                          key={lead.id}
+                          className="hover-elevate cursor-pointer"
+                          onClick={() => { setSelectedLead(lead); setShowIntakeForm(true); }}
+                          data-testid={`card-intake-${lead.id}`}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between gap-4 flex-wrap">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="flex-shrink-0 p-2 rounded-md bg-primary/10">
+                                  <User className="w-4 h-4 text-primary" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-medium truncate" data-testid={`text-intake-name-${lead.id}`}>{lead.customerName}</p>
+                                  <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
+                                    <span className="flex items-center gap-1">
+                                      <Phone className="w-3 h-3" />
+                                      {lead.customerPhone}
+                                    </span>
+                                    {lead.address && (
+                                      <span className="flex items-center gap-1">
+                                        <MapPin className="w-3 h-3" />
+                                        {lead.address}{lead.city ? `, ${lead.city}` : ""}
+                                      </span>
+                                    )}
+                                    {lead.serviceType && (
+                                      <span className="flex items-center gap-1">
+                                        <Wrench className="w-3 h-3" />
+                                        {lead.serviceType}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                {lead.nightWeekendCall && (
+                                  <Badge variant="outline" className="text-xs">
+                                    <Moon className="w-3 h-3 mr-1" />
+                                    Night/Wknd
+                                  </Badge>
+                                )}
+                                {lead.estimateAmount && (
+                                  <Badge variant="outline" className="text-xs">
+                                    <DollarSign className="w-3 h-3 mr-0.5" />
+                                    {parseFloat(lead.estimateAmount).toFixed(0)}
+                                  </Badge>
+                                )}
+                                <Badge className={statusColors[lead.status] || "bg-muted text-muted-foreground"}>
+                                  {lead.status}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {formatDistanceToNow(new Date(lead.createdAt), { addSuffix: true })}
+                                </span>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          )}
+        </TabsContent>
 
         <TabsContent value="dispatch" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1796,8 +1970,8 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
           </Card>
         </TabsContent>
 
-        <TabsContent value="quotebuilder">
-          <QuoteBuilderTab jobs={jobs} technicians={technicians} />
+        <TabsContent value="calendar" className="min-h-[600px]">
+          <DispatcherCalendar jobs={jobs} technicians={technicians} userId={userId} estimateJobIds={estimateJobIds} permitJobIds={permitJobIds} />
         </TabsContent>
       </Tabs>
 
@@ -1810,69 +1984,14 @@ export default function DispatcherDashboard({ userId }: DispatcherDashboardProps
         isPending={assignMutation.isPending}
       />
 
-      <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
-        <DialogContent className="max-w-2xl w-[95vw] sm:w-full max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-base sm:text-lg">Job Details - {selectedJob?.customerName}</DialogTitle>
-          </DialogHeader>
-          {selectedJob && (
-            <Tabs defaultValue="details" className="mt-4">
-              <TabsList className="flex flex-wrap h-auto gap-1">
-                <TabsTrigger value="details" className="text-xs sm:text-sm" data-testid="tab-job-details">Details</TabsTrigger>
-                <TabsTrigger value="timeline" className="text-xs sm:text-sm" data-testid="tab-job-timeline">Timeline</TabsTrigger>
-                <TabsTrigger value="chat" className="text-xs sm:text-sm" data-testid="tab-job-chat">Chat</TabsTrigger>
-              </TabsList>
-              <TabsContent value="details" className="space-y-4 mt-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Customer</p>
-                    <p className="font-medium">{selectedJob.customerName}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Phone</p>
-                    <p className="font-medium">{selectedJob.customerPhone}</p>
-                  </div>
-                  <div className="space-y-1 sm:col-span-2">
-                    <p className="text-sm text-muted-foreground">Address</p>
-                    <p className="font-medium">{selectedJob.address}, {selectedJob.city}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Service</p>
-                    <p className="font-medium">{selectedJob.serviceType}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Status</p>
-                    <Badge className={jobStatusConfig[selectedJob.status]?.color}>
-                      {jobStatusConfig[selectedJob.status]?.label || selectedJob.status}
-                    </Badge>
-                  </div>
-                  {selectedJob.scheduledDate && (
-                    <div className="space-y-1">
-                      <p className="text-sm text-muted-foreground">Scheduled</p>
-                      <p className="font-medium text-sm sm:text-base">
-                        {format(new Date(selectedJob.scheduledDate), "MMM d, yyyy")}
-                        {selectedJob.scheduledTimeStart && ` at ${selectedJob.scheduledTimeStart}`}
-                      </p>
-                    </div>
-                  )}
-                  {selectedJob.description && (
-                    <div className="space-y-1 sm:col-span-2">
-                      <p className="text-sm text-muted-foreground">Notes</p>
-                      <p className="text-sm">{selectedJob.description}</p>
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-              <TabsContent value="timeline" className="mt-4">
-                <JobTimeline job={selectedJob} />
-              </TabsContent>
-              <TabsContent value="chat" className="mt-4">
-                <JobChat jobId={selectedJob.id} jobCustomerName={selectedJob.customerName} userId={userId} />
-              </TabsContent>
-            </Tabs>
-          )}
-        </DialogContent>
-      </Dialog>
+      <RecordDetailPanel
+        open={detailsDialogOpen}
+        onOpenChange={setDetailsDialogOpen}
+        jobId={selectedJob?.id || null}
+        technicians={technicians}
+        canEdit={true}
+        userId={userId}
+      />
 
       <Dialog open={showCustomerSnapshot} onOpenChange={setShowCustomerSnapshot}>
         <DialogContent className="max-w-4xl w-[95vw] sm:w-full max-h-[80vh] overflow-y-auto">

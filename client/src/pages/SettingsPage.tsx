@@ -55,6 +55,7 @@ import {
   ExternalLink,
   Loader2,
   Unplug,
+  FileText,
 } from "lucide-react";
 
 type FeaturePermission = {
@@ -90,7 +91,7 @@ const initialEmployees: EmployeeAccess[] = [];
 
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Key, RefreshCw, UserPlus, Crown, EyeOff } from "lucide-react";
+import { Key, RefreshCw, UserPlus, Crown, EyeOff, Sparkles, ShieldCheck, ShieldX, Code, Bug, FlaskConical, ToggleLeft, ToggleRight, Terminal } from "lucide-react";
 
 interface SystemUser {
   id: string;
@@ -109,6 +110,19 @@ function UserPasswordManagement() {
   const { toast } = useToast();
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+  const [isEditUserOpen, setIsEditUserOpen] = useState(false);
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<SystemUser | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
+  const [editForm, setEditForm] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+    role: "technician" as "admin" | "dispatcher" | "technician" | "salesperson",
+    isActive: true,
+  });
   const [newUser, setNewUser] = useState({
     username: "",
     fullName: "",
@@ -142,17 +156,26 @@ function UserPasswordManagement() {
         requiresPasswordSetup: true,
         isSuperAdmin: false,
       });
-      toast({
-        title: "User created",
-        description: "The new user account has been created.",
-      });
+      toast({ title: "User created", description: "The new user account has been created." });
     },
     onError: (error: Error) => {
-      toast({
-        title: "Failed to create user",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Failed to create user", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateUserMutation = useMutation({
+    mutationFn: async ({ userId, updates }: { userId: string; updates: Record<string, unknown> }) => {
+      const res = await apiRequest("PATCH", `/api/admin/users/${userId}`, updates);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      setIsEditUserOpen(false);
+      setSelectedUser(null);
+      toast({ title: "User updated", description: "User details have been saved." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to update user", description: error.message, variant: "destructive" });
     },
   });
 
@@ -163,17 +186,14 @@ function UserPasswordManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
-      toast({
-        title: "Password reset",
-        description: "The user's password has been updated.",
-      });
+      setIsResetPasswordOpen(false);
+      setSelectedUser(null);
+      setResetPasswordValue("");
+      setResetPasswordConfirm("");
+      toast({ title: "Password changed", description: "The password has been updated successfully." });
     },
     onError: (error: Error) => {
-      toast({
-        title: "Failed to reset password",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Failed to reset password", description: error.message, variant: "destructive" });
     },
   });
 
@@ -184,32 +204,59 @@ function UserPasswordManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
-      toast({
-        title: "User deleted",
-        description: "The user account has been removed.",
-      });
+      setIsDeleteConfirmOpen(false);
+      setSelectedUser(null);
+      toast({ title: "User deleted", description: "The user account has been removed." });
     },
     onError: (error: Error) => {
-      toast({
-        title: "Failed to delete user",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Failed to delete user", description: error.message, variant: "destructive" });
     },
   });
 
-  const handleDeleteUser = (user: SystemUser) => {
+  const openEditDialog = (user: SystemUser) => {
+    setSelectedUser(user);
+    setEditForm({
+      fullName: user.fullName || "",
+      email: user.email || "",
+      phone: user.phone || "",
+      role: user.role as typeof editForm.role,
+      isActive: user.isActive,
+    });
+    setIsEditUserOpen(true);
+  };
+
+  const openResetPasswordDialog = (user: SystemUser) => {
+    setSelectedUser(user);
+    setResetPasswordValue("");
+    setResetPasswordConfirm("");
+    setIsResetPasswordOpen(true);
+  };
+
+  const openDeleteDialog = (user: SystemUser) => {
     if (user.isSuperAdmin) {
-      toast({
-        title: "Cannot delete",
-        description: "Super admin accounts cannot be deleted.",
-        variant: "destructive",
-      });
+      toast({ title: "Cannot delete", description: "Super admin accounts cannot be deleted.", variant: "destructive" });
       return;
     }
-    if (confirm(`Are you sure you want to delete ${user.fullName || user.username}? This action cannot be undone.`)) {
-      deleteUserMutation.mutate(user.id);
+    setSelectedUser(user);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (!selectedUser) return;
+    updateUserMutation.mutate({ userId: selectedUser.id, updates: editForm });
+  };
+
+  const handleResetPassword = () => {
+    if (!selectedUser) return;
+    if (resetPasswordValue.length < 6) {
+      toast({ title: "Password too short", description: "Password must be at least 6 characters.", variant: "destructive" });
+      return;
     }
+    if (resetPasswordValue !== resetPasswordConfirm) {
+      toast({ title: "Passwords don't match", description: "Please make sure both password fields match.", variant: "destructive" });
+      return;
+    }
+    resetPasswordMutation.mutate({ userId: selectedUser.id, newPassword: resetPasswordValue });
   };
 
   const togglePasswordVisibility = (userId: string) => {
@@ -228,11 +275,7 @@ function UserPasswordManagement() {
 
   const handleCreateUser = () => {
     if (!newUser.username) {
-      toast({
-        title: "Missing information",
-        description: "Username is required.",
-        variant: "destructive",
-      });
+      toast({ title: "Missing information", description: "Username is required.", variant: "destructive" });
       return;
     }
     createUserMutation.mutate(newUser);
@@ -259,7 +302,7 @@ function UserPasswordManagement() {
                 User Account Management
               </CardTitle>
               <CardDescription>
-                View and manage user accounts. Passwords are viewable by IT team for support purposes.
+                View and manage all user accounts. Edit details, change passwords, or remove users.
               </CardDescription>
             </div>
             <div className="flex gap-2">
@@ -327,7 +370,7 @@ function UserPasswordManagement() {
                             <code className="bg-muted px-2 py-1 rounded text-sm font-mono">
                               {showPasswords[user.id] 
                                 ? (user.viewablePassword || "Not set") 
-                                : "••••••••"
+                                : "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
                               }
                             </code>
                             <Button
@@ -360,17 +403,38 @@ function UserPasswordManagement() {
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          {!user.isSuperAdmin && (
+                          <div className="flex items-center gap-1">
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => handleDeleteUser(user)}
-                              disabled={deleteUserMutation.isPending}
-                              data-testid={`button-delete-user-${user.id}`}
+                              onClick={() => openEditDialog(user)}
+                              title="Edit user"
+                              data-testid={`button-edit-user-${user.id}`}
                             >
-                              <Trash2 className="w-4 h-4 text-destructive" />
+                              <Pencil className="w-4 h-4" />
                             </Button>
-                          )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openResetPasswordDialog(user)}
+                              title="Change password"
+                              data-testid={`button-reset-password-${user.id}`}
+                            >
+                              <Key className="w-4 h-4" />
+                            </Button>
+                            {!user.isSuperAdmin && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openDeleteDialog(user)}
+                                disabled={deleteUserMutation.isPending}
+                                title="Delete user"
+                                data-testid={`button-delete-user-${user.id}`}
+                              >
+                                <Trash2 className="w-4 h-4 text-destructive" />
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -511,6 +575,188 @@ function UserPasswordManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={isEditUserOpen} onOpenChange={(open) => { setIsEditUserOpen(open); if (!open) setSelectedUser(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit User{selectedUser?.isSuperAdmin ? " (God Mode)" : ""}</DialogTitle>
+            <DialogDescription>
+              Update the details for {selectedUser?.fullName || selectedUser?.username || "this user"}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-fullname">Full Name</Label>
+              <Input
+                id="edit-fullname"
+                placeholder="Full name"
+                value={editForm.fullName}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, fullName: e.target.value }))}
+                data-testid="input-edit-fullname"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-email">Email</Label>
+                <Input
+                  id="edit-email"
+                  type="email"
+                  placeholder="email@example.com"
+                  value={editForm.email}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, email: e.target.value }))}
+                  data-testid="input-edit-email"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-phone">Phone</Label>
+                <Input
+                  id="edit-phone"
+                  placeholder="(555) 123-4567"
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, phone: e.target.value }))}
+                  data-testid="input-edit-phone"
+                />
+              </div>
+            </div>
+            {!selectedUser?.isSuperAdmin && (
+              <div className="space-y-2">
+                <Label htmlFor="edit-role">Role</Label>
+                <Select
+                  value={editForm.role}
+                  onValueChange={(v) => setEditForm((prev) => ({ ...prev, role: v as typeof editForm.role }))}
+                >
+                  <SelectTrigger id="edit-role" data-testid="select-edit-role">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="dispatcher">Dispatcher</SelectItem>
+                    <SelectItem value="technician">Technician</SelectItem>
+                    <SelectItem value="salesperson">Salesperson</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {!selectedUser?.isSuperAdmin && (
+              <div className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50">
+                <div>
+                  <Label>Account Active</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Deactivating will prevent this user from logging in
+                  </p>
+                </div>
+                <Switch
+                  checked={editForm.isActive}
+                  onCheckedChange={(checked) => setEditForm((prev) => ({ ...prev, isActive: checked }))}
+                  data-testid="switch-edit-active"
+                />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditUserOpen(false)} data-testid="button-cancel-edit-user">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveEdit}
+              disabled={updateUserMutation.isPending}
+              data-testid="button-save-edit-user"
+            >
+              {updateUserMutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isResetPasswordOpen} onOpenChange={(open) => { setIsResetPasswordOpen(open); if (!open) { setSelectedUser(null); setResetPasswordValue(""); setResetPasswordConfirm(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Change Password{selectedUser?.isSuperAdmin ? " (God Mode Account)" : ""}
+            </DialogTitle>
+            <DialogDescription>
+              Set a new password for {selectedUser?.fullName || selectedUser?.username || "this user"}.
+              {selectedUser?.isSuperAdmin && " This will change the super admin login password."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {selectedUser?.isSuperAdmin && (
+              <div className="p-3 rounded-md bg-yellow-500/10 border border-yellow-500/20">
+                <p className="text-sm text-yellow-400 flex items-center gap-2">
+                  <Crown className="w-4 h-4" />
+                  You are changing the God Mode admin password. Make sure you remember the new password.
+                </p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="reset-password">New Password</Label>
+              <Input
+                id="reset-password"
+                type="password"
+                placeholder="Enter new password (min 6 characters)"
+                value={resetPasswordValue}
+                onChange={(e) => setResetPasswordValue(e.target.value)}
+                data-testid="input-reset-password"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reset-password-confirm">Confirm Password</Label>
+              <Input
+                id="reset-password-confirm"
+                type="password"
+                placeholder="Re-enter new password"
+                value={resetPasswordConfirm}
+                onChange={(e) => setResetPasswordConfirm(e.target.value)}
+                data-testid="input-reset-password-confirm"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsResetPasswordOpen(false)} data-testid="button-cancel-reset-password">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleResetPassword}
+              disabled={resetPasswordMutation.isPending || !resetPasswordValue || !resetPasswordConfirm}
+              data-testid="button-confirm-reset-password"
+            >
+              {resetPasswordMutation.isPending ? "Changing..." : "Change Password"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isDeleteConfirmOpen} onOpenChange={(open) => { setIsDeleteConfirmOpen(open); if (!open) setSelectedUser(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete User</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to permanently delete {selectedUser?.fullName || selectedUser?.username}? This action cannot be undone and will remove all associated data.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
+              <p className="text-sm text-destructive flex items-center gap-2">
+                <Trash2 className="w-4 h-4" />
+                This will permanently remove the user account and cannot be reversed.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteConfirmOpen(false)} data-testid="button-cancel-delete-user">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => selectedUser && deleteUserMutation.mutate(selectedUser.id)}
+              disabled={deleteUserMutation.isPending}
+              data-testid="button-confirm-delete-user"
+            >
+              {deleteUserMutation.isPending ? "Deleting..." : "Delete User"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -518,6 +764,7 @@ function UserPasswordManagement() {
 interface CompanySettingsData {
   id?: string;
   leadApiEnabled?: boolean;
+  permitCenterEnabled?: boolean;
   [key: string]: unknown;
 }
 
@@ -769,6 +1016,92 @@ function AuditLogView() {
     "user.created":             "default",
     "user.deleted":             "destructive",
   };
+}
+
+function CopilotLicenseCard() {
+  const { toast } = useToast();
+  const [keyInput, setKeyInput] = useState("");
+  const [overridePassword, setOverridePassword] = useState("");
+
+  const { data: licenseStatus, isLoading } = useQuery<{ active: boolean; hasKey: boolean; overrideEnabled: boolean }>({
+    queryKey: ["/api/agent/license"],
+    queryFn: async () => {
+      const res = await fetch("/api/agent/license", {
+        credentials: "include",
+      });
+      if (!res.ok) return { active: false, hasKey: false, overrideEnabled: false };
+      return res.json();
+    },
+  });
+
+  const activateMutation = useMutation({
+    mutationFn: async (licenseKey: string) => {
+      const res = await fetch("/api/agent/license/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ licenseKey }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Activation failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/agent/license"] });
+      setKeyInput("");
+      toast({ title: "License Activated", description: "AI Copilot is now active." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Activation Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deactivateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/agent/license/deactivate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Deactivation failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/agent/license"] });
+      toast({ title: "License Deactivated", description: "AI Copilot has been deactivated." });
+    },
+  });
+
+  const overrideMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await fetch("/api/agent/license/override", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ password: overridePassword, enabled }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Override failed");
+      }
+      return res.json();
+    },
+    onSuccess: (_, enabled) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/agent/license"] });
+      setOverridePassword("");
+      toast({
+        title: enabled ? "Override Enabled" : "Override Disabled",
+        description: enabled
+          ? "AI Copilot is now active via override."
+          : "Override has been disabled.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Override Failed", description: error.message, variant: "destructive" });
+    },
+  });
 
   return (
     <Card>
@@ -847,6 +1180,92 @@ function AuditLogView() {
             ))}
           </div>
         )}
+
+          <Sparkles className="w-5 h-5" />
+          AI Copilot License
+        </CardTitle>
+        <CardDescription>
+          Manage the WebSlingerAI software license for the AI Copilot assistant
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium">Status:</span>
+          {isLoading ? (
+            <Badge variant="secondary">Checking...</Badge>
+          ) : licenseStatus?.active ? (
+            <Badge variant="default" className="gap-1" data-testid="badge-license-active">
+              <ShieldCheck className="w-3 h-3" />
+              Active{licenseStatus.overrideEnabled ? " (Override)" : ""}
+            </Badge>
+          ) : (
+            <Badge variant="secondary" className="gap-1" data-testid="badge-license-inactive">
+              <ShieldX className="w-3 h-3" />
+              Not Activated
+            </Badge>
+          )}
+        </div>
+
+        {!licenseStatus?.active && (
+          <div className="flex gap-2">
+            <Input
+              placeholder="Enter license key (WSA-...)"
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              disabled={activateMutation.isPending}
+              data-testid="input-settings-license-key"
+            />
+            <Button
+              onClick={() => activateMutation.mutate(keyInput)}
+              disabled={!keyInput.trim() || activateMutation.isPending}
+              data-testid="button-settings-activate-license"
+            >
+              Activate
+            </Button>
+          </div>
+        )}
+
+        {licenseStatus?.active && !licenseStatus?.overrideEnabled && (
+          <Button
+            variant="outline"
+            onClick={() => deactivateMutation.mutate()}
+            disabled={deactivateMutation.isPending}
+            data-testid="button-settings-deactivate-license"
+          >
+            Deactivate License
+          </Button>
+        )}
+
+        <Separator />
+
+        <div className="space-y-3">
+          <div>
+            <Label className="text-sm font-medium">Admin Override</Label>
+            <p className="text-sm text-muted-foreground">
+              {licenseStatus?.overrideEnabled
+                ? "Override is currently enabled. Enter password to disable it."
+                : "Bypass the license requirement with an admin password."}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Input
+              type="password"
+              placeholder="Enter override password"
+              value={overridePassword}
+              onChange={(e) => setOverridePassword(e.target.value)}
+              disabled={overrideMutation.isPending}
+              data-testid="input-override-password"
+            />
+            <Button
+              variant={licenseStatus?.overrideEnabled ? "outline" : "default"}
+              onClick={() => overrideMutation.mutate(!licenseStatus?.overrideEnabled)}
+              disabled={!overridePassword.trim() || overrideMutation.isPending}
+              data-testid="button-toggle-override"
+            >
+              {licenseStatus?.overrideEnabled ? "Disable Override" : "Enable Override"}
+            </Button>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
@@ -896,6 +1315,41 @@ function StripeConnectCard() {
       </Card>
     );
   }
+}
+  
+function PermitCenterSettingsCard() {
+  const { toast } = useToast();
+  
+  const { data: settings, isLoading } = useQuery<CompanySettingsData>({
+    queryKey: ["/api/settings"],
+  });
+
+  const updateSettingsMutation = useMutation({
+    mutationFn: async (data: Partial<CompanySettingsData>) => {
+      const res = await apiRequest("PATCH", "/api/settings", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({
+        title: "Settings updated",
+        description: "Permit Center setting has been saved.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to update settings",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleToggle = (checked: boolean) => {
+    updateSettingsMutation.mutate({ permitCenterEnabled: checked });
+  };
+
+  const isEnabled = settings?.permitCenterEnabled === true;
 
   return (
     <Card>
@@ -1047,6 +1501,44 @@ function StripeConnectCard() {
             <code>payment_intent.succeeded</code>,{" "}
             <code>payment_intent.payment_failed</code>
           </p>
+          <FileText className="w-5 h-5" />
+          Permit Center
+        </CardTitle>
+        <CardDescription>
+          Automatically detect required permits and generate pre-filled application packets
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="flex items-center justify-between gap-4 p-4 rounded-lg border bg-muted/30">
+          <div>
+            <Label htmlFor="permitCenterEnabled" className="text-base font-medium">Enable Permit Center</Label>
+            <p className="text-sm text-muted-foreground">
+              When enabled, dispatchers and technicians can detect permits for jobs and generate application packets
+            </p>
+          </div>
+          <Switch
+            id="permitCenterEnabled"
+            checked={isEnabled}
+            onCheckedChange={handleToggle}
+            disabled={isLoading || updateSettingsMutation.isPending}
+            data-testid="switch-permit-center-enabled"
+          />
+        </div>
+        {!isEnabled && (
+          <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+            <p className="text-sm text-yellow-400">
+              Permit Center is currently <strong>disabled</strong>. Enable it to access permit detection and packet generation for jobs.
+            </p>
+          </div>
+        )}
+        <div className="p-4 bg-muted/50 rounded-lg space-y-2">
+          <h4 className="font-medium">Supported Permit Types</h4>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline">Plumbing</Badge>
+            <Badge variant="outline">Sewer Repair</Badge>
+            <Badge variant="outline">Excavation</Badge>
+            <Badge variant="outline">Right-of-Way</Badge>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -1059,6 +1551,7 @@ export default function SettingsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "dispatcher" | "technician">("all");
   const [hasChanges, setHasChanges] = useState(false);
+  const [devModeEnabled, setDevModeEnabled] = useState(() => localStorage.getItem("cse-developer-mode") === "true");
 
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
   const [isEditPayOpen, setIsEditPayOpen] = useState(false);
@@ -1749,7 +2242,9 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="integrations" className="space-y-6">
+          <CopilotLicenseCard />
           <LeadApiIntegrationCard />
+          <PermitCenterSettingsCard />
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -1902,6 +2397,194 @@ export default function SettingsPage() {
           </Card>
 
           <ReviewRequestSettingsCard />
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Code className="w-5 h-5" />
+                Developer Mode
+              </CardTitle>
+              <CardDescription>
+                Enable advanced features, beta options, and debugging tools
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between gap-4 p-4 rounded-lg border bg-muted/30">
+                <div>
+                  <Label htmlFor="devMode" className="text-base font-medium flex items-center gap-2">
+                    <Terminal className="w-4 h-4" />
+                    Enable Developer Mode
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Unlocks all options, beta features, and advanced debugging tools across the entire system
+                  </p>
+                </div>
+                <Switch
+                  id="devMode"
+                  checked={devModeEnabled}
+                  onCheckedChange={(checked) => {
+                    localStorage.setItem("cse-developer-mode", checked ? "true" : "false");
+                    setDevModeEnabled(checked);
+                    window.dispatchEvent(new CustomEvent("devModeChange", { detail: checked }));
+                    toast({
+                      title: checked ? "Developer Mode Enabled" : "Developer Mode Disabled",
+                      description: checked
+                        ? "All features, beta options, and debug tools are now accessible."
+                        : "Developer mode has been turned off. Beta features are hidden.",
+                    });
+                  }}
+                  data-testid="switch-developer-mode"
+                />
+              </div>
+
+              {devModeEnabled && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
+                    <p className="text-sm text-green-400 flex items-center gap-2">
+                      <Code className="w-4 h-4" />
+                      Developer mode is active. All features and beta options are unlocked.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <h3 className="font-medium flex items-center gap-2">
+                      <FlaskConical className="w-4 h-4" />
+                      Beta Features
+                    </h3>
+                    <div className="grid gap-3">
+                      <div className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50">
+                        <div>
+                          <Label className="flex items-center gap-2">
+                            <FlaskConical className="w-3 h-3 text-blue-400" />
+                            Advanced Analytics Dashboard
+                          </Label>
+                          <p className="text-xs text-muted-foreground">
+                            Enhanced reporting with predictive analytics and trend analysis
+                          </p>
+                        </div>
+                        <Switch
+                          checked={localStorage.getItem("cse-beta-analytics") === "true"}
+                          onCheckedChange={(checked) => {
+                            localStorage.setItem("cse-beta-analytics", checked ? "true" : "false");
+                          }}
+                          data-testid="switch-beta-analytics"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50">
+                        <div>
+                          <Label className="flex items-center gap-2">
+                            <FlaskConical className="w-3 h-3 text-blue-400" />
+                            AI Auto-Dispatch
+                          </Label>
+                          <p className="text-xs text-muted-foreground">
+                            Automatically assign technicians to jobs based on location, skills, and availability
+                          </p>
+                        </div>
+                        <Switch
+                          checked={localStorage.getItem("cse-beta-autodispatch") === "true"}
+                          onCheckedChange={(checked) => {
+                            localStorage.setItem("cse-beta-autodispatch", checked ? "true" : "false");
+                          }}
+                          data-testid="switch-beta-autodispatch"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50">
+                        <div>
+                          <Label className="flex items-center gap-2">
+                            <FlaskConical className="w-3 h-3 text-blue-400" />
+                            Customer Portal
+                          </Label>
+                          <p className="text-xs text-muted-foreground">
+                            Self-service portal for customers to view job status and make payments
+                          </p>
+                        </div>
+                        <Switch
+                          checked={localStorage.getItem("cse-beta-portal") === "true"}
+                          onCheckedChange={(checked) => {
+                            localStorage.setItem("cse-beta-portal", checked ? "true" : "false");
+                          }}
+                          data-testid="switch-beta-portal"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50">
+                        <div>
+                          <Label className="flex items-center gap-2">
+                            <FlaskConical className="w-3 h-3 text-blue-400" />
+                            Inventory Management
+                          </Label>
+                          <p className="text-xs text-muted-foreground">
+                            Track parts, equipment, and supplies across trucks and warehouse
+                          </p>
+                        </div>
+                        <Switch
+                          checked={localStorage.getItem("cse-beta-inventory") === "true"}
+                          onCheckedChange={(checked) => {
+                            localStorage.setItem("cse-beta-inventory", checked ? "true" : "false");
+                          }}
+                          data-testid="switch-beta-inventory"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="space-y-3">
+                    <h3 className="font-medium flex items-center gap-2">
+                      <Bug className="w-4 h-4" />
+                      Debug Tools
+                    </h3>
+                    <div className="grid gap-3">
+                      <div className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50">
+                        <div>
+                          <Label>Show API Response Times</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Display response times for all API calls in the browser console
+                          </p>
+                        </div>
+                        <Switch
+                          checked={localStorage.getItem("cse-debug-timing") === "true"}
+                          onCheckedChange={(checked) => {
+                            localStorage.setItem("cse-debug-timing", checked ? "true" : "false");
+                          }}
+                          data-testid="switch-debug-timing"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50">
+                        <div>
+                          <Label>Show Component Boundaries</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Highlight component borders for layout debugging
+                          </p>
+                        </div>
+                        <Switch
+                          checked={localStorage.getItem("cse-debug-borders") === "true"}
+                          onCheckedChange={(checked) => {
+                            localStorage.setItem("cse-debug-borders", checked ? "true" : "false");
+                          }}
+                          data-testid="switch-debug-borders"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50">
+                        <div>
+                          <Label>Verbose Logging</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Enable detailed console logging for all state changes and API calls
+                          </p>
+                        </div>
+                        <Switch
+                          checked={localStorage.getItem("cse-debug-verbose") === "true"}
+                          onCheckedChange={(checked) => {
+                            localStorage.setItem("cse-debug-verbose", checked ? "true" : "false");
+                          }}
+                          data-testid="switch-debug-verbose"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="import" className="space-y-6">

@@ -36,7 +36,13 @@ import {
   Tag,
   TrendingUp,
   MessageSquare,
+
   CalendarDays,
+  UserCheck,
+  FileStack,
+  Sparkles,
+  Download,
+  Flame,
 } from "lucide-react";
 const cseLogo = "/cse-logo.png";
 
@@ -55,13 +61,18 @@ const adminMenuItems = [
   { title: "Schedule", url: "/schedule", icon: CalendarDays },
   { title: "Quotes", url: "/quotes", icon: Receipt },
   { title: "Invoices", url: "/invoices", icon: DollarSign },
+  { title: "Customers", url: "/customers", icon: UserCheck },
   { title: "Technician Map", url: "/map", icon: MapPin },
   { title: "Outreach", url: "/outreach", icon: Megaphone },
+  { title: "Follow-Up AI", url: "/follow-up", icon: Sparkles },
+  { title: "Lead Assassin", url: "/lead-assassin", icon: Flame },
   { title: "Technicians", url: "/technicians", icon: Wrench },
   { title: "Quote Templates", url: "/quote-templates", icon: FileText },
   { title: "Pricebook", url: "/pricebook", icon: Tag },
   { title: "Marketing ROI", url: "/marketing", icon: TrendingUp },
   { title: "Payroll", url: "/payroll", icon: Wallet },
+  { title: "Pay Tracker", url: "/pay-tracker", icon: DollarSign },
+  { title: "Permit Center", url: "/permits", icon: FileStack },
 ];
 
 const dispatcherMenuItems = [
@@ -69,18 +80,22 @@ const dispatcherMenuItems = [
   { title: "Jobs", url: "/jobs", icon: Briefcase },
   { title: "Schedule", url: "/schedule", icon: CalendarDays },
   { title: "Quotes", url: "/quotes", icon: Receipt },
+  { title: "Customers", url: "/customers", icon: UserCheck },
   { title: "Technician Map", url: "/map", icon: MapPin },
   { title: "Staffing Pool", url: "/staffing", icon: UserCog },
   { title: "Calls", url: "/calls", icon: Phone },
   { title: "Messages", url: "/chat", icon: MessageSquare },
   { title: "Leads", url: "/leads", icon: Users },
+  { title: "Follow-Up AI", url: "/follow-up", icon: Sparkles },
+  { title: "Lead Assassin", url: "/lead-assassin", icon: Flame },
+  { title: "Permit Center", url: "/permits", icon: FileStack },
 ];
 
 const techMenuItems = [
   { title: "My Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Quote Tool", url: "/quote", icon: FileText },
   { title: "Messages", url: "/chat", icon: MessageSquare },
-  { title: "Earnings", url: "/earnings", icon: DollarSign },
+  { title: "Pay Tracker", url: "/pay-tracker", icon: DollarSign },
 ];
 
 const salesMenuItems = [
@@ -191,6 +206,14 @@ export default function AppSidebar({ role, username, userId, onLogout }: AppSide
                     <Link href="/settings" data-testid="nav-settings">
                       <Settings className="w-4 h-4" />
                       <span>Settings</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location === "/documents"}>
+                    <Link href="/documents" data-testid="nav-documents">
+                      <Download className="w-4 h-4" />
+                      <span>Documents</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

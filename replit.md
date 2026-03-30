@@ -1,233 +1,135 @@
 # Emergency Chicago Sewer Experts CRM
 
 ## Overview
-Emergency Chicago Sewer Experts CRM is a lead management and customer relationship management system tailored for a sewer and plumbing services business. It facilitates efficient lead tracking from diverse sources, quote generation, and comprehensive commission tracking. The system supports four distinct user roles—administrators, dispatchers, field technicians, and salespersons—each with specialized functionalities to manage leads, coordinate jobs, perform on-site work, and handle sales. The primary goal is to optimize lead conversion, track revenue, and analyze costs.
+The Emergency Chicago Sewer Experts CRM is a comprehensive field service management and customer relationship management system for a sewer and plumbing services business in Chicago, IL. It manages the entire business lifecycle from lead capture to job completion and financial processes. The system supports four user roles: Admin, Dispatcher, Technician, and Salesperson, each with specialized functionalities and dashboards. Key capabilities include lead management, quote generation, job dispatch, mobile field service, customer communication, and payroll.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
-## Asset Management
-**IMPORTANT**: Public-facing images must be stored in `client/public/` folder.
-
-- Reference images with absolute paths: `const logo = "/cse-logo.png"`
-- Current public assets: `cse-logo.png` (company logo), `favicon.png`
-- The `attached_assets/` folder is ONLY for agent debugging screenshots - never use it for app images
-
-## Core Business Workflow
-
-### Quote-to-Job Workflow (RightFlow CRM Style)
-Jobs are ONLY created when a customer accepts a quote. There is no direct job creation.
-
-1. **Create Quote** - Dispatcher or salesperson creates a quote with customer info, service line items from pricebook
-2. **Send Quote** - Quote is sent to customer via email/SMS with a public link
-3. **Customer Views** - Customer views the quote (tracked)
-4. **Customer Accepts** - When customer accepts the quote:
-   - Quote status changes to "accepted"
-   - A job is AUTOMATICALLY created from the quote data
-   - Job appears on the dispatch board with "pending" status
-5. **Job Assigned** - Dispatcher assigns a technician to the job
-6. **Driving** - Technician marks status as "en_route"
-7. **Arrived** - Technician marks status as "on_site"
-8. **Finished** - Technician marks job complete
-
-### Automated Customer Notifications
-When a job is scheduled, the system sends automated notifications:
-- **Immediate**: Job scheduled confirmation
-- **48 hours before**: Appointment reminder
-- **24 hours before**: Appointment reminder
-- **Day of**: Technician arrival reminder
-- **If changes occur**: Automated outreach for rescheduling
-
-### TCPA-Compliant Customer Communication Consent
-The system implements TCPA-compliant customer consent tracking for all automated communications:
-
-**Consent Collection (Public Quote Page)**:
-- Customers opt-in to SMS and/or email updates when accepting quotes
-- Ownership confirmation required: "I confirm this phone/email belongs to me"
-- Full disclosure text displayed with opt-in checkboxes
-- Cannot accept quote with opt-in checked but ownership not confirmed
-
-**Database Consent Fields (jobs table)**:
-- `customerConsentSmsOptIn` / `customerConsentEmailOptIn`: Boolean opt-in flags
-- `customerConsentSmsOwnershipConfirmed` / `customerConsentEmailOwnershipConfirmed`: Ownership verification
-- `customerConsentAt`: Timestamp when consent was given
-- `customerConsentIp`: Client IP address for audit trail
-- `customerConsentUserAgent`: Browser user-agent for audit
-- `customerConsentDisclosureVersion`: Version identifier (e.g., "v1")
-- `customerConsentDisclosureText`: Full text of disclosure shown
-- `customerConsentSource`: Where consent was collected (e.g., "public_quote_accept")
-
-**Communication Gating**:
-- SMS/email only sent if customer explicitly opted in
-- Legacy jobs (customerConsentAt=null) still receive messages for backward compatibility
-- Jobs where customer didn't interact with consent UI have null consent fields (not false)
-- All consent checks happen in automation service before sending
-- Consent payload only sent to server when at least one opt-in is selected
-
-### Lead API Integration Control
-The system includes a toggle to enable/disable lead API and webhook integration:
-- **Settings Page**: Found in Settings > Integrations tab - full configuration with supported sources list
-- **Leads Page**: Quick toggle banner at the top of the page
-- **When Disabled**: All lead webhooks (Thumbtack, Angi, eLocal, Networx, Inquirly, Zapier) return 503 error
-- **When Enabled**: Leads from all sources are automatically created in the CRM
-- **Database Setting**: `company_settings.lead_api_enabled` (defaults to true)
-
-### Master Customer Data List
-The Outreach page includes a comprehensive Master Customer List for promotions and targeted outreach:
-- **Data Aggregation**: Combines data from leads, jobs, quotes, and calls by phone number
-- **Customer Metrics**: Total spend, job count, quote count, call count, service history
-- **Auto-Generated Tags**: high-value ($5000+), mid-value ($1000+), repeat (2+ jobs), recent (90 days), lapsed (1+ year), has-email
-- **Status Classification**: customer (has completed jobs), lead (no completed jobs), lost (cancelled/rejected)
-- **Filtering**: By name/phone/email, status, tags, and city
-- **CSV Export**: Export all or selected customers for external marketing tools
-- **API Endpoint**: GET /api/customers/master-list
-
-### Thread-Based Chat System
-The system includes a comprehensive thread-based chat architecture for internal team coordination and customer communication:
-
-**Thread Visibility Types**:
-- **Internal**: Threads visible only to dispatchers, technicians, and admins - for team coordination
-- **Customer-Visible**: Threads visible to both staff AND the customer - for customer communication
-
-**Staff Access (Dispatcher/Technician Chat Pages)**:
-- Dedicated Messages pages at `/dispatch/chat` and `/tech/chat`
-- Active Chats tab lists all threads the user participates in with unread counts
-- Current Chat tab shows selected thread's messages with real-time polling
-- New Thread dialog to create threads (internal or customer-visible)
-- Unread badge shown in sidebar navigation
-
-**Customer Access (Magic Link Authentication)**:
-- Customers access chat via public URL: `/customer/chat?jobId=X&token=Y`
-- Magic links sent via email with SHA-256 hashed tokens (7-day default expiry)
-- Customers can view/send messages in customer-visible threads only
-- Messages captured with IP/user-agent metadata for audit
-
-**Database Tables**:
-- `chat_threads`: Thread metadata (subject, visibility, status, related_job_id)
-- `chat_thread_participants`: Polymorphic participants (user_id or customer_identifier)
-- `chat_messages`: Message content with sender info and client_msg_id for deduplication
-- `chat_magic_sessions`: Customer authentication tokens with expiration tracking
-- `chat_email_notifications`: Email notification queue for offline users
-
-**API Endpoints**:
-- `GET /api/chat/threads` - List user's threads with unread counts
-- `POST /api/chat/threads` - Create new thread
-- `GET /api/chat/threads/:id/messages` - Get thread messages
-- `POST /api/chat/threads/:id/messages` - Send message
-- `POST /api/chat/threads/:id/read` - Mark thread as read
-- `POST /api/chat/threads/:id/close` - Close thread
-- `GET /api/chat/unread-count` - Get total unread count
-- `POST /api/chat/jobs/:jobId/customer-thread` - Create customer-visible thread
-- `POST /api/chat/jobs/:jobId/customer-session` - Generate magic link for customer
-- `POST /api/chat/customer/session` - Validate customer magic link
-- `GET /api/chat/customer/jobs/:jobId/thread` - Customer get thread
-- `POST /api/chat/customer/jobs/:jobId/thread/messages` - Customer send message
-
-**Jobs-Quotes Linkage**:
-- Jobs have `quoteId` field linking back to the accepted quote
-- Enables customer access to job messaging via quote/job context
-
 ## System Architecture
 
-### Frontend
-- **Framework**: React with TypeScript, using Vite.
-- **Routing**: Client-side routing with Wouter, supporting dedicated routes for Admin, Dispatcher, Technician, and Salesperson roles.
-- **State Management**: TanStack Query for server state, React hooks for local component state.
-- **UI Component System**: Radix UI primitives wrapped in custom components following the shadcn/ui pattern, with a "new-york" style variant.
-- **Styling**: Tailwind CSS with custom configuration, a dark-first design system using CSS variables, and a custom elevation system. Design guidelines emphasize an Emergency Chicago Sewer Experts branded dark theme with blue primary and red emergency accents.
-- **Component Architecture**: Extensive use of compound component patterns for highly composable UI elements.
+### Core Business Workflow
+The CRM follows a "Lead-to-Intake-to-Quote-to-Job" workflow:
+- **Lead Capture & Qualification**: Manual entry, webhooks (Thumbtack, Angi), chat widget, AI call recording intake. Leads are tracked, assigned, and followed up.
+- **Customer Intake**: Dispatcher opens full intake form pre-filled from lead data. Available from Lead Assassin cards ("Intake" button) and Leads page ("Open Intake Form" button).
+- **Quote Generation**: After saving intake, a "What's Next?" panel appears offering "Build Quote / Estimate" (creates pending job + opens QuoteBuilder in-sheet) or "Schedule a Job". Also supports digital estimates with pricebook integration, digital signatures, PDF export, and discount calculator.
+- **Job Creation & Dispatch**: Calendar-based scheduling, technician assignment, color-coding.
+- **Field Service**: Mobile work orders, media upload, checklists, on-site quoting.
+- **Job Completion**: Status tracking, automatic chat notifications, payroll integration.
+- **Customer Communication**: TCPA-compliant SMS/email, in-app chat, automated notifications.
 
-### Backend
-- **Framework**: Express.js on Node.js with TypeScript.
-- **Server Structure**: Minimal routing, static file serving, Vite HMR integration, and custom logging middleware.
-- **Storage Layer**: Abstract `IStorage` interface with a PostgreSQL-backed `DbStorage` implementation for full CRUD operations across all core entities (users, leads, jobs, quotes, etc.).
-- **Authentication**: Session-based authentication via Passport.js.
-- **Automation Service**: Handles automated lead contact, job creation, technician assignment, job cost updates, appointment reminders, and job lifecycle management (completion/cancellation).
-- **Email Service**: Integrates with Resend API for transactional emails.
-- **Data Validation**: Zod schemas integrated with Drizzle ORM for runtime type validation.
+### User Roles & Dashboards
+- **Admin (God Mode)**: Full system access, user management, payroll, AI Copilot, settings, developer mode.
+- **Dispatcher**: Operational tasks, dispatching, scheduling, customer communication, call recording with AI intake, AI Copilot.
+- **Technician**: Mobile-first interface for jobs, on-site quoting, work orders, media uploads, earnings tracking.
+- **Salesperson**: Lead management, quotes, sales pipeline, commission tracking, sales analytics.
 
-### Database
-- **ORM**: Drizzle ORM configured for PostgreSQL.
-- **Schema Definition**: Defines tables for users, leads, technicians, salespersons, jobs, quotes, contact attempts, webhooks, and various operational and financial tracking entities including commission tracking, marketing ROI, payroll, and SEO content management (content_packs, content_items).
-- **Migration Strategy**: Drizzle Kit manages schema changes and migrations.
-- **Connection Management**: PostgreSQL connection pooling via the `pg` library.
+### Authentication & Authorization
+- Session-based authentication with username/password.
+- API authorization via `X-User-Id` header.
+- Role-based access control (RBAC) on client and server.
+- God Mode super admin account with server-side protection.
 
-### Build System
-- **Production Build**: Custom script for client (Vite) and server (esbuild) bundling, optimizing for performance and reduced cold start times.
-- **Development Environment**: Dual-server setup with Express and Vite dev server, including Replit-specific plugins for enhanced development experience.
-- **Module System**: ES Modules used throughout the application.
+### Feature Specifications
+
+**AI Copilot**:
+- Plan-then-execute AI assistant for admins and dispatchers using OpenAI.
+- Provides read tools (e.g., `search_leads`, `get_job`, `list_technicians`) and write tools (e.g., `create_lead`, `update_job_status`, `schedule_job`, `process_payroll`) that require user approval.
+- Supports voice input via OpenAI Whisper for transcription.
+
+**AI-Powered In-App Messaging**:
+- AI can read and send messages to internal staff and customer-visible threads.
+- `send_chat_message` automatically creates threads and adds relevant participants (admins, dispatchers, assigned technician, customer).
+- `get_customer_profile` provides a comprehensive customer lookup.
+
+**Automatic Job Status Chat Notifications**:
+- Posts automated messages to internal and customer chat threads upon job status changes (e.g., assigned, en_route, completed).
+- Includes 30-second deduplication to prevent redundant messages.
+
+**AI Follow-Up Assistant**:
+- Identifies open quotes and unconverted leads for follow-up, categorizing by urgency.
+- Generates personalized follow-up messages via SMS or email using AI.
+- Dashboard for metrics, filtering, and batch actions.
+
+**Call Recording & AI Intake**:
+- Records dispatcher calls, transcribes via OpenAI Whisper.
+- AI extracts customer details and auto-populates intake forms, creating leads on confirmation.
+
+**Chat System**:
+- Thread-based communication with internal and customer-visible threads.
+- Participant management, magic link access for customers.
+
+**Permit Center**:
+- AI-powered permit detection, pre-filled PDF permit application generation, and status tracking.
+- Automated email submission via Resend API.
+
+**Digital Estimate & Work Order Forms**:
+- Digitized forms reflecting company's paper documents, including digital signatures, pricebook integration, and PDF printing.
+
+**Payroll System**:
+- Manages pay periods, time entry, configurable pay rates (hourly, per-job, commission), and Illinois tax calculations.
+- Admin-only on-demand processing via AI Copilot.
+
+**Customer Management**:
+- Centralized customer profiles with detailed views (Jobs, Quotes, Leads, Calls, Messages, Media, Audit, Addresses).
+- Features customer deduplication and payment management.
+
+**Calendar & Scheduling**:
+- Full calendar view with technician color coding, drag-and-drop scheduling, and availability checks.
+- AI can schedule jobs from call recordings.
+
+**Technician Management**:
+- Persistent color coding for technicians, appearing on calendar and job tracking.
+- Technician map view for field tracking.
+
+**Lead Assassin System**:
+- Real-time lead management with Socket.io notifications, "Claim & Conquer" workflow, urgency timers (Green, Yellow, Red, Flashing Red).
+- Lead Assassin Dashboard (`/lead-assassin`) for live automated lead feed.
+- Deduplicating webhook intake endpoint (`POST /api/v1/lead-ingest`).
+- Every webhook lead creates records in BOTH `velocity_leads` (Lead Assassin) AND `leads` (Leads tab), linked via `linkedLeadId`.
+- "View Lead" link on each Lead Assassin card navigates to the full lead record.
+- Global audible alert (`useNewLeadAlert` hook in App.tsx): plays ascending 3-tone chime + toast for all admin/dispatcher users anywhere in the app when a new lead arrives via Socket.io `NEW_LEAD` event.
+- Lead Assassin button (with live count badge) on Admin Dashboard, Dispatcher Dashboard, and Leads page header.
+
+**Lead Disposition Tracking**:
+- Tracks why leads don't convert with a `LeadDispositionDialog` component (`client/src/components/LeadDispositionDialog.tsx`).
+- Reasons: pricing, scheduling, permits, competitor, no_response, out_of_area, duplicate, changed_mind, already_completed, other.
+- DB columns: `not_converted_reason`, `disposition_notes`, `disposition_set_at`, `disposition_set_by` on the `leads` table.
+- "Mark Outcome" button in Leads page detail dialog and "Mark Lead Outcome" button in CustomerIntakeForm "What's Next?" panel.
+- `DispositionBadge` component shows colored badge for converted/lost leads in detail dialogs.
+- Exported from `LeadDispositionDialog.tsx`: `NOT_CONVERTED_REASONS`, `DispositionBadge`, `getDispositionLabel`, `NotConvertedReason` type.
+
+**User Management**:
+- Delete user route (`DELETE /api/admin/users/:userId`) now properly nullifies all FK references before deletion (time_entries, payroll_records, payroll_periods, employee_pay_rates, job_messages, permit_packets, content_packs, content_items) to prevent foreign key constraint violations.
+
+### Technical Stack
+- **Frontend**: React, TypeScript, Tailwind CSS, shadcn/ui, Vite, TanStack Query, Wouter, React Hook Form + Zod.
+- **Backend**: Node.js, Express.js, TypeScript.
+- **Database**: PostgreSQL (Neon-backed) with Drizzle ORM and `pg` client.
+- **File Storage**: Replit Object Storage (GCS-backed).
 
 ## External Dependencies
 
-### UI/Design
-- **Radix UI**: Unstyled, accessible component primitives.
-- **shadcn/ui**: Component architecture pattern.
-- **Lucide React**: Icon library.
-- **Tailwind CSS**: Utility-first CSS framework.
-
-### Data Visualization
-- **Recharts**: Charting library for analytics dashboards.
-
 ### Database
-- **PostgreSQL**: Primary database.
+- **PostgreSQL**: Primary data store.
 - **Drizzle ORM**: Type-safe ORM.
-- **pg (node-postgres)**: PostgreSQL client.
 
-### Form Management & Validation
-- **React Hook Form**: Form state management.
-- **@hookform/resolvers**: Zod integration for React Hook Form.
-- **Zod**: Runtime type validation.
-- **drizzle-zod**: Integration between Drizzle and Zod.
+### File Storage
+- **Replit Object Storage**: For job media and documents.
 
-### Routing
-- **Wouter**: Lightweight client-side router.
+### PDF & Documents
+- **pdf-lib**: For PDF generation and form filling.
 
-### Session Management
-- **express-session**: Session middleware for Express.
-- **connect-pg-simple**: PostgreSQL session store (present, but not fully configured).
+### AI & Machine Learning
+- **OpenAI**: GPT models for AI Copilot, call analysis, follow-up generation, permit detection, and Whisper for audio transcription.
 
-### Development & Utilities
-- **Vite**: Build tool and dev server.
-- **TypeScript**: Language for type-safety.
-- **tsx**: TypeScript execution for development.
-- **esbuild**: Server bundler.
-- **date-fns**: Date utility library.
-- **nanoid**: Unique ID generation.
-- **embla-carousel-react**: Carousel component.
+### Communication Services
+- **Twilio**: SMS integration.
+- **SignalWire**: Communication integration.
+- **Resend API**: Transactional email sending.
 
-### Replit Specific
-- **@replit/vite-plugin-runtime-error-modal**: Development error overlay.
-- **@replit/vite-plugin-cartographer**: Replit integration.
-- **@replit/vite-plugin-dev-banner**: Development environment banner.
+### Lead Sources
+- **Thumbtack**: Webhook integration for lead capture.
 
-## 3-App Integration System
-
-This CRM is part of a 3-app system for SEO content generation:
-
-1. **Emergency Chicago Sewer Experts CRM** (this app)
-   - Manages leads, jobs, technicians, and quotes
-   - Pushes job data to Builder 1 when jobs are created or completed
-   - Receives SEO content from Builder 1 for review/approval
-
-2. **Replit Builder 1** (webslingeraiglassseo.com)
-   - Receives job data from this CRM via webhook
-   - Generates SEO content based on completed jobs
-   - Pushes content back to this CRM and to the frontend site
-
-3. **EmergencyChicagoSewerExperts.replit.app**
-   - Public-facing website
-   - Receives approved SEO content for publication
-
-### Builder 1 Integration Details
-- **Endpoint**: `https://replit-builder-1--jcotham.replit.app/api/v1/inbound/job`
-- **Authentication**: API key in `X-API-KEY` header (stored as `BUILDER1_API_KEY` secret)
-- **Events Pushed**:
-  - `job_created`: When a new job is created (from leads, direct API, or Zapier)
-  - `job_completed`: When a job is marked complete (triggers SEO content generation)
-- **Payload**: Job details + lead information (customer name, address, service type, etc.)
-
-### SEO Content Inbound (from Builder 1)
-- **Endpoint**: `/api/webhooks/seo/content` 
-- **Authentication**: Basic auth with `THUMBTACK_WEBHOOK_USER` and `THUMBTACK_WEBHOOK_PASS`
-- **Content**: SEO articles, blog posts generated from job data
-- **Workflow**: Content arrives → admin reviews → approve/reject → if approved, pushed to frontend site
+### Other Integrations
+- **Builder 1 API**: For SEO content generation.

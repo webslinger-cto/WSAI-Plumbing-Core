@@ -7,13 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
+import { PermitCenterCard } from "@/features/permits/PermitCenterCard";
 import {
   Select,
   SelectContent,
@@ -47,6 +50,8 @@ import {
   MessageSquare,
   Bell,
   MoreVertical,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -57,7 +62,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { Job, Technician } from "@shared/schema";
+import { getTechColorById, getTechInitials } from "@/lib/technicianColors";
 import { format, formatDistanceToNow } from "date-fns";
+import { JobMediaTab } from "@/components/JobMediaTab";
 
 const jobStatusConfig: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   pending: { label: "Pending", color: "bg-muted text-muted-foreground", icon: Clock },
@@ -85,6 +92,7 @@ export default function JobsPage() {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedTechnician, setSelectedTechnician] = useState<string>("");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
     queryKey: ["/api/jobs"],
@@ -164,6 +172,22 @@ export default function JobsPage() {
     },
     onError: () => {
       toast({ title: "Send Failed", description: "Could not send SMS.", variant: "destructive" });
+    },
+  });
+
+  const deleteJobMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      return apiRequest("DELETE", `/api/jobs/${jobId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      setSelectedJob(null);
+      setEditDialogOpen(false);
+      setDeleteConfirmOpen(false);
+      toast({ title: "Job Deleted", description: "The job and all related data have been removed." });
+    },
+    onError: () => {
+      toast({ title: "Delete Failed", description: "Could not delete the job.", variant: "destructive" });
     },
   });
 
@@ -317,9 +341,13 @@ export default function JobsPage() {
                           <Badge className={priority.color}>{priority.label}</Badge>
                         </TableCell>
                         <TableCell>
-                          <p className="text-sm" data-testid={`text-job-technician-${job.id}`}>
-                            {getTechnicianName(job.assignedTechnicianId)}
-                          </p>
+                          <div className="flex items-center gap-2" data-testid={`text-job-technician-${job.id}`}>
+                            <div
+                              className="w-3 h-3 rounded-full shrink-0"
+                              style={{ backgroundColor: getTechColorById(job.assignedTechnicianId, technicians) }}
+                            />
+                            <span className="text-sm">{getTechnicianName(job.assignedTechnicianId)}</span>
+                          </div>
                         </TableCell>
                         <TableCell>
                           <p className="text-sm text-muted-foreground">
@@ -378,6 +406,18 @@ export default function JobsPage() {
                                 >
                                   <CheckCircle2 className="w-4 h-4 mr-2" />
                                   Send Job Complete SMS
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => {
+                                    setSelectedJob(job);
+                                    setDeleteConfirmOpen(true);
+                                  }}
+                                  data-testid={`button-delete-job-${job.id}`}
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Delete Job
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -449,19 +489,63 @@ export default function JobsPage() {
       </Dialog>
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Job</DialogTitle>
+            <DialogTitle>Job Details - {selectedJob?.customerName}</DialogTitle>
           </DialogHeader>
           {selectedJob && (
-            <EditJobForm
-              job={selectedJob}
-              technicians={technicians}
-              onSave={(updates) => updateMutation.mutate({ jobId: selectedJob.id, updates })}
-              onCancel={() => setEditDialogOpen(false)}
-              isPending={updateMutation.isPending}
-            />
+            <Tabs defaultValue="edit" className="mt-4">
+              <TabsList className="flex flex-wrap h-auto gap-1">
+                <TabsTrigger value="edit" className="text-xs sm:text-sm" data-testid="tab-job-edit">Edit</TabsTrigger>
+                <TabsTrigger value="permits" className="text-xs sm:text-sm" data-testid="tab-job-permits">Permits</TabsTrigger>
+                <TabsTrigger value="media" className="text-xs sm:text-sm" data-testid="tab-job-media">Media</TabsTrigger>
+              </TabsList>
+              <TabsContent value="edit" className="mt-4">
+                <EditJobForm
+                  job={selectedJob}
+                  technicians={technicians}
+                  onSave={(updates) => updateMutation.mutate({ jobId: selectedJob.id, updates })}
+                  onCancel={() => setEditDialogOpen(false)}
+                  isPending={updateMutation.isPending}
+                />
+              </TabsContent>
+              <TabsContent value="permits" className="mt-4">
+                <PermitCenterCard jobId={selectedJob.id} />
+              </TabsContent>
+              <TabsContent value="media" className="mt-4">
+                <JobMediaTab jobId={selectedJob.id} />
+              </TabsContent>
+            </Tabs>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              Delete Job
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete the job for "{selectedJob?.customerName}" and all related timeline events, attachments, payroll entries, and communications. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (selectedJob) deleteJobMutation.mutate(selectedJob.id);
+              }}
+              disabled={deleteJobMutation.isPending}
+              data-testid="button-confirm-delete-job"
+            >
+              {deleteJobMutation.isPending ? "Deleting..." : "Delete Job"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

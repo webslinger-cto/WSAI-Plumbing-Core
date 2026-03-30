@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import LeadsTable, { type Lead } from "@/components/LeadsTable";
 import { Button } from "@/components/ui/button";
 import {
@@ -6,18 +7,75 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History, Wifi, WifiOff } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Download, Upload, Phone, Mail, MapPin, Calendar, DollarSign, PhoneCall, Loader2, TrendingUp, RefreshCw, Copy, Link, History, Wifi, WifiOff, Plus, Building2, Globe, Users, Trash2, AlertTriangle, Flame, ClipboardList, Target } from "lucide-react";
+import LeadDispositionDialog, { DispositionBadge } from "@/components/LeadDispositionDialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import CustomerIntakeForm from "@/components/CustomerIntakeForm";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { SlaTimer } from "@/components/SlaTimer";
 import { CustomerTimeline } from "@/components/CustomerTimeline";
 import { useToast } from "@/hooks/use-toast";
-import type { Lead as ApiLead } from "@shared/schema";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { insertLeadSchema, type Lead as ApiLead } from "@shared/schema";
+
+const LEAD_SOURCES = [
+  { value: "Direct", label: "Direct / Phone Call", icon: Phone },
+  { value: "Website", label: "Website Form", icon: Globe },
+  { value: "website_chat", label: "Website Chat", icon: Globe },
+  { value: "Referral", label: "Customer Referral", icon: Users },
+  { value: "Thumbtack", label: "Thumbtack", icon: Building2 },
+  { value: "Angi", label: "Angi", icon: Building2 },
+  { value: "HomeAdvisor", label: "HomeAdvisor", icon: Building2 },
+  { value: "eLocal", label: "eLocal", icon: Building2 },
+  { value: "Networx", label: "Networx", icon: Building2 },
+  { value: "Inquirly", label: "Inquirly", icon: Building2 },
+];
+
+const SERVICE_TYPES = [
+  "Drain Cleaning",
+  "Sewer Main Line",
+  "Sewer Repair",
+  "Camera Inspection",
+  "Hydro Jetting",
+  "Water Heater",
+  "Plumbing Repair",
+  "Emergency Service",
+  "Other",
+];
+
+const PRIORITY_OPTIONS = [
+  { value: "low", label: "Low" },
+  { value: "normal", label: "Normal" },
+  { value: "high", label: "High" },
+  { value: "urgent", label: "Urgent" },
+];
 
 interface CompanySettingsData {
   id?: string;
@@ -31,6 +89,7 @@ function mapApiLeadToTableLead(lead: ApiLead): Lead & { slaBreach?: boolean } {
     name: lead.customerName,
     phone: lead.customerPhone,
     email: lead.customerEmail || undefined,
+    address: lead.address || "",
     city: lead.city || "",
     state: "IL",
     zipCode: lead.zipCode || "",
@@ -49,9 +108,60 @@ function mapApiLeadToTableLead(lead: ApiLead): Lead & { slaBreach?: boolean } {
   };
 }
 
+// Form schema with proper type transformations for UI input
+const newLeadFormSchema = z.object({
+  customerName: z.string().min(1, "Customer name is required"),
+  customerPhone: z.string().min(1, "Phone number is required"),
+  customerEmail: z.preprocess(
+    (val) => (val === "" ? undefined : val),
+    z.string().email("Invalid email address").optional()
+  ),
+  address: z.string().optional(),
+  city: z.string().optional(),
+  zipCode: z.string().optional(),
+  source: z.string().default("Direct"),
+  serviceType: z.string().optional(),
+  description: z.string().optional(),
+  priority: z.string().default("normal"),
+  cost: z.preprocess(
+    (val) => (val === "" ? undefined : val),
+    z.string().optional()
+  ),
+});
+
+type NewLeadFormData = z.infer<typeof newLeadFormSchema>;
+
 export default function LeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [showIntakeForm, setShowIntakeForm] = useState(false);
+  const [isNewLeadDialogOpen, setIsNewLeadDialogOpen] = useState(false);
+  const [showDispositionDialog, setShowDispositionDialog] = useState(false);
   const { toast } = useToast();
+  const [, navigate] = useLocation();
+
+  const { data: velocityLeads = [] } = useQuery<{ id: string; status: string }[]>({
+    queryKey: ["/api/velocity-leads"],
+    refetchInterval: 30000,
+  });
+  const newVelocityCount = velocityLeads.filter(l => l.status === "NEW").length;
+
+  // Form for new lead creation
+  const form = useForm<NewLeadFormData>({
+    resolver: zodResolver(newLeadFormSchema),
+    defaultValues: {
+      customerName: "",
+      customerPhone: "",
+      customerEmail: "",
+      address: "",
+      city: "",
+      zipCode: "",
+      source: "Direct",
+      serviceType: "",
+      description: "",
+      priority: "normal",
+      cost: "",
+    },
+  });
 
   const { data: apiLeads = [], isLoading } = useQuery<ApiLead[]>({
     queryKey: ["/api/leads"],
@@ -111,6 +221,115 @@ export default function LeadsPage() {
     },
   });
 
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  const updateLeadStatusMutation = useMutation({
+    mutationFn: async ({ leadId, status }: { leadId: string; status: string }) => {
+      const response = await apiRequest("PATCH", `/api/leads/${leadId}`, { status });
+      return response.json();
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({
+        title: "Status Updated",
+        description: `Lead status changed to "${variables.status}"`,
+      });
+      setStatusDialogOpen(false);
+      setSelectedLead(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const createQuoteFromLeadMutation = useMutation({
+    mutationFn: async (lead: Lead) => {
+      const fullAddress = [lead.address, lead.city, "IL", lead.zipCode].filter(Boolean).join(", ");
+      const response = await apiRequest("POST", "/api/quotes", {
+        leadId: lead.id,
+        customerName: lead.name,
+        customerPhone: lead.phone,
+        address: fullAddress,
+        status: "draft",
+        subtotal: "0",
+        total: "0",
+        notes: `Quote created from lead: ${lead.service || "Service inquiry"}`,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      toast({
+        title: "Quote Created",
+        description: "A new draft quote has been created from this lead.",
+      });
+      setSelectedLead(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const createJobFromLeadMutation = useMutation({
+    mutationFn: async (lead: Lead) => {
+      const fullAddress = [lead.address, lead.city, "IL", lead.zipCode].filter(Boolean).join(", ");
+      const response = await apiRequest("POST", "/api/jobs", {
+        leadId: lead.id,
+        customerName: lead.name,
+        customerPhone: lead.phone,
+        address: fullAddress || lead.city || "",
+        city: lead.city || "",
+        zipCode: lead.zipCode || "",
+        serviceType: lead.service || "General",
+        description: lead.service || "Service from lead",
+        status: "pending",
+        priority: lead.priority || "normal",
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
+      toast({
+        title: "Job Created",
+        description: "A new job has been created from this lead.",
+      });
+      setSelectedLead(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteLeadMutation = useMutation({
+    mutationFn: async (leadId: string) => {
+      return apiRequest("DELETE", `/api/leads/${leadId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      setSelectedLead(null);
+      setDeleteConfirmOpen(false);
+      toast({ title: "Lead Deleted", description: "The lead and all related data have been removed." });
+    },
+    onError: () => {
+      toast({ title: "Delete Failed", description: "Could not delete the lead.", variant: "destructive" });
+    },
+  });
+
   const recalculateScoresMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("POST", "/api/leads/recalculate-scores");
@@ -131,6 +350,45 @@ export default function LeadsPage() {
       });
     },
   });
+
+  const createLeadMutation = useMutation({
+    mutationFn: async (data: NewLeadFormData) => {
+      const response = await apiRequest("POST", "/api/leads", {
+        customerName: data.customerName,
+        customerPhone: data.customerPhone,
+        customerEmail: data.customerEmail || null,
+        address: data.address || null,
+        city: data.city || null,
+        zipCode: data.zipCode || null,
+        source: data.source,
+        serviceType: data.serviceType || null,
+        description: data.description || null,
+        priority: data.priority,
+        cost: data.cost ? data.cost : null,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({
+        title: "Lead Created",
+        description: "New lead has been added successfully.",
+      });
+      setIsNewLeadDialogOpen(false);
+      form.reset();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to create lead",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const onSubmitNewLead = (data: NewLeadFormData) => {
+    createLeadMutation.mutate(data);
+  };
 
   const handleMarkContacted = () => {
     if (selectedLead) {
@@ -155,7 +413,28 @@ export default function LeadsPage() {
             Manage and track all incoming leads from your sources
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            className="border-orange-500/50 text-orange-400 hover:bg-orange-950/30 relative"
+            onClick={() => navigate("/lead-assassin")}
+            data-testid="button-open-lead-assassin"
+          >
+            <Flame className="w-4 h-4 mr-2" />
+            Lead Assassin
+            {newVelocityCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse">
+                {newVelocityCount}
+              </span>
+            )}
+          </Button>
+          <Button 
+            onClick={() => setIsNewLeadDialogOpen(true)}
+            data-testid="button-new-lead"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            New Lead
+          </Button>
           <Button 
             variant="outline" 
             onClick={() => recalculateScoresMutation.mutate()}
@@ -173,7 +452,7 @@ export default function LeadsPage() {
             <Download className="w-4 h-4 mr-2" />
             Export
           </Button>
-          <Button data-testid="button-import-leads">
+          <Button variant="outline" data-testid="button-import-leads">
             <Upload className="w-4 h-4 mr-2" />
             Import
           </Button>
@@ -243,12 +522,15 @@ export default function LeadsPage() {
                     />
                   </div>
                 </div>
-                <Badge
-                  variant="outline"
-                  className="capitalize"
-                >
-                  {selectedLead.status}
-                </Badge>
+                <div className="flex flex-col items-end gap-1">
+                  <Badge
+                    variant="outline"
+                    className="capitalize"
+                  >
+                    {selectedLead.status}
+                  </Badge>
+                  <DispositionBadge lead={selectedLead} />
+                </div>
               </div>
 
               <Separator />
@@ -268,7 +550,7 @@ export default function LeadsPage() {
                   <div className="flex items-center gap-2 text-sm">
                     <MapPin className="w-4 h-4 text-muted-foreground" />
                     <span>
-                      {selectedLead.city}, {selectedLead.state} {selectedLead.zipCode}
+                      {[selectedLead.address, selectedLead.city, selectedLead.state, selectedLead.zipCode].filter(Boolean).join(", ") || "No address"}
                     </span>
                   </div>
                 </div>
@@ -333,7 +615,7 @@ export default function LeadsPage() {
                 </>
               )}
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2 pt-2 flex-wrap">
                 {!selectedLead.contactedAt && selectedLead.status === "new" && (
                   <Button 
                     variant="outline"
@@ -349,17 +631,430 @@ export default function LeadsPage() {
                     Mark Contacted
                   </Button>
                 )}
-                <Button className="flex-1" data-testid="button-create-quote">
+                <Button
+                  variant="outline"
+                  className="flex-1 border-purple-500/40 text-purple-400 hover:bg-purple-950/30"
+                  onClick={() => setShowIntakeForm(true)}
+                  data-testid="button-open-intake"
+                >
+                  <ClipboardList className="w-4 h-4 mr-2" />
+                  Open Intake Form
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={() => {
+                    if (selectedLead) createQuoteFromLeadMutation.mutate(selectedLead);
+                  }}
+                  disabled={createQuoteFromLeadMutation.isPending}
+                  data-testid="button-create-quote"
+                >
+                  {createQuoteFromLeadMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : null}
                   Create Quote
                 </Button>
-                <Button variant="outline" className="flex-1" data-testid="button-update-status">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    if (selectedLead) createJobFromLeadMutation.mutate(selectedLead);
+                  }}
+                  disabled={createJobFromLeadMutation.isPending}
+                  data-testid="button-create-job"
+                >
+                  {createJobFromLeadMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : null}
+                  Create Job
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setStatusDialogOpen(true)}
+                  data-testid="button-update-status"
+                >
                   Update Status
+                </Button>
+                <Button
+                  variant="outline"
+                  className="border-amber-500/40 text-amber-400 hover:bg-amber-950/30"
+                  onClick={() => setShowDispositionDialog(true)}
+                  data-testid="button-mark-outcome"
+                >
+                  <Target className="w-4 h-4 mr-2" />
+                  Mark Outcome
+                </Button>
+                <Button
+                  variant="outline"
+                  className="text-destructive border-destructive/50"
+                  onClick={() => setDeleteConfirmOpen(true)}
+                  data-testid="button-delete-lead"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete
                 </Button>
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={statusDialogOpen} onOpenChange={setStatusDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Update Lead Status</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-2">
+            {["new", "contacted", "estimated", "quoted", "converted", "assigned", "in_progress", "completed", "lost", "dead"].map((status) => (
+              <Button
+                key={status}
+                variant="outline"
+                className="capitalize"
+                onClick={() => {
+                  if (selectedLead) {
+                    updateLeadStatusMutation.mutate({ leadId: selectedLead.id, status });
+                  }
+                }}
+                disabled={updateLeadStatusMutation.isPending}
+                data-testid={`button-status-${status}`}
+              >
+                {status.replace("_", " ")}
+              </Button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              Delete Lead
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete "{selectedLead?.name}" and all related quotes, timeline events, and communications. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (selectedLead) deleteLeadMutation.mutate(selectedLead.id);
+              }}
+              disabled={deleteLeadMutation.isPending}
+              data-testid="button-confirm-delete-lead"
+            >
+              {deleteLeadMutation.isPending ? "Deleting..." : "Delete Lead"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isNewLeadDialogOpen} onOpenChange={(open) => {
+          setIsNewLeadDialogOpen(open);
+          if (!open) form.reset();
+        }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create New Lead</DialogTitle>
+          </DialogHeader>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmitNewLead)} className="space-y-6">
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="source"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Lead Source</FormLabel>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {LEAD_SOURCES.map((source) => {
+                          const Icon = source.icon;
+                          return (
+                            <Button
+                              key={source.value}
+                              type="button"
+                              variant={field.value === source.value ? "default" : "outline"}
+                              className="justify-start h-auto py-2"
+                              onClick={() => field.onChange(source.value)}
+                              data-testid={`button-source-${source.value.toLowerCase().replace(/\s+/g, '-')}`}
+                            >
+                              <Icon className="w-4 h-4 mr-2 shrink-0" />
+                              <span className="truncate">{source.label}</span>
+                            </Button>
+                          );
+                        })}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <Separator />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="customerName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Customer Name *</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="John Smith"
+                          data-testid="input-customer-name"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="customerPhone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Phone Number *</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="(312) 555-1234"
+                          data-testid="input-customer-phone"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="customerEmail"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="email"
+                          placeholder="john@example.com"
+                          data-testid="input-customer-email"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="cost"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Lead Cost ($)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          data-testid="input-lead-cost"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <Separator />
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <FormField
+                  control={form.control}
+                  name="address"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-2">
+                      <FormLabel>Address</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="123 Main Street"
+                          data-testid="input-address"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="city"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>City</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Chicago"
+                          data-testid="input-city"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="zipCode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Zip Code</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="60601"
+                          data-testid="input-zip-code"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="serviceType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Service Type</FormLabel>
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="select-service-type">
+                            <SelectValue placeholder="Select service" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {SERVICE_TYPES.map((type) => (
+                            <SelectItem key={type} value={type}>
+                              {type}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="priority"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Priority</FormLabel>
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="select-priority">
+                            <SelectValue placeholder="Select priority" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {PRIORITY_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Describe the issue or service needed..."
+                        rows={3}
+                        data-testid="textarea-description"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setIsNewLeadDialogOpen(false);
+                    form.reset();
+                  }}
+                  data-testid="button-cancel-new-lead"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={createLeadMutation.isPending}
+                  data-testid="button-submit-new-lead"
+                >
+                  {createLeadMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Plus className="w-4 h-4 mr-2" />
+                  )}
+                  Create Lead
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Customer Intake Sheet ── */}
+      <Sheet open={showIntakeForm} onOpenChange={(open) => { if (!open) setShowIntakeForm(false); }}>
+        <SheetContent side="right" className="w-full sm:max-w-3xl overflow-y-auto p-0">
+          <SheetHeader className="p-6 pb-2 border-b border-border">
+            <SheetTitle className="flex items-center gap-2">
+              <ClipboardList className="w-5 h-5 text-purple-400" />
+              Customer Intake — {selectedLead?.name || "Lead"}
+            </SheetTitle>
+          </SheetHeader>
+          {showIntakeForm && selectedLead && (
+            <div className="p-4 overflow-y-auto">
+              <CustomerIntakeForm
+                key={selectedLead.id}
+                lead={apiLeads.find(l => l.id === selectedLead.id) || undefined}
+                onClose={() => setShowIntakeForm(false)}
+              />
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      <LeadDispositionDialog
+        lead={showDispositionDialog ? selectedLead : null}
+        open={showDispositionDialog}
+        onClose={() => setShowDispositionDialog(false)}
+      />
     </div>
   );
 }

@@ -15,10 +15,11 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Send, Save, CreditCard, Star, QrCode, Download, Users, Clock, Briefcase, Loader2 } from "lucide-react";
+import { Plus, Trash2, Send, Save, CreditCard, Star, QrCode, Download, Users, Clock, Briefcase, Loader2, Search, Package, Percent } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useToast } from "@/hooks/use-toast";
-import type { Job } from "@shared/schema";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import type { Job, PricebookItem, PricebookCategory } from "@shared/schema";
 
 interface LineItem {
   id: string;
@@ -62,6 +63,8 @@ export interface QuoteData {
   notes: string;
   subtotal: number;
   laborTotal: number;
+  discountPercent: number;
+  discountAmount: number;
   tax: number;
   total: number;
 }
@@ -110,16 +113,52 @@ export default function QuoteBuilder({
   const [showPayment, setShowPayment] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [showLabor, setShowLabor] = useState(false);
+  const [showPricebook, setShowPricebook] = useState(false);
+  const [discountPercent, setDiscountPercent] = useState(0);
+  const [pricebookSearch, setPricebookSearch] = useState("");
+  const [selectedPricebookCategory, setSelectedPricebookCategory] = useState<string>("all");
   const [selectedJobId, setSelectedJobId] = useState<string>(initialJobId || "");
+
+  // Fetch pricebook items
+  const { data: pricebookItems = [], isLoading: pricebookLoading } = useQuery<PricebookItem[]>({
+    queryKey: ["/api/pricebook/items"],
+  });
+
+  // Fetch pricebook categories
+  const { data: pricebookCategories = [] } = useQuery<PricebookCategory[]>({
+    queryKey: ["/api/pricebook/categories"],
+  });
+
+  // Filter pricebook items based on search and category
+  const filteredPricebookItems = pricebookItems.filter((item) => {
+    if (!item.isActive) return false;
+    const matchesSearch = pricebookSearch === "" || 
+      item.name.toLowerCase().includes(pricebookSearch.toLowerCase()) ||
+      item.description?.toLowerCase().includes(pricebookSearch.toLowerCase()) ||
+      item.serviceCode?.toLowerCase().includes(pricebookSearch.toLowerCase());
+    const matchesCategory = selectedPricebookCategory === "all" || item.category === selectedPricebookCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  // Add pricebook item as line item
+  const addPricebookItem = (item: PricebookItem) => {
+    const newLineItem: LineItem = {
+      id: crypto.randomUUID(),
+      description: item.name,
+      type: "service",
+      quantity: 1,
+      unitPrice: parseFloat(item.basePrice || "0"),
+    };
+    setLineItems([...lineItems, newLineItem]);
+    toast({
+      title: "Item Added",
+      description: `${item.name} added to quote`,
+    });
+  };
 
   // Fetch jobs for job selector (when showJobSelector is true or no jobId provided)
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<Job[]>({
     queryKey: ["/api/jobs"],
-    queryFn: async () => {
-      const res = await fetch("/api/jobs");
-      if (!res.ok) throw new Error("Failed to fetch jobs");
-      return res.json();
-    },
     enabled: showJobSelector || !initialJobId,
   });
 
@@ -164,6 +203,8 @@ export default function QuoteBuilder({
         laborEntries: JSON.stringify(quoteData.laborEntries),
         subtotal: String(quoteData.subtotal),
         laborTotal: String(quoteData.laborTotal),
+        discountPercent: String(quoteData.discountPercent),
+        discounts: String(quoteData.discountAmount),
         taxRate: String(TAX_RATE * 100),
         taxAmount: String(quoteData.tax),
         total: String(quoteData.total),
@@ -251,9 +292,13 @@ export default function QuoteBuilder({
 
   const subtotal = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   const laborTotal = laborEntries.reduce((sum, entry) => sum + entry.hoursWorked * entry.hourlyRate, 0);
-  const taxableAmount = subtotal; // Labor is typically not taxable
+  const preDiscountTotal = subtotal + laborTotal;
+  const clampedDiscount = Math.min(Math.max(discountPercent, 0), 100);
+  const discountAmount = preDiscountTotal * (clampedDiscount / 100);
+  const afterDiscount = preDiscountTotal - discountAmount;
+  const taxableAmount = preDiscountTotal > 0 ? Math.max(subtotal - (subtotal / preDiscountTotal) * discountAmount, 0) : 0;
   const tax = taxableAmount * TAX_RATE;
-  const total = subtotal + laborTotal + tax;
+  const total = afterDiscount + tax;
 
   const getQuoteData = (): QuoteData => ({
     customerName: name,
@@ -264,6 +309,8 @@ export default function QuoteBuilder({
     notes,
     subtotal,
     laborTotal,
+    discountPercent: clampedDiscount,
+    discountAmount,
     tax,
     total,
   });
@@ -374,6 +421,7 @@ export default function QuoteBuilder({
         <div class="totals">
           <p>Services & Materials: $${quoteData.subtotal.toFixed(2)}</p>
           ${quoteData.laborTotal > 0 ? `<p>Labor: $${quoteData.laborTotal.toFixed(2)}</p>` : ""}
+          ${quoteData.discountPercent > 0 ? `<p style="color: #ef4444;">Discount (${quoteData.discountPercent}%): -$${quoteData.discountAmount.toFixed(2)}</p>` : ""}
           <p>Tax (6.25%): $${quoteData.tax.toFixed(2)}</p>
           <p class="total-line">Total: $${quoteData.total.toFixed(2)}</p>
         </div>
@@ -517,27 +565,116 @@ export default function QuoteBuilder({
 
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
             <CardTitle className="text-sm font-semibold uppercase tracking-wider">
               Line Items
             </CardTitle>
-            <Select onValueChange={(v) => {
-              const preset = SERVICE_PRESETS.find((p) => p.name === v);
-              if (preset) addLineItem(preset);
-            }}>
-              <SelectTrigger className="w-[200px]" data-testid="select-add-preset">
-                <SelectValue placeholder="Add service..." />
-              </SelectTrigger>
-              <SelectContent>
-                {SERVICE_PRESETS.map((preset) => (
-                  <SelectItem key={preset.name} value={preset.name}>
-                    {preset.name} - ${preset.price}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                variant={showPricebook ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowPricebook(!showPricebook)}
+                data-testid="button-toggle-pricebook"
+              >
+                <Package className="w-4 h-4 mr-1" />
+                Pricebook
+              </Button>
+              <Select onValueChange={(v) => {
+                const preset = SERVICE_PRESETS.find((p) => p.name === v);
+                if (preset) addLineItem(preset);
+              }}>
+                <SelectTrigger className="w-[180px]" data-testid="select-add-preset">
+                  <SelectValue placeholder="Quick add..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {SERVICE_PRESETS.map((preset) => (
+                    <SelectItem key={preset.name} value={preset.name}>
+                      {preset.name} - ${preset.price}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardHeader>
+        {showPricebook && (
+          <div className="px-6 pb-4">
+            <div className="p-4 rounded-lg border bg-muted/20 space-y-4">
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    value={pricebookSearch}
+                    onChange={(e) => setPricebookSearch(e.target.value)}
+                    placeholder="Search pricebook items..."
+                    className="pl-9"
+                    data-testid="input-pricebook-search"
+                  />
+                </div>
+                <Select value={selectedPricebookCategory} onValueChange={setSelectedPricebookCategory}>
+                  <SelectTrigger className="w-[180px]" data-testid="select-pricebook-category">
+                    <SelectValue placeholder="All Categories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {pricebookCategories.map((cat) => (
+                      <SelectItem key={cat.id} value={cat.name}>
+                        {cat.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <ScrollArea className="h-[200px]">
+                {pricebookLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : filteredPricebookItems.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <p className="text-sm">No items found</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {filteredPricebookItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between gap-3 p-3 rounded-md border bg-background hover-elevate cursor-pointer"
+                        onClick={() => addPricebookItem(item)}
+                        data-testid={`pricebook-item-${item.id}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium truncate">{item.name}</span>
+                            {item.serviceCode && (
+                              <Badge variant="outline" className="text-xs shrink-0">
+                                {item.serviceCode}
+                              </Badge>
+                            )}
+                          </div>
+                          {item.description && (
+                            <p className="text-xs text-muted-foreground truncate mt-0.5">
+                              {item.description}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant="secondary">{item.category}</Badge>
+                          <span className="font-semibold text-green-500">
+                            ${parseFloat(item.basePrice || "0").toFixed(2)}
+                          </span>
+                          <Button size="icon" variant="ghost" className="h-8 w-8">
+                            <Plus className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
+          </div>
+        )}
         <CardContent className="space-y-3">
           {lineItems.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
@@ -789,6 +926,67 @@ export default function QuoteBuilder({
               <span className="font-medium text-blue-400">${laborTotal.toFixed(2)}</span>
             </div>
           )}
+
+          <Separator />
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Percent className="w-4 h-4 text-orange-400" />
+              <span className="text-sm font-medium">Discount</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 flex-1">
+                {[5, 10, 15, 20].map((pct) => (
+                  <Button
+                    key={pct}
+                    type="button"
+                    size="sm"
+                    variant={clampedDiscount === pct ? "default" : "outline"}
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setDiscountPercent(pct)}
+                    data-testid={`button-discount-${pct}`}
+                  >
+                    {pct}%
+                  </Button>
+                ))}
+                <div className="relative flex-1 min-w-[70px]">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={discountPercent || ""}
+                    onChange={(e) => setDiscountPercent(parseFloat(e.target.value) || 0)}
+                    placeholder="Custom"
+                    className="h-7 text-xs pr-6"
+                    data-testid="input-discount-percent"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                </div>
+                {discountPercent > 0 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs text-muted-foreground"
+                    onClick={() => setDiscountPercent(0)}
+                    data-testid="button-discount-clear"
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+            </div>
+            {discountAmount > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-orange-400">Discount ({clampedDiscount}%)</span>
+                <span className="font-medium text-orange-400" data-testid="text-discount-amount">-${discountAmount.toFixed(2)}</span>
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Tax (6.25%)</span>
             <span className="font-medium">${tax.toFixed(2)}</span>

@@ -48,6 +48,12 @@ import {
   type FollowUp, type InsertFollowUp,
   type MctbAccount, type InsertMctbAccount,
   type MctbCallLog, type InsertMctbCallLog,
+  type AuditLog, type InsertAuditLog,
+  type WorkOrder, type InsertWorkOrder,
+  type JobMedia, type InsertJobMedia,
+  type CallRecording, type InsertCallRecording,
+  type VelocityLead, type InsertVelocityLead,
+  type VelocityLeadAuditLog, type InsertVelocityLeadAuditLog,
   users, technicians, salespersons, salesCommissions, salespersonLocations,
   leads, calls, jobs, jobTimelineEvents, quotes, notifications, shiftLogs, quoteTemplates, contactAttempts, webhookLogs,
   jobAttachments, jobChecklists, technicianLocations, checklistTemplates,
@@ -60,6 +66,8 @@ import {
   auditLogs,
   invoiceReminders, intakeSubmissions, serviceEstimates, followUps,
   mctbAccounts, mctbCallLog,
+  auditLogs, workOrders, jobMedia, callRecordings,
+  velocityLeads, velocityLeadAuditLog,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -307,6 +315,7 @@ export interface IStorage {
 
   // Time Entries (clock in/out)
   getTimeEntry(id: string): Promise<TimeEntry | undefined>;
+  getAllTimeEntries(startDate?: Date, endDate?: Date): Promise<TimeEntry[]>;
   getTimeEntriesByUser(userId: string, startDate?: Date, endDate?: Date): Promise<TimeEntry[]>;
   getTimeEntriesByTechnician(technicianId: string, startDate?: Date, endDate?: Date): Promise<TimeEntry[]>;
   createTimeEntry(entry: InsertTimeEntry): Promise<TimeEntry>;
@@ -338,11 +347,13 @@ export interface IStorage {
   getJobLeadFee(id: string): Promise<JobLeadFee | undefined>;
   getJobLeadFeesByJob(jobId: string): Promise<JobLeadFee[]>;
   getJobLeadFeesByTechnician(technicianId: string): Promise<JobLeadFee[]>;
+  getAllJobLeadFees(): Promise<JobLeadFee[]>;
   createJobLeadFee(fee: InsertJobLeadFee): Promise<JobLeadFee>;
   updateJobLeadFee(id: string, updates: Partial<JobLeadFee>): Promise<JobLeadFee | undefined>;
 
   // Job Revenue Events
   getJobRevenueEvent(id: string): Promise<JobRevenueEvent | undefined>;
+  getAllJobRevenueEvents(): Promise<JobRevenueEvent[]>;
   getJobRevenueEventsByJob(jobId: string): Promise<JobRevenueEvent[]>;
   getJobRevenueEventsByTechnician(technicianId: string): Promise<JobRevenueEvent[]>;
   createJobRevenueEvent(event: InsertJobRevenueEvent): Promise<JobRevenueEvent>;
@@ -381,10 +392,15 @@ export interface IStorage {
   // Thread-Based Chat System
   getChatThread(id: string): Promise<ChatThread | undefined>;
   getChatThreadByJob(jobId: string, visibility: 'internal' | 'customer_visible'): Promise<ChatThread | undefined>;
+  getChatThreadByLead(leadId: string, visibility: 'internal' | 'customer_visible'): Promise<ChatThread | undefined>;
+  getChatThreadByQuote(quoteId: string, visibility: 'internal' | 'customer_visible'): Promise<ChatThread | undefined>;
   getChatThreadsForUser(userId: string, options?: { status?: string; visibility?: string }): Promise<ChatThread[]>;
   getChatThreadsForCustomer(customerIdentifier: string, jobId: string): Promise<ChatThread[]>;
+  getChatThreadsForCustomerByLead(customerIdentifier: string, leadId: string): Promise<ChatThread[]>;
   createChatThread(thread: InsertChatThread): Promise<ChatThread>;
   updateChatThread(id: string, updates: Partial<ChatThread>): Promise<ChatThread | undefined>;
+  linkChatThreadToQuote(threadId: string, quoteId: string): Promise<ChatThread | undefined>;
+  linkChatThreadToJob(threadId: string, jobId: string): Promise<ChatThread | undefined>;
   
   // Chat Thread Participants
   getChatThreadParticipants(threadId: string): Promise<ChatThreadParticipant[]>;
@@ -405,12 +421,15 @@ export interface IStorage {
   // Chat Magic Link Sessions
   getChatMagicSession(jobId: string, tokenHash: string): Promise<ChatMagicSession | undefined>;
   getChatMagicSessionByJob(jobId: string, customerIdentifier: string): Promise<ChatMagicSession | undefined>;
+  getChatMagicSessionByLead(leadId: string, tokenHash: string): Promise<ChatMagicSession | undefined>;
+  getChatMagicSessionByQuote(quoteId: string, tokenHash: string): Promise<ChatMagicSession | undefined>;
   createChatMagicSession(session: InsertChatMagicSession): Promise<ChatMagicSession>;
   updateChatMagicSessionLastUsed(id: string): Promise<void>;
   deleteChatMagicSession(id: string): Promise<boolean>;
   
   // Chat Email Notification Rate Limiting
   getLastChatEmailNotification(jobId: string, customerIdentifier: string): Promise<Date | null>;
+  getLastChatEmailNotificationByLead(leadId: string, customerIdentifier: string): Promise<Date | null>;
   updateChatEmailNotification(jobId: string, customerIdentifier: string): Promise<void>;
 
   // Audit Logs
@@ -424,6 +443,45 @@ export interface IStorage {
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   updateCustomer(id: string, updates: Partial<Customer>): Promise<Customer | undefined>;
   upsertCustomerByPhone(phone: string, data: Partial<InsertCustomer>): Promise<Customer>;
+  updateChatEmailNotificationByLead(leadId: string, customerIdentifier: string): Promise<void>;
+
+  // Audit Logs
+  createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
+  getAuditLogsByEntity(entityType: string, entityId: string): Promise<AuditLog[]>;
+  getAuditLogs(limit?: number): Promise<AuditLog[]>;
+
+  // Work Orders
+  getWorkOrder(id: string): Promise<WorkOrder | undefined>;
+  getWorkOrdersByJob(jobId: string): Promise<WorkOrder[]>;
+  getWorkOrdersByTechnician(technicianId: string): Promise<WorkOrder[]>;
+  getAllWorkOrders(): Promise<WorkOrder[]>;
+  createWorkOrder(order: InsertWorkOrder): Promise<WorkOrder>;
+  updateWorkOrder(id: string, updates: Partial<WorkOrder>): Promise<WorkOrder | undefined>;
+
+  // Job Media
+  getJobMedia(jobId: string): Promise<JobMedia[]>;
+  createJobMedia(media: InsertJobMedia): Promise<JobMedia>;
+  deleteJobMedia(id: string): Promise<boolean>;
+
+  // Call Recordings
+  getCallRecordings(filters?: { leadId?: string; jobId?: string }): Promise<CallRecording[]>;
+  getCallRecording(id: string): Promise<CallRecording | undefined>;
+  createCallRecording(recording: InsertCallRecording): Promise<CallRecording>;
+  updateCallRecording(id: string, updates: Partial<CallRecording>): Promise<CallRecording | undefined>;
+
+  // Cascading Deletes
+  deleteLead(id: string): Promise<boolean>;
+  deleteJob(id: string): Promise<boolean>;
+  deleteCustomer(id: string): Promise<boolean>;
+
+  // Velocity Leads
+  getVelocityLeads(filters?: { status?: string }): Promise<VelocityLead[]>;
+  getVelocityLead(id: string): Promise<VelocityLead | undefined>;
+  createVelocityLead(lead: InsertVelocityLead): Promise<VelocityLead>;
+  updateVelocityLead(id: string, updates: Partial<VelocityLead>): Promise<VelocityLead | undefined>;
+  findDuplicateVelocityLead(phone: string, email?: string): Promise<VelocityLead | undefined>;
+  createVelocityLeadAuditLog(entry: InsertVelocityLeadAuditLog): Promise<VelocityLeadAuditLog>;
+  getVelocityLeadAuditLog(leadId: string): Promise<VelocityLeadAuditLog[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -1711,6 +1769,55 @@ export class MemStorage implements IStorage {
   async deleteChecklistTemplate(id: string): Promise<boolean> {
     return this.checklistTemplatesMap.delete(id);
   }
+
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    return {
+      id: randomUUID(),
+      entityType: log.entityType,
+      entityId: log.entityId,
+      action: log.action,
+      userId: log.userId ?? null,
+      userName: log.userName ?? null,
+      userRole: log.userRole ?? null,
+      changedFields: log.changedFields ?? {},
+      summary: log.summary ?? null,
+      ipAddress: log.ipAddress ?? null,
+      userAgent: log.userAgent ?? null,
+      createdAt: new Date(),
+    };
+  }
+
+  async getAuditLogsByEntity(entityType: string, entityId: string): Promise<AuditLog[]> {
+    return [];
+  }
+
+  async getAuditLogs(limit: number = 100): Promise<AuditLog[]> {
+    return [];
+  }
+
+  async getWorkOrder(id: string): Promise<WorkOrder | undefined> { return undefined; }
+  async getWorkOrdersByJob(jobId: string): Promise<WorkOrder[]> { return []; }
+  async getWorkOrdersByTechnician(technicianId: string): Promise<WorkOrder[]> { return []; }
+  async getAllWorkOrders(): Promise<WorkOrder[]> { return []; }
+  async createWorkOrder(order: InsertWorkOrder): Promise<WorkOrder> { throw new Error("Not implemented"); }
+  async updateWorkOrder(id: string, updates: Partial<WorkOrder>): Promise<WorkOrder | undefined> { return undefined; }
+  async getJobMedia(jobId: string): Promise<JobMedia[]> { return []; }
+  async createJobMedia(media: InsertJobMedia): Promise<JobMedia> { throw new Error("Not implemented"); }
+  async deleteJobMedia(id: string): Promise<boolean> { return false; }
+  async getCallRecordings(filters?: { leadId?: string; jobId?: string }): Promise<CallRecording[]> { return []; }
+  async getCallRecording(id: string): Promise<CallRecording | undefined> { return undefined; }
+  async createCallRecording(recording: InsertCallRecording): Promise<CallRecording> { throw new Error("Not implemented"); }
+  async updateCallRecording(id: string, updates: Partial<CallRecording>): Promise<CallRecording | undefined> { return undefined; }
+  async deleteLead(id: string): Promise<boolean> { return false; }
+  async deleteJob(id: string): Promise<boolean> { return false; }
+  async deleteCustomer(id: string): Promise<boolean> { return false; }
+  async getVelocityLeads(filters?: { status?: string }): Promise<VelocityLead[]> { return []; }
+  async getVelocityLead(id: string): Promise<VelocityLead | undefined> { return undefined; }
+  async createVelocityLead(lead: InsertVelocityLead): Promise<VelocityLead> { throw new Error("Not implemented"); }
+  async updateVelocityLead(id: string, updates: Partial<VelocityLead>): Promise<VelocityLead | undefined> { return undefined; }
+  async findDuplicateVelocityLead(phone: string, email?: string): Promise<VelocityLead | undefined> { return undefined; }
+  async createVelocityLeadAuditLog(entry: InsertVelocityLeadAuditLog): Promise<VelocityLeadAuditLog> { throw new Error("Not implemented"); }
+  async getVelocityLeadAuditLog(leadId: string): Promise<VelocityLeadAuditLog[]> { return []; }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2286,9 +2393,17 @@ export class DatabaseStorage implements IStorage {
     const currentJobs = allJobs.filter(j => new Date(j.createdAt) >= startDate);
     const currentQuotes = allQuotes.filter(q => new Date(q.createdAt) >= startDate);
 
-    const totalRevenue = currentQuotes.reduce((sum, q) => sum + (parseFloat(q.total || "0")), 0);
-    const prevRevenue = allQuotes.filter(q => new Date(q.createdAt) >= prevStartDate && new Date(q.createdAt) <= prevEndDate)
+    const completedJobsInPeriod = allJobs.filter(j => j.status === "completed" && j.completedAt && new Date(j.completedAt) >= startDate);
+    const prevCompletedJobs = allJobs.filter(j => j.status === "completed" && j.completedAt && new Date(j.completedAt) >= prevStartDate && new Date(j.completedAt) <= prevEndDate);
+
+    const jobRevenue = completedJobsInPeriod.reduce((sum, j) => sum + (parseFloat(j.totalRevenue || "0")), 0);
+    const quoteRevenue = currentQuotes.filter(q => q.status === "accepted").reduce((sum, q) => sum + (parseFloat(q.total || "0")), 0);
+    const totalRevenue = jobRevenue > 0 ? jobRevenue : quoteRevenue;
+
+    const prevJobRevenue = prevCompletedJobs.reduce((sum, j) => sum + (parseFloat(j.totalRevenue || "0")), 0);
+    const prevQuoteRevenue = allQuotes.filter(q => q.status === "accepted" && new Date(q.createdAt) >= prevStartDate && new Date(q.createdAt) <= prevEndDate)
       .reduce((sum, q) => sum + (parseFloat(q.total || "0")), 0);
+    const prevRevenue = prevJobRevenue > 0 ? prevJobRevenue : prevQuoteRevenue;
 
     const totalLeads = currentLeads.length;
     const convertedLeads = currentLeads.filter(l => l.status === "converted").length;
@@ -2296,8 +2411,12 @@ export class DatabaseStorage implements IStorage {
     const prevConvertedLeads = prevLeads.filter(l => l.status === "converted").length;
     const prevConversionRate = prevLeads.length > 0 ? (prevConvertedLeads / prevLeads.length) * 100 : 0;
 
-    const expenseRate = 0.4;
-    const netProfit = totalRevenue * (1 - expenseRate);
+    const totalJobCosts = completedJobsInPeriod.reduce((sum, j) => {
+      return sum + parseFloat(j.laborCost || "0") + parseFloat(j.materialsCost || "0") + 
+        parseFloat(j.travelExpense || "0") + parseFloat(j.equipmentCost || "0") + parseFloat(j.otherExpenses || "0");
+    }, 0);
+    const expenseRate = totalRevenue > 0 && totalJobCosts > 0 ? totalJobCosts / totalRevenue : 0.4;
+    const netProfit = totalRevenue - totalJobCosts;
     const prevProfit = prevRevenue * (1 - expenseRate);
 
     const sourceStats = new Map<string, { leads: number; cost: number; converted: number; revenue: number }>();
@@ -2900,6 +3019,19 @@ export class DatabaseStorage implements IStorage {
     return entry;
   }
 
+  async getAllTimeEntries(startDate?: Date, endDate?: Date): Promise<TimeEntry[]> {
+    if (startDate && endDate) {
+      return db.select().from(timeEntries)
+        .where(and(
+          gte(timeEntries.date, startDate),
+          lte(timeEntries.date, endDate)
+        ))
+        .orderBy(desc(timeEntries.date));
+    }
+    return db.select().from(timeEntries)
+      .orderBy(desc(timeEntries.date));
+  }
+
   async getTimeEntriesByUser(userId: string, startDate?: Date, endDate?: Date): Promise<TimeEntry[]> {
     if (startDate && endDate) {
       return db.select().from(timeEntries)
@@ -3064,6 +3196,10 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(jobLeadFees.acceptedAt));
   }
 
+  async getAllJobLeadFees(): Promise<JobLeadFee[]> {
+    return db.select().from(jobLeadFees);
+  }
+
   async createJobLeadFee(fee: InsertJobLeadFee): Promise<JobLeadFee> {
     const [created] = await db.insert(jobLeadFees).values(fee).returning();
     return created;
@@ -3081,6 +3217,11 @@ export class DatabaseStorage implements IStorage {
   async getJobRevenueEvent(id: string): Promise<JobRevenueEvent | undefined> {
     const [event] = await db.select().from(jobRevenueEvents).where(eq(jobRevenueEvents.id, id));
     return event;
+  }
+
+  async getAllJobRevenueEvents(): Promise<JobRevenueEvent[]> {
+    return db.select().from(jobRevenueEvents)
+      .orderBy(desc(jobRevenueEvents.recognizedAt));
   }
 
   async getJobRevenueEventsByJob(jobId: string): Promise<JobRevenueEvent[]> {
@@ -3295,6 +3436,59 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async getChatThreadByLead(leadId: string, visibility: 'internal' | 'customer_visible'): Promise<ChatThread | undefined> {
+    const [thread] = await db.select().from(chatThreads)
+      .where(and(
+        eq(chatThreads.relatedLeadId, leadId),
+        eq(chatThreads.visibility, visibility)
+      ));
+    return thread;
+  }
+
+  async getChatThreadByQuote(quoteId: string, visibility: 'internal' | 'customer_visible'): Promise<ChatThread | undefined> {
+    const [thread] = await db.select().from(chatThreads)
+      .where(and(
+        eq(chatThreads.relatedQuoteId, quoteId),
+        eq(chatThreads.visibility, visibility)
+      ));
+    return thread;
+  }
+
+  async getChatThreadsForCustomerByLead(customerIdentifier: string, leadId: string): Promise<ChatThread[]> {
+    const participantRecords = await db.select().from(chatThreadParticipants)
+      .where(and(
+        eq(chatThreadParticipants.participantType, 'customer'),
+        eq(chatThreadParticipants.participantId, customerIdentifier)
+      ));
+    
+    const threadIds = participantRecords.map(p => p.threadId);
+    if (threadIds.length === 0) return [];
+    
+    return db.select().from(chatThreads)
+      .where(and(
+        sql`${chatThreads.id} IN (${sql.join(threadIds.map(id => sql`${id}`), sql`, `)})`,
+        eq(chatThreads.relatedLeadId, leadId),
+        eq(chatThreads.visibility, 'customer_visible')
+      ))
+      .orderBy(desc(chatThreads.lastMessageAt));
+  }
+
+  async linkChatThreadToQuote(threadId: string, quoteId: string): Promise<ChatThread | undefined> {
+    const [updated] = await db.update(chatThreads)
+      .set({ relatedQuoteId: quoteId, updatedAt: new Date() })
+      .where(eq(chatThreads.id, threadId))
+      .returning();
+    return updated;
+  }
+
+  async linkChatThreadToJob(threadId: string, jobId: string): Promise<ChatThread | undefined> {
+    const [updated] = await db.update(chatThreads)
+      .set({ relatedJobId: jobId, updatedAt: new Date() })
+      .where(eq(chatThreads.id, threadId))
+      .returning();
+    return updated;
+  }
+
   // Chat Thread Participants
   async getChatThreadParticipants(threadId: string): Promise<ChatThreadParticipant[]> {
     return db.select().from(chatThreadParticipants)
@@ -3425,6 +3619,26 @@ export class DatabaseStorage implements IStorage {
         gte(chatMagicSessions.expiresAt, new Date())
       ))
       .orderBy(desc(chatMagicSessions.createdAt));
+    return session;
+  }
+
+  async getChatMagicSessionByLead(leadId: string, tokenHash: string): Promise<ChatMagicSession | undefined> {
+    const [session] = await db.select().from(chatMagicSessions)
+      .where(and(
+        eq(chatMagicSessions.leadId, leadId),
+        eq(chatMagicSessions.tokenHash, tokenHash),
+        gte(chatMagicSessions.expiresAt, new Date())
+      ));
+    return session;
+  }
+
+  async getChatMagicSessionByQuote(quoteId: string, tokenHash: string): Promise<ChatMagicSession | undefined> {
+    const [session] = await db.select().from(chatMagicSessions)
+      .where(and(
+        eq(chatMagicSessions.quoteId, quoteId),
+        eq(chatMagicSessions.tokenHash, tokenHash),
+        gte(chatMagicSessions.expiresAt, new Date())
+      ));
     return session;
   }
 
@@ -3761,6 +3975,264 @@ export class DatabaseStorage implements IStorage {
       .where(eq(mctbCallLog.accountId, accountId))
       .orderBy(desc(mctbCallLog.calledAt))
       .limit(limit);
+  }
+  
+  async getLastChatEmailNotificationByLead(leadId: string, customerIdentifier: string): Promise<Date | null> {
+    const [record] = await db.select().from(chatEmailNotifications)
+      .where(and(
+        eq(chatEmailNotifications.leadId, leadId),
+        eq(chatEmailNotifications.customerIdentifier, customerIdentifier)
+      ));
+    return record?.lastNotifiedAt || null;
+  }
+
+  async updateChatEmailNotificationByLead(leadId: string, customerIdentifier: string): Promise<void> {
+    const existing = await this.getLastChatEmailNotificationByLead(leadId, customerIdentifier);
+    if (existing) {
+      await db.update(chatEmailNotifications)
+        .set({ lastNotifiedAt: new Date() })
+        .where(and(
+          eq(chatEmailNotifications.leadId, leadId),
+          eq(chatEmailNotifications.customerIdentifier, customerIdentifier)
+        ));
+    } else {
+      await db.insert(chatEmailNotifications).values({
+        leadId,
+        customerIdentifier,
+        lastNotifiedAt: new Date()
+      });
+    }
+  }
+
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    const [result] = await db.insert(auditLogs).values(log).returning();
+    return result;
+  }
+
+  async getAuditLogsByEntity(entityType: string, entityId: string): Promise<AuditLog[]> {
+    return await db.select().from(auditLogs)
+      .where(and(eq(auditLogs.entityType, entityType), eq(auditLogs.entityId, entityId)))
+      .orderBy(desc(auditLogs.createdAt));
+  }
+
+  async getAuditLogs(limit: number = 100): Promise<AuditLog[]> {
+    return await db.select().from(auditLogs)
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(limit);
+  }
+
+  async getWorkOrder(id: string): Promise<WorkOrder | undefined> {
+    const [order] = await db.select().from(workOrders).where(eq(workOrders.id, id));
+    return order;
+  }
+
+  async getWorkOrdersByJob(jobId: string): Promise<WorkOrder[]> {
+    return db.select().from(workOrders)
+      .where(eq(workOrders.jobId, jobId))
+      .orderBy(desc(workOrders.createdAt));
+  }
+
+  async getWorkOrdersByTechnician(technicianId: string): Promise<WorkOrder[]> {
+    return db.select().from(workOrders)
+      .where(eq(workOrders.technicianId, technicianId))
+      .orderBy(desc(workOrders.createdAt));
+  }
+
+  async getAllWorkOrders(): Promise<WorkOrder[]> {
+    return db.select().from(workOrders)
+      .orderBy(desc(workOrders.createdAt));
+  }
+
+  async createWorkOrder(order: InsertWorkOrder): Promise<WorkOrder> {
+    const [created] = await db.insert(workOrders).values(order).returning();
+    return created;
+  }
+
+  async updateWorkOrder(id: string, updates: Partial<WorkOrder>): Promise<WorkOrder | undefined> {
+    const [updated] = await db.update(workOrders)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(workOrders.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getJobMedia(jobId: string): Promise<JobMedia[]> {
+    return db.select().from(jobMedia).where(eq(jobMedia.jobId, jobId)).orderBy(desc(jobMedia.createdAt));
+  }
+
+  async createJobMedia(media: InsertJobMedia): Promise<JobMedia> {
+    const [created] = await db.insert(jobMedia).values(media).returning();
+    return created;
+  }
+
+  async deleteJobMedia(id: string): Promise<boolean> {
+    const result = await db.delete(jobMedia).where(eq(jobMedia.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getCallRecordings(filters?: { leadId?: string; jobId?: string }): Promise<CallRecording[]> {
+    const conditions = [];
+    if (filters?.leadId) conditions.push(eq(callRecordings.leadId, filters.leadId));
+    if (filters?.jobId) conditions.push(eq(callRecordings.jobId, filters.jobId));
+    if (conditions.length > 0) {
+      return db.select().from(callRecordings).where(and(...conditions)).orderBy(desc(callRecordings.createdAt));
+    }
+    return db.select().from(callRecordings).orderBy(desc(callRecordings.createdAt));
+  }
+
+  async getCallRecording(id: string): Promise<CallRecording | undefined> {
+    const [recording] = await db.select().from(callRecordings).where(eq(callRecordings.id, id));
+    return recording;
+  }
+
+  async createCallRecording(recording: InsertCallRecording): Promise<CallRecording> {
+    const [created] = await db.insert(callRecordings).values(recording).returning();
+    return created;
+  }
+
+  async updateCallRecording(id: string, updates: Partial<CallRecording>): Promise<CallRecording | undefined> {
+    const [updated] = await db.update(callRecordings).set(updates).where(eq(callRecordings.id, id)).returning();
+    return updated;
+  }
+
+  async deleteLead(id: string): Promise<boolean> {
+    try {
+      const existing = await this.getLead(id);
+      if (!existing) return false;
+
+      await db.execute(sql`DELETE FROM contact_attempts WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM customer_interactions WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM sales_commissions WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM calls WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM automation_events WHERE entity_type = 'lead' AND entity_id = ${id}`);
+      await db.execute(sql`UPDATE salesperson_locations SET lead_id = NULL WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM chat_thread_participants WHERE thread_id IN (SELECT id FROM chat_threads WHERE related_lead_id = ${id})`);
+      await db.execute(sql`DELETE FROM chat_messages WHERE thread_id IN (SELECT id FROM chat_threads WHERE related_lead_id = ${id})`);
+      await db.execute(sql`DELETE FROM chat_email_notifications WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM chat_magic_sessions WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM chat_threads WHERE related_lead_id = ${id}`);
+      await db.execute(sql`UPDATE quotes SET lead_id = NULL WHERE lead_id = ${id}`);
+      await db.execute(sql`UPDATE jobs SET lead_id = NULL WHERE lead_id = ${id}`);
+      await db.execute(sql`DELETE FROM leads WHERE id = ${id}`);
+
+      return true;
+    } catch (error) {
+      console.error("Error in deleteLead:", error);
+      throw error;
+    }
+  }
+
+  async deleteJob(id: string): Promise<boolean> {
+    try {
+      const existing = await this.getJob(id);
+      if (!existing) return false;
+
+      await db.execute(sql`DELETE FROM job_timeline_events WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM job_attachments WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM job_checklists WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM job_messages WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM job_lead_fees WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM job_revenue_events WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM sales_commissions WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM customer_interactions WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM automation_events WHERE entity_type = 'job' AND entity_id = ${id}`);
+      await db.execute(sql`DELETE FROM time_entries WHERE job_id = ${id}`);
+      await db.execute(sql`UPDATE quotes SET job_id = NULL WHERE job_id = ${id}`);
+      await db.execute(sql`UPDATE technicians SET current_job_id = NULL WHERE current_job_id = ${id}`);
+      await db.execute(sql`UPDATE technician_locations SET job_id = NULL WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM chat_thread_participants WHERE thread_id IN (SELECT id FROM chat_threads WHERE related_job_id = ${id})`);
+      await db.execute(sql`DELETE FROM chat_messages WHERE thread_id IN (SELECT id FROM chat_threads WHERE related_job_id = ${id})`);
+      await db.execute(sql`DELETE FROM chat_email_notifications WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM chat_magic_sessions WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM chat_threads WHERE related_job_id = ${id}`);
+      await db.execute(sql`DELETE FROM job_media WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM work_orders WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM permit_packet_documents WHERE packet_id IN (SELECT id FROM permit_packets WHERE job_id = ${id})`);
+      await db.execute(sql`DELETE FROM permit_submissions WHERE packet_id IN (SELECT id FROM permit_packets WHERE job_id = ${id})`);
+      await db.execute(sql`DELETE FROM permit_packets WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM content_items WHERE content_pack_id IN (SELECT id FROM content_packs WHERE job_id = ${id})`);
+      await db.execute(sql`DELETE FROM content_packs WHERE job_id = ${id}`);
+      await db.execute(sql`DELETE FROM jobs WHERE id = ${id}`);
+
+      return true;
+    } catch (error) {
+      console.error("Error in deleteJob:", error);
+      throw error;
+    }
+  }
+
+  async deleteCustomer(id: string): Promise<boolean> {
+    try {
+      const customerCheck = await db.execute(sql`SELECT id FROM customers WHERE id = ${id}`);
+      if (customerCheck.rows.length === 0) return false;
+
+      await db.execute(sql`DELETE FROM customer_addresses WHERE customer_id = ${id}`);
+      await db.execute(sql`DELETE FROM customer_payment_profiles WHERE customer_id = ${id}`);
+      await db.execute(sql`UPDATE leads SET customer_id = NULL WHERE customer_id = ${id}`);
+      await db.execute(sql`UPDATE jobs SET customer_id = NULL WHERE customer_id = ${id}`);
+      await db.execute(sql`UPDATE quotes SET customer_id = NULL WHERE customer_id = ${id}`);
+      await db.execute(sql`DELETE FROM chat_thread_participants WHERE thread_id IN (SELECT id FROM chat_threads WHERE customer_id = ${id})`);
+      await db.execute(sql`DELETE FROM chat_messages WHERE thread_id IN (SELECT id FROM chat_threads WHERE customer_id = ${id})`);
+      await db.execute(sql`DELETE FROM chat_threads WHERE customer_id = ${id}`);
+      await db.execute(sql`DELETE FROM customers WHERE id = ${id}`);
+
+      return true;
+    } catch (error) {
+      console.error("Error in deleteCustomer:", error);
+      throw error;
+    }
+  }
+
+  // ============================================================
+  // VELOCITY LEADS
+  // ============================================================
+
+  async getVelocityLeads(filters?: { status?: string }): Promise<VelocityLead[]> {
+    if (filters?.status) {
+      return db.select().from(velocityLeads)
+        .where(eq(velocityLeads.status, filters.status))
+        .orderBy(desc(velocityLeads.createdAt));
+    }
+    return db.select().from(velocityLeads).orderBy(desc(velocityLeads.createdAt));
+  }
+
+  async getVelocityLead(id: string): Promise<VelocityLead | undefined> {
+    const [lead] = await db.select().from(velocityLeads).where(eq(velocityLeads.id, id));
+    return lead;
+  }
+
+  async createVelocityLead(lead: InsertVelocityLead): Promise<VelocityLead> {
+    const [created] = await db.insert(velocityLeads).values(lead).returning();
+    return created;
+  }
+
+  async updateVelocityLead(id: string, updates: Partial<VelocityLead>): Promise<VelocityLead | undefined> {
+    const [updated] = await db.update(velocityLeads).set(updates).where(eq(velocityLeads.id, id)).returning();
+    return updated;
+  }
+
+  async findDuplicateVelocityLead(phone: string, email?: string): Promise<VelocityLead | undefined> {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const all = await db.select().from(velocityLeads).where(gte(velocityLeads.createdAt, since));
+    for (const lead of all) {
+      const info = lead.customerInfo as any;
+      const infoPhone = (info?.phone || "").replace(/\D/g, "");
+      const cleanPhone = (phone || "").replace(/\D/g, "");
+      if (infoPhone && cleanPhone && infoPhone === cleanPhone) return lead;
+      if (email && info?.email && info.email.toLowerCase() === email.toLowerCase()) return lead;
+    }
+    return undefined;
+  }
+
+  async createVelocityLeadAuditLog(entry: InsertVelocityLeadAuditLog): Promise<VelocityLeadAuditLog> {
+    const [created] = await db.insert(velocityLeadAuditLog).values(entry).returning();
+    return created;
+  }
+
+  async getVelocityLeadAuditLog(leadId: string): Promise<VelocityLeadAuditLog[]> {
+    return db.select().from(velocityLeadAuditLog)
+      .where(eq(velocityLeadAuditLog.leadId, leadId))
+      .orderBy(desc(velocityLeadAuditLog.createdAt));
   }
 }
 
