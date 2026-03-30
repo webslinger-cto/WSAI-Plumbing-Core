@@ -1607,20 +1607,6 @@ export const insertServiceEstimateSchema = createInsertSchema(serviceEstimates).
 export type InsertServiceEstimate = z.infer<typeof insertServiceEstimateSchema>;
 export type ServiceEstimate = typeof serviceEstimates.$inferSelect;
 
-// ============================================
-// SEASONAL FOLLOW-UP (Feature: re-engagement after job completion)
-// ============================================
-
-export const followUps = pgTable("follow_ups", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  jobId: varchar("job_id").notNull().references(() => jobs.id),
-  customerId: varchar("customer_id").references(() => customers.id),
-});
-
-export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true, updatedAt: true });
-export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
-export type Customer = typeof customers.$inferSelect;
-
 // Customer addresses table
 export const customerAddresses = pgTable("customer_addresses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1658,29 +1644,6 @@ export const customerPaymentProfiles = pgTable("customer_payment_profiles", {
 export const insertCustomerPaymentProfileSchema = createInsertSchema(customerPaymentProfiles).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertCustomerPaymentProfile = z.infer<typeof insertCustomerPaymentProfileSchema>;
 export type CustomerPaymentProfile = typeof customerPaymentProfiles.$inferSelect;
-
-// Audit Logs - tracks all user edits with field-level diffs
-export const auditActions = ["create", "update", "delete", "status_change"] as const;
-export type AuditAction = typeof auditActions[number];
-
-export const auditLogs = pgTable("audit_logs", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  entityType: text("entity_type").notNull(), // job, quote, customer, lead, technician
-  entityId: varchar("entity_id").notNull(),
-  action: text("action").notNull(), // create, update, delete, status_change
-  userId: varchar("user_id"),
-  userName: text("user_name"),
-  userRole: text("user_role"),
-  changedFields: jsonb("changed_fields").notNull().default({}), // { fieldName: { old: x, new: y } }
-  summary: text("summary"), // human-readable summary
-  ipAddress: text("ip_address"),
-  userAgent: text("user_agent"),
-  createdAt: timestamp("created_at").notNull().default(sql`now()`),
-});
-
-export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
-export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
-export type AuditLog = typeof auditLogs.$inferSelect;
 
 // Work Orders - digital version of the on-site service form
 export const workOrderStatuses = ["draft", "pending_signature", "signed", "completed", "voided"] as const;
