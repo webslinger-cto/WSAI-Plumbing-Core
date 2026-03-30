@@ -9397,7 +9397,7 @@ ${emailContent}
       }
 
       // Reject the call
-      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="no-answer"/></Response>`;
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="busy"/></Response>`;
       res.type("text/xml").send(twiml);
       return;
     }
