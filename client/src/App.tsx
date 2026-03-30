@@ -59,7 +59,7 @@ import InvoicesPage from "@/pages/InvoicesPage";
 import PublicInvoicePage from "@/pages/PublicInvoicePage";
 import SchedulePage from "@/pages/SchedulePage";
 import CustomerPortalPage from "@/pages/CustomerPortalPage";
-import CustomersPage from "@/pages/CustomersPage";
+import CustomersPage from "@/features/customers/CustomersPage";
 import CustomerProfile from "@/features/customers/CustomerProfile";
 import PermitCenterPage from "@/features/permits/PermitCenterPage";
 import DocumentsPage from "@/pages/DocumentsPage";

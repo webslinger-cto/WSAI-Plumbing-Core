@@ -1377,28 +1377,6 @@ export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
 
-// ============================================
-// CUSTOMERS (normalized contact + history)
-// ============================================
-
-export const customers = pgTable("customers", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  fullName: text("full_name").notNull(),
-  phone: text("phone").notNull(),
-  email: text("email"),
-  address: text("address"),
-  city: text("city"),
-  zipCode: text("zip_code"),
-  // Aggregated counts — updated asynchronously for read performance
-  totalJobs: integer("total_jobs").notNull().default(0),
-  totalRevenue: decimal("total_revenue", { precision: 10, scale: 2 }).notNull().default("0"),
-  // Self-service portal access token (UUID, sent to customer via email/SMS)
-  portalToken: text("portal_token").unique(),
-  notes: text("notes"),
-  tags: text("tags").array(),
-  source: text("source"), // first-touch source (eLocal, Referral, etc.)
-});
-
 export const insertPermitJurisdictionSchema = createInsertSchema(permitJurisdictions).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertPermitJurisdiction = z.infer<typeof insertPermitJurisdictionSchema>;
 export type PermitJurisdiction = typeof permitJurisdictions.$inferSelect;

@@ -1185,100 +1185,7 @@ function CopilotLicenseCard() {
   );
 }
 
-function AICopilotLicenseCard() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5" />
-          AI Copilot License
-        </CardTitle>
-        <CardDescription>
-          Manage the WebSlingerAI software license for the AI Copilot assistant
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium">Status:</span>
-          {isLoading ? (
-            <Badge variant="secondary">Checking...</Badge>
-          ) : licenseStatus?.active ? (
-            <Badge variant="default" className="gap-1" data-testid="badge-license-active">
-              <ShieldCheck className="w-3 h-3" />
-              Active{licenseStatus.overrideEnabled ? " (Override)" : ""}
-            </Badge>
-          ) : (
-            <Badge variant="secondary" className="gap-1" data-testid="badge-license-inactive">
-              <ShieldX className="w-3 h-3" />
-              Not Activated
-            </Badge>
-          )}
-        </div>
-
-        {!licenseStatus?.active && (
-          <div className="flex gap-2">
-            <Input
-              placeholder="Enter license key (WSA-...)"
-              value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)}
-              disabled={activateMutation.isPending}
-              data-testid="input-settings-license-key"
-            />
-            <Button
-              onClick={() => activateMutation.mutate(keyInput)}
-              disabled={!keyInput.trim() || activateMutation.isPending}
-              data-testid="button-settings-activate-license"
-            >
-              Activate
-            </Button>
-          </div>
-        )}
-
-        {licenseStatus?.active && !licenseStatus?.overrideEnabled && (
-          <Button
-            variant="outline"
-            onClick={() => deactivateMutation.mutate()}
-            disabled={deactivateMutation.isPending}
-            data-testid="button-settings-deactivate-license"
-          >
-            Deactivate License
-          </Button>
-        )}
-
-        <Separator />
-
-        <div className="space-y-3">
-          <div>
-            <Label className="text-sm font-medium">Admin Override</Label>
-            <p className="text-sm text-muted-foreground">
-              {licenseStatus?.overrideEnabled
-                ? "Override is currently enabled. Enter password to disable it."
-                : "Bypass the license requirement with an admin password."}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Input
-              type="password"
-              placeholder="Enter override password"
-              value={overridePassword}
-              onChange={(e) => setOverridePassword(e.target.value)}
-              disabled={overrideMutation.isPending}
-              data-testid="input-override-password"
-            />
-            <Button
-              variant={licenseStatus?.overrideEnabled ? "outline" : "default"}
-              onClick={() => overrideMutation.mutate(!licenseStatus?.overrideEnabled)}
-              disabled={!overridePassword.trim() || overrideMutation.isPending}
-              data-testid="button-toggle-override"
-            >
-              {licenseStatus?.overrideEnabled ? "Disable Override" : "Enable Override"}
-            </Button>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+// (Duplicate AI Copilot License content removed — already in CopilotLicenseCard above)
 
 // ---------------------------------------------------------------------------
 // Stripe Connect Card (self-contained component)
@@ -1516,54 +1423,7 @@ function PermitCenterSettingsCard() {
   );
 }
 
-function PermitCenterCard() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <FileText className="w-5 h-5" />
-          Permit Center
-        </CardTitle>
-        <CardDescription>
-          Automatically detect required permits and generate pre-filled application packets
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="flex items-center justify-between gap-4 p-4 rounded-lg border bg-muted/30">
-          <div>
-            <Label htmlFor="permitCenterEnabled" className="text-base font-medium">Enable Permit Center</Label>
-            <p className="text-sm text-muted-foreground">
-              When enabled, dispatchers and technicians can detect permits for jobs and generate application packets
-            </p>
-          </div>
-          <Switch
-            id="permitCenterEnabled"
-            checked={isEnabled}
-            onCheckedChange={handleToggle}
-            disabled={isLoading || updateSettingsMutation.isPending}
-            data-testid="switch-permit-center-enabled"
-          />
-        </div>
-        {!isEnabled && (
-          <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-            <p className="text-sm text-yellow-400">
-              Permit Center is currently <strong>disabled</strong>. Enable it to access permit detection and packet generation for jobs.
-            </p>
-          </div>
-        )}
-        <div className="p-4 bg-muted/50 rounded-lg space-y-2">
-          <h4 className="font-medium">Supported Permit Types</h4>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="outline">Plumbing</Badge>
-            <Badge variant="outline">Sewer Repair</Badge>
-            <Badge variant="outline">Excavation</Badge>
-            <Badge variant="outline">Right-of-Way</Badge>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+// (Duplicate Permit Center content removed — already in PermitCenterSettingsCard)
 
 export default function SettingsPage() {
   const { toast } = useToast();
