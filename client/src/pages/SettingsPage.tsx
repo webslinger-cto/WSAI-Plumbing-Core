@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { format } from "date-fns";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
@@ -48,6 +49,12 @@ import {
   BookOpen,
   FileUp,
   FileDown,
+  CreditCard,
+  CheckCircle2,
+  AlertCircle,
+  ExternalLink,
+  Loader2,
+  Unplug,
   FileText,
 } from "lucide-react";
 
@@ -845,6 +852,172 @@ function LeadApiIntegrationCard() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Review Request Settings Card
+// ---------------------------------------------------------------------------
+function ReviewRequestSettingsCard() {
+  const { toast } = useToast();
+
+  interface ReviewSettings {
+    reviewRequestEnabled?: boolean;
+    reviewRequestDelayMinutes?: number;
+    googleReviewUrl?: string | null;
+    yelpReviewUrl?: string | null;
+  }
+
+  const { data: settings, isLoading } = useQuery<ReviewSettings>({
+    queryKey: ["/api/settings"],
+  });
+
+  const [form, setForm] = useState<ReviewSettings>({});
+
+  // Sync with fetched settings
+  if (
+    !isLoading &&
+    settings &&
+    form.googleReviewUrl === undefined &&
+    form.yelpReviewUrl === undefined
+  ) {
+    setForm({
+      reviewRequestEnabled: settings.reviewRequestEnabled !== false,
+      reviewRequestDelayMinutes: settings.reviewRequestDelayMinutes ?? 120,
+      googleReviewUrl: settings.googleReviewUrl ?? "",
+      yelpReviewUrl: settings.yelpReviewUrl ?? "",
+    });
+  }
+
+  const mutation = useMutation({
+    mutationFn: async (data: ReviewSettings) => {
+      const res = await apiRequest("PATCH", "/api/settings", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: "Review settings saved" });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Save failed", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Bell className="w-5 h-5" />
+          Review Request Automation
+        </CardTitle>
+        <CardDescription>
+          Automatically send a review request SMS and/or email 2 hours after a job is marked
+          complete.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <Label>Enable Review Requests</Label>
+            <p className="text-sm text-muted-foreground">
+              Send automated review requests after job completion
+            </p>
+          </div>
+          <Switch
+            checked={form.reviewRequestEnabled !== false}
+            onCheckedChange={(v) => setForm((p) => ({ ...p, reviewRequestEnabled: v }))}
+          />
+        </div>
+
+        <Separator />
+
+        <div className="space-y-2">
+          <Label>Delay After Job Completion (minutes)</Label>
+          <Input
+            type="number"
+            min={0}
+            step={30}
+            value={form.reviewRequestDelayMinutes ?? 120}
+            onChange={(e) =>
+              setForm((p) => ({
+                ...p,
+                reviewRequestDelayMinutes: Math.max(0, Number(e.target.value)),
+              }))
+            }
+            className="max-w-[160px]"
+          />
+          <p className="text-xs text-muted-foreground">Default: 120 min (2 hours)</p>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Google Review URL</Label>
+          <Input
+            type="url"
+            placeholder="https://g.page/r/XXXX/review"
+            value={form.googleReviewUrl ?? ""}
+            onChange={(e) => setForm((p) => ({ ...p, googleReviewUrl: e.target.value }))}
+          />
+          <p className="text-xs text-muted-foreground">
+            Find this in Google Business Profile → Get more reviews
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Yelp Review URL</Label>
+          <Input
+            type="url"
+            placeholder="https://www.yelp.com/writeareview/biz/XXXX"
+            value={form.yelpReviewUrl ?? ""}
+            onChange={(e) => setForm((p) => ({ ...p, yelpReviewUrl: e.target.value }))}
+          />
+        </div>
+
+        <Button
+          onClick={() => mutation.mutate(form)}
+          disabled={mutation.isPending}
+        >
+          {mutation.isPending ? "Saving…" : "Save Review Settings"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Audit Log View (admin-only tab in Settings)
+// ---------------------------------------------------------------------------
+interface AuditLogEntry {
+  id: string;
+  userId: string | null;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  meta: Record<string, unknown>;
+  createdAt: string;
+}
+
+function AuditLogView() {
+  const [entityTypeFilter, setEntityTypeFilter] = useState("all");
+
+  const { data: logs = [], isLoading } = useQuery<AuditLogEntry[]>({
+    queryKey: ["/api/audit-logs", entityTypeFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams({ limit: "200" });
+      if (entityTypeFilter !== "all") params.set("entityType", entityTypeFilter);
+      const res = await fetch(`/api/audit-logs?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load audit logs");
+      return res.json();
+    },
+  });
+
+  const ACTION_BADGE_VARIANT: Record<string, string> = {
+    "invoice.created":          "default",
+    "invoice.updated":          "secondary",
+    "invoice.voided":           "destructive",
+    "invoice.payment_received": "default",
+    "job.completed":            "default",
+    "settings.changed":         "secondary",
+    "user.created":             "default",
+    "user.deleted":             "destructive",
+  };
+}
+
 function CopilotLicenseCard() {
   const { toast } = useToast();
   const [keyInput, setKeyInput] = useState("");
@@ -934,96 +1107,132 @@ function CopilotLicenseCard() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5" />
-          AI Copilot License
+          <BookOpen className="w-5 h-5" />
+          Audit Log
         </CardTitle>
         <CardDescription>
-          Manage the WebSlingerAI software license for the AI Copilot assistant
+          Read-only record of important actions in the system (admin only).
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-4">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-medium">Status:</span>
-          {isLoading ? (
-            <Badge variant="secondary">Checking...</Badge>
-          ) : licenseStatus?.active ? (
-            <Badge variant="default" className="gap-1" data-testid="badge-license-active">
-              <ShieldCheck className="w-3 h-3" />
-              Active{licenseStatus.overrideEnabled ? " (Override)" : ""}
-            </Badge>
-          ) : (
-            <Badge variant="secondary" className="gap-1" data-testid="badge-license-inactive">
-              <ShieldX className="w-3 h-3" />
-              Not Activated
-            </Badge>
-          )}
+          <Select value={entityTypeFilter} onValueChange={setEntityTypeFilter}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="All entity types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="invoice">Invoice</SelectItem>
+              <SelectItem value="job">Job</SelectItem>
+              <SelectItem value="user">User</SelectItem>
+              <SelectItem value="settings">Settings</SelectItem>
+            </SelectContent>
+          </Select>
+          <span className="text-sm text-muted-foreground">
+            {logs.length} entr{logs.length !== 1 ? "ies" : "y"}
+          </span>
         </div>
 
-        {!licenseStatus?.active && (
-          <div className="flex gap-2">
-            <Input
-              placeholder="Enter license key (WSA-...)"
-              value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)}
-              disabled={activateMutation.isPending}
-              data-testid="input-settings-license-key"
-            />
-            <Button
-              onClick={() => activateMutation.mutate(keyInput)}
-              disabled={!keyInput.trim() || activateMutation.isPending}
-              data-testid="button-settings-activate-license"
-            >
-              Activate
-            </Button>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground text-center py-6">Loading…</p>
+        ) : logs.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6">
+            No audit log entries found.
+          </p>
+        ) : (
+          <div className="space-y-2 max-h-[500px] overflow-y-auto">
+            {logs.map((log) => (
+              <div
+                key={log.id}
+                className="flex items-start gap-3 p-3 rounded-md border bg-muted/30 text-sm"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge
+                      variant={
+                        (ACTION_BADGE_VARIANT[log.action] as any) ?? "secondary"
+                      }
+                      className="text-[10px] h-4 px-1 font-mono"
+                    >
+                      {log.action}
+                    </Badge>
+                    {log.entityId && (
+                      <span className="text-xs text-muted-foreground font-mono truncate max-w-[200px]">
+                        {log.entityType}/{log.entityId.slice(0, 8)}…
+                      </span>
+                    )}
+                    {log.userId && (
+                      <span className="text-xs text-muted-foreground">
+                        by {log.userId.slice(0, 8)}…
+                      </span>
+                    )}
+                  </div>
+                  {Object.keys(log.meta).length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1 truncate">
+                      {JSON.stringify(log.meta)}
+                    </p>
+                  )}
+                </div>
+                <span className="text-xs text-muted-foreground shrink-0">
+                  {format(new Date(log.createdAt), "MMM d, HH:mm")}
+                </span>
+              </div>
+            ))}
           </div>
         )}
-
-        {licenseStatus?.active && !licenseStatus?.overrideEnabled && (
-          <Button
-            variant="outline"
-            onClick={() => deactivateMutation.mutate()}
-            disabled={deactivateMutation.isPending}
-            data-testid="button-settings-deactivate-license"
-          >
-            Deactivate License
-          </Button>
-        )}
-
-        <Separator />
-
-        <div className="space-y-3">
-          <div>
-            <Label className="text-sm font-medium">Admin Override</Label>
-            <p className="text-sm text-muted-foreground">
-              {licenseStatus?.overrideEnabled
-                ? "Override is currently enabled. Enter password to disable it."
-                : "Bypass the license requirement with an admin password."}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Input
-              type="password"
-              placeholder="Enter override password"
-              value={overridePassword}
-              onChange={(e) => setOverridePassword(e.target.value)}
-              disabled={overrideMutation.isPending}
-              data-testid="input-override-password"
-            />
-            <Button
-              variant={licenseStatus?.overrideEnabled ? "outline" : "default"}
-              onClick={() => overrideMutation.mutate(!licenseStatus?.overrideEnabled)}
-              disabled={!overridePassword.trim() || overrideMutation.isPending}
-              data-testid="button-toggle-override"
-            >
-              {licenseStatus?.overrideEnabled ? "Disable Override" : "Enable Override"}
-            </Button>
-          </div>
-        </div>
       </CardContent>
     </Card>
   );
 }
 
+// (Duplicate AI Copilot License content removed — already in CopilotLicenseCard above)
+
+// ---------------------------------------------------------------------------
+// Stripe Connect Card (self-contained component)
+// ---------------------------------------------------------------------------
+interface StripeConnectStatus {
+  connected: boolean;
+  onboardingComplete?: boolean;
+  accountId?: string;
+  accountEmail?: string | null;
+  businessName?: string | null;
+  stripeKeyPresent: boolean;
+  stripeClientIdPresent: boolean;
+}
+
+function StripeConnectCard() {
+  const { toast } = useToast();
+
+  const { data: status, isLoading, refetch } = useQuery<StripeConnectStatus>({
+    queryKey: ["/api/stripe/connect/status"],
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", "/api/stripe/connect/disconnect"),
+    onSuccess: () => {
+      toast({ title: "Stripe account disconnected" });
+      refetch();
+    },
+    onError: (e: any) => {
+      toast({ title: "Disconnect failed", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const handleConnect = () => {
+    window.location.href = "/api/stripe/connect/authorize";
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+}
+  
 function PermitCenterSettingsCard() {
   const { toast } = useToast();
   
@@ -1062,49 +1271,159 @@ function PermitCenterSettingsCard() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <FileText className="w-5 h-5" />
-          Permit Center
+          <CreditCard className="w-5 h-5" />
+          Stripe Payments
         </CardTitle>
         <CardDescription>
-          Automatically detect required permits and generate pre-filled application packets
+          Connect a Stripe account to collect invoice payments from customers.
+          Payments go directly to your business bank account.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="flex items-center justify-between gap-4 p-4 rounded-lg border bg-muted/30">
-          <div>
-            <Label htmlFor="permitCenterEnabled" className="text-base font-medium">Enable Permit Center</Label>
-            <p className="text-sm text-muted-foreground">
-              When enabled, dispatchers and technicians can detect permits for jobs and generate application packets
-            </p>
-          </div>
-          <Switch
-            id="permitCenterEnabled"
-            checked={isEnabled}
-            onCheckedChange={handleToggle}
-            disabled={isLoading || updateSettingsMutation.isPending}
-            data-testid="switch-permit-center-enabled"
-          />
+
+        {/* Environment variable checklist */}
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+            Configuration Status
+          </h4>
+          {[
+            {
+              key: "STRIPE_SECRET_KEY",
+              present: status?.stripeKeyPresent,
+              description: "Secret key from Stripe Dashboard → Developers → API Keys",
+            },
+            {
+              key: "STRIPE_WEBHOOK_SECRET",
+              present: !!(typeof window !== "undefined" && status?.stripeKeyPresent),
+              description: "Signing secret from your Stripe webhook endpoint",
+              optional: true,
+            },
+            {
+              key: "STRIPE_CLIENT_ID",
+              present: status?.stripeClientIdPresent,
+              description: "Platform client ID for Connect OAuth (Stripe Dashboard → Connect settings)",
+            },
+            {
+              key: "APP_BASE_URL",
+              present: true,
+              description: "Your app's public URL (e.g. https://yourdomain.com) — used for redirect URIs",
+              optional: true,
+            },
+          ].map((item) => (
+            <div key={item.key} className="flex items-start gap-3 p-3 rounded-lg bg-muted/40">
+              {item.present ? (
+                <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
+              ) : (
+                <AlertCircle className={`w-4 h-4 mt-0.5 flex-shrink-0 ${item.optional ? "text-yellow-400" : "text-red-400"}`} />
+              )}
+              <div className="min-w-0">
+                <code className="text-xs font-mono font-semibold">{item.key}</code>
+                {item.optional && (
+                  <Badge variant="outline" className="ml-2 text-xs">optional</Badge>
+                )}
+                <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>
+              </div>
+              <span className={`ml-auto text-xs font-medium flex-shrink-0 ${item.present ? "text-green-400" : item.optional ? "text-yellow-400" : "text-red-400"}`}>
+                {item.present ? "Set" : "Missing"}
+              </span>
+            </div>
+          ))}
         </div>
-        {!isEnabled && (
-          <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-            <p className="text-sm text-yellow-400">
-              Permit Center is currently <strong>disabled</strong>. Enable it to access permit detection and packet generation for jobs.
+
+        <Separator />
+
+        {/* Connect / disconnect */}
+        {status?.connected ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 p-4 rounded-lg bg-green-500/10 border border-green-500/20">
+              <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-green-400">Stripe account connected</p>
+                {status.businessName && (
+                  <p className="text-sm text-muted-foreground">{status.businessName}</p>
+                )}
+                {status.accountEmail && (
+                  <p className="text-xs text-muted-foreground">{status.accountEmail}</p>
+                )}
+                <p className="text-xs text-muted-foreground font-mono mt-0.5">{status.accountId}</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  window.open("https://dashboard.stripe.com/", "_blank")
+                }
+              >
+                <ExternalLink className="w-3 h-3 mr-2" />
+                Stripe Dashboard
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() => {
+                  if (confirm("Disconnect your Stripe account? This will disable payment collection.")) {
+                    disconnectMutation.mutate();
+                  }
+                }}
+                disabled={disconnectMutation.isPending}
+              >
+                {disconnectMutation.isPending ? (
+                  <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                ) : (
+                  <Unplug className="w-3 h-3 mr-2" />
+                )}
+                Disconnect
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Connecting your Stripe account allows customers to pay invoices online with a
+              credit card, debit card, or Apple/Google Pay. Funds are deposited directly
+              into your bank account (typically 2 business days).
             </p>
+            <Button
+              onClick={handleConnect}
+              disabled={!status?.stripeKeyPresent || !status?.stripeClientIdPresent}
+            >
+              <CreditCard className="w-4 h-4 mr-2" />
+              Connect Stripe Account
+            </Button>
+            {(!status?.stripeKeyPresent || !status?.stripeClientIdPresent) && (
+              <p className="text-xs text-yellow-400">
+                Set STRIPE_SECRET_KEY and STRIPE_CLIENT_ID environment variables first.
+              </p>
+            )}
           </div>
         )}
-        <div className="p-4 bg-muted/50 rounded-lg space-y-2">
-          <h4 className="font-medium">Supported Permit Types</h4>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="outline">Plumbing</Badge>
-            <Badge variant="outline">Sewer Repair</Badge>
-            <Badge variant="outline">Excavation</Badge>
-            <Badge variant="outline">Right-of-Way</Badge>
-          </div>
+
+        <Separator />
+
+        {/* Webhook info */}
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold text-muted-foreground">Stripe Webhook Endpoint</h4>
+          <p className="text-xs text-muted-foreground">
+            Register this URL in Stripe Dashboard → Developers → Webhooks to receive payment events:
+          </p>
+          <code className="block p-2 bg-muted rounded text-sm break-all">
+            {window.location.origin}/api/webhooks/stripe
+          </code>
+          <p className="text-xs text-muted-foreground">
+            Required events: <code>checkout.session.completed</code>,{" "}
+            <code>payment_intent.succeeded</code>,{" "}
+            <code>payment_intent.payment_failed</code>
+          </p>
         </div>
       </CardContent>
     </Card>
   );
 }
+
+// (Duplicate Permit Center content removed — already in PermitCenterSettingsCard)
 
 export default function SettingsPage() {
   const { toast } = useToast();
@@ -1348,6 +1667,10 @@ export default function SettingsPage() {
             <Bell className="w-4 h-4 mr-2" />
             Notifications
           </TabsTrigger>
+          <TabsTrigger value="payments" data-testid="tab-payments">
+            <CreditCard className="w-4 h-4 mr-2" />
+            Payments
+          </TabsTrigger>
           <TabsTrigger value="integrations" data-testid="tab-integrations">
             <FileEdit className="w-4 h-4 mr-2" />
             Integrations
@@ -1367,6 +1690,10 @@ export default function SettingsPage() {
           <TabsTrigger value="general" data-testid="tab-general">
             <Settings className="w-4 h-4 mr-2" />
             General
+          </TabsTrigger>
+          <TabsTrigger value="audit" data-testid="tab-audit">
+            <BookOpen className="w-4 h-4 mr-2" />
+            Audit Log
           </TabsTrigger>
         </TabsList>
 
@@ -1790,6 +2117,10 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="payments" className="space-y-6">
+          <StripeConnectCard />
+        </TabsContent>
+
         <TabsContent value="integrations" className="space-y-6">
           <CopilotLicenseCard />
           <LeadApiIntegrationCard />
@@ -1945,6 +2276,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
+          <ReviewRequestSettingsCard />
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -2332,6 +2664,10 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="audit" className="space-y-6">
+          <AuditLogView />
         </TabsContent>
       </Tabs>
 

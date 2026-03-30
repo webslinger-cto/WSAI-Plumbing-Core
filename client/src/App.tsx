@@ -55,6 +55,10 @@ import PublicChatPage from "@/pages/PublicChatPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 import BusinessIntakePage from "@/pages/business-intake";
+import InvoicesPage from "@/pages/InvoicesPage";
+import PublicInvoicePage from "@/pages/PublicInvoicePage";
+import SchedulePage from "@/pages/SchedulePage";
+import CustomerPortalPage from "@/pages/CustomerPortalPage";
 import CustomersPage from "@/features/customers/CustomersPage";
 import CustomerProfile from "@/features/customers/CustomerProfile";
 import PermitCenterPage from "@/features/permits/PermitCenterPage";
@@ -80,6 +84,8 @@ function AdminRouter({ userId, fullName }: { userId: string; fullName: string })
       <Route path="/leads" component={LeadsPage} />
       <Route path="/jobs" component={JobsPage} />
       <Route path="/quotes" component={QuotesPage} />
+      <Route path="/invoices" component={InvoicesPage} />
+      <Route path="/schedule" component={SchedulePage} />
       <Route path="/customers" component={CustomersPage} />
       <Route path="/customers/:id" component={CustomerProfile} />
       <Route path="/permits" component={PermitCenterPage} />
@@ -109,6 +115,7 @@ function DispatcherRouter({ userId, fullName }: { userId: string; fullName: stri
   return (
     <Switch>
       <Route path="/">{() => <DispatcherDashboard userId={userId} />}</Route>
+      <Route path="/schedule" component={SchedulePage} />
       <Route path="/jobs" component={JobsPage} />
       <Route path="/quotes" component={QuotesPage} />
       <Route path="/customers" component={CustomersPage} />
@@ -550,7 +557,21 @@ function App() {
       </QueryClientProvider>
     );
   }
-
+  
+  // Public invoice page (customer payment — no auth required)
+  if (location.startsWith('/invoice/')) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Switch>
+            <Route path="/invoice/:token" component={PublicInvoicePage} />
+          </Switch>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+  
   // Public lead chat page (magic link auth)
   if (location.startsWith('/lead-chat/')) {
     return (
@@ -585,6 +606,20 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <BusinessIntakePage />
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  // Customer self-service portal (token auth)
+  if (location.startsWith('/customer/') && !location.startsWith('/customer/chat')) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Switch>
+            <Route path="/customer/:token" component={CustomerPortalPage} />
+          </Switch>
           <Toaster />
         </TooltipProvider>
       </QueryClientProvider>

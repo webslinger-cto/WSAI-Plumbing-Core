@@ -1047,6 +1047,16 @@ export const companySettings = pgTable("company_settings", {
   seoWebhookSecret: text("seo_webhook_secret"), // HMAC secret for webhook authentication
   // Lead API/Webhook integration settings
   leadApiEnabled: boolean("lead_api_enabled").notNull().default(true), // Enable/disable lead API and webhooks (Thumbtack, Angi, etc.)
+
+  // Stripe Connect settings
+  stripeConnectedAccountId: text("stripe_connected_account_id"), // Connected account ID (acct_xxx)
+  stripeConnectOnboardingComplete: boolean("stripe_connect_onboarding_complete").default(false),
+  stripeDefaultCurrency: text("stripe_default_currency").default("usd"),
+  // Review request automation
+  reviewRequestEnabled: boolean("review_request_enabled").default(true),
+  reviewRequestDelayMinutes: integer("review_request_delay_minutes").default(120), // 2 hours
+  googleReviewUrl: text("google_review_url"), // configurable Google Business review link
+  yelpReviewUrl: text("yelp_review_url"), // override for Yelp link
   // Permit Center settings
   permitCenterEnabled: boolean("permit_center_enabled").notNull().default(false), // Enable/disable Permit Center module
   copilotLicenseKey: text("copilot_license_key"),
@@ -1262,6 +1272,46 @@ export const chatEmailNotifications = pgTable("chat_email_notifications", {
 });
 
 // ============================================
+// INVOICES & PAYMENTS (Stripe Connect)
+// ============================================
+
+export const invoiceStatuses = ["draft", "sent", "paid", "void", "overdue"] as const;
+export type InvoiceStatus = typeof invoiceStatuses[number];
+
+export const invoices = pgTable("invoices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceNumber: text("invoice_number").notNull(), // INV-0001, INV-0002, …
+  jobId: varchar("job_id").references(() => jobs.id),
+  quoteId: varchar("quote_id").references(() => quotes.id),
+  // Customer snapshot (denormalized so invoice stays correct even if job changes)
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email"),
+  customerPhone: text("customer_phone"),
+  customerAddress: text("customer_address"),
+  // Financials
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull().default("0"),
+  taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).notNull().default("0"),
+  taxAmount: decimal("tax_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull().default("0"),
+  // Status & dates
+  status: text("status").notNull().default("draft"), // draft | sent | paid | void | overdue
+  dueDate: timestamp("due_date"),
+  sentAt: timestamp("sent_at"),
+  paidAt: timestamp("paid_at"),
+  paidAmount: decimal("paid_amount", { precision: 10, scale: 2 }),
+  // Stripe references
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+  stripeChargeId: text("stripe_charge_id"),
+  // Public token for customer-facing invoice page (no auth required)
+  publicToken: text("public_token").unique(),
+  // Metadata
+  notes: text("notes"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
 // PERMIT CENTER MODULE
 // ============================================
 
@@ -1287,6 +1337,45 @@ export const permitJurisdictions = pgTable("permit_jurisdictions", {
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
+
+export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
+export type Invoice = typeof invoices.$inferSelect;
+
+export const invoiceLineItems = pgTable("invoice_line_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceId: varchar("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
+  description: text("description").notNull(),
+  quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull().default("1"),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull().default("0"),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  sortOrder: integer("sort_order").default(0),
+});
+
+export const insertInvoiceLineItemSchema = createInsertSchema(invoiceLineItems).omit({ id: true });
+export type InsertInvoiceLineItem = z.infer<typeof insertInvoiceLineItemSchema>;
+export type InvoiceLineItem = typeof invoiceLineItems.$inferSelect;
+
+// ============================================
+// AUDIT LOG
+// ============================================
+
+export const auditLogs = pgTable("audit_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id"), // null for system-generated events
+  action: text("action").notNull(), // e.g. "invoice.created", "job.completed", "user.deleted"
+  entityType: text("entity_type").notNull(), // "invoice" | "job" | "user" | "settings" | ...
+  entityId: varchar("entity_id"), // PK of the affected entity
+  meta: jsonb("meta").notNull().default({}), // arbitrary JSON context
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+export type AuditLog = typeof auditLogs.$inferSelect;
 
 export const insertPermitJurisdictionSchema = createInsertSchema(permitJurisdictions).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertPermitJurisdiction = z.infer<typeof insertPermitJurisdictionSchema>;
@@ -1449,6 +1538,85 @@ export const customers = pgTable("customers", {
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
 
+export const insertCustomerSchema = createInsertSchema(customers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+export type Customer = typeof customers.$inferSelect;
+
+// ============================================
+// INVOICE REMINDERS (Feature: auto-chase unpaid invoices)
+// ============================================
+
+export const invoiceReminders = pgTable("invoice_reminders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceId: varchar("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
+  reminderNumber: integer("reminder_number").notNull(), // 1, 2, 3, 4
+  scheduledFor: timestamp("scheduled_for").notNull(),
+  sentAt: timestamp("sent_at"),
+  status: text("status").notNull().default("pending"), // pending | sent | skipped | cancelled
+  channel: text("channel").default("sms"), // sms | email | both
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertInvoiceReminderSchema = createInsertSchema(invoiceReminders).omit({ id: true, createdAt: true });
+export type InsertInvoiceReminder = z.infer<typeof insertInvoiceReminderSchema>;
+export type InvoiceReminder = typeof invoiceReminders.$inferSelect;
+
+// ============================================
+// INTAKE SUBMISSIONS (Feature: public auto-qualification form)
+// ============================================
+
+export const intakeSubmissions = pgTable("intake_submissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  phone: text("phone").notNull(),
+  address: text("address"),
+  serviceType: text("service_type").notNull(),
+  urgency: text("urgency").notNull().default("this_week"), // today | this_week | flexible
+  description: text("description"),
+  estimatedMin: decimal("estimated_min", { precision: 10, scale: 2 }),
+  estimatedMax: decimal("estimated_max", { precision: 10, scale: 2 }),
+  convertedToLeadId: varchar("converted_to_lead_id").references(() => leads.id),
+  source: text("source").default("mctb_intake"), // mctb_intake | website | direct
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertIntakeSubmissionSchema = createInsertSchema(intakeSubmissions).omit({ id: true, createdAt: true });
+export type InsertIntakeSubmission = z.infer<typeof insertIntakeSubmissionSchema>;
+export type IntakeSubmission = typeof intakeSubmissions.$inferSelect;
+
+// ============================================
+// SERVICE ESTIMATES (Feature: price ranges per service type for auto-quoting)
+// ============================================
+
+export const serviceEstimates = pgTable("service_estimates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  serviceType: text("service_type").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  minPrice: decimal("min_price", { precision: 10, scale: 2 }).notNull(),
+  maxPrice: decimal("max_price", { precision: 10, scale: 2 }).notNull(),
+  estimatedDuration: text("estimated_duration"), // "1-2 hours", "half day", etc.
+  active: boolean("active").notNull().default(true),
+  sortOrder: integer("sort_order").default(0),
+});
+
+export const insertServiceEstimateSchema = createInsertSchema(serviceEstimates).omit({ id: true });
+export type InsertServiceEstimate = z.infer<typeof insertServiceEstimateSchema>;
+export type ServiceEstimate = typeof serviceEstimates.$inferSelect;
+
+// ============================================
+// SEASONAL FOLLOW-UP (Feature: re-engagement after job completion)
+// ============================================
+
+export const followUps = pgTable("follow_ups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  customerId: varchar("customer_id").references(() => customers.id),
+});
+
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Customer = typeof customers.$inferSelect;
@@ -1528,6 +1696,7 @@ export const workOrders = pgTable("work_orders", {
   customerPhone: text("customer_phone"),
   customerEmail: text("customer_email"),
   address: text("address"),
+  serviceType: text("service_type").notNull(),
   city: text("city"),
   state: text("state").default("IL"),
   zip: text("zip"),
@@ -1561,6 +1730,100 @@ export const workOrders = pgTable("work_orders", {
 export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
 export type WorkOrder = typeof workOrders.$inferSelect;
+
+// ============================================
+// SEASONAL FOLLOW-UP
+// ============================================
+
+export const followUps = pgTable("follow_ups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull().references(() => jobs.id),
+  customerId: varchar("customer_id").references(() => customers.id),
+  customerName: text("customer_name").notNull(),
+  customerPhone: text("customer_phone"),
+  customerEmail: text("customer_email"),
+  address: text("address"),
+  serviceType: text("service_type").notNull(),
+  followUpDate: timestamp("follow_up_date").notNull(),
+  followUpMonths: integer("follow_up_months").notNull(),
+  message: text("message"),
+  status: text("status").notNull().default("scheduled"),
+  sentAt: timestamp("sent_at"),
+  convertedToLeadId: varchar("converted_to_lead_id").references(() => leads.id),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertFollowUpSchema = createInsertSchema(followUps).omit({ id: true, createdAt: true });
+export type InsertFollowUp = z.infer<typeof insertFollowUpSchema>;
+export type FollowUp = typeof followUps.$inferSelect;
+
+// ============================================
+// MCTB ACCOUNTS (multi-tenant: each contractor who subscribes)
+// ============================================
+
+export const mctbAccounts = pgTable("mctb_accounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  // Business info
+  businessName: text("business_name").notNull(),
+  ownerName: text("owner_name").notNull(),
+  businessPhone: text("business_phone").notNull(), // their existing number (customers call this)
+  businessEmail: text("business_email"),
+  businessZip: text("business_zip"),
+  phoneType: text("phone_type").notNull().default("cell"), // cell | google_voice | voip | landline
+  // Provisioned Twilio number
+  twilioNumberSid: text("twilio_number_sid"), // Twilio IncomingPhoneNumber SID
+  twilioNumber: text("twilio_number"), // E.164 format +1XXXXXXXXXX
+  twilioAreaCode: text("twilio_area_code"),
+  // MCTB configuration
+  autoTextTemplate: text("auto_text_template"), // custom message, null = use default
+  intakeFormEnabled: boolean("intake_form_enabled").notNull().default(true),
+  companySlug: text("company_slug").unique(), // for public intake URL: /intake/smith-plumbing
+  // Subscription
+  plan: text("plan").notNull().default("apprentice"), // apprentice | foreman | gc | developer | owner-builder
+  trialEndsAt: timestamp("trial_ends_at"),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  // Status
+  status: text("status").notNull().default("provisioning"), // provisioning | active | paused | cancelled
+  forwardingVerified: boolean("forwarding_verified").notNull().default(false),
+  // Metadata
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+  cancelledAt: timestamp("cancelled_at"),
+});
+
+export const insertMctbAccountSchema = createInsertSchema(mctbAccounts).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertMctbAccount = z.infer<typeof insertMctbAccountSchema>;
+export type MctbAccount = typeof mctbAccounts.$inferSelect;
+
+// ============================================
+// MCTB CALL LOG (every missed call handled by BossMan)
+// ============================================
+
+export const mctbCallLog = pgTable("mctb_call_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  accountId: varchar("account_id").notNull().references(() => mctbAccounts.id),
+  callerPhone: text("caller_phone").notNull(),
+  twilioCallSid: text("twilio_call_sid"),
+  // Auto-text response
+  autoTextSent: boolean("auto_text_sent").notNull().default(false),
+  autoTextSid: text("auto_text_sid"),
+  autoTextBody: text("auto_text_body"),
+  // Customer response
+  customerReplied: boolean("customer_replied").notNull().default(false),
+  customerReply: text("customer_reply"),
+  customerRepliedAt: timestamp("customer_replied_at"),
+  // Conversion
+  convertedToLead: boolean("converted_to_lead").notNull().default(false),
+  convertedToJob: boolean("converted_to_job").notNull().default(false),
+  estimatedValue: decimal("estimated_value", { precision: 10, scale: 2 }),
+  // Timestamps
+  calledAt: timestamp("called_at").notNull().default(sql`now()`),
+});
+
+export const insertMctbCallLogSchema = createInsertSchema(mctbCallLog).omit({ id: true, calledAt: true });
+export type InsertMctbCallLog = z.infer<typeof insertMctbCallLogSchema>;
+export type MctbCallLog = typeof mctbCallLog.$inferSelect;
 
 export const jobMedia = pgTable("job_media", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

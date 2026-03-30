@@ -1,7 +1,10 @@
 import type { Express } from "express";
 import express from "express";
 import { createServer, type Server } from "http";
+import { randomUUID } from "crypto";
 import { storage } from "./storage";
+import { requireRole } from "./middleware/requireRole";
+import { logAudit } from "./services/auditLog";
 import { db } from "./db";
 import { chatMagicSessions, payrollPeriods, payrollRecords, insertWorkOrderSchema } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
@@ -2118,6 +2121,82 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to update job" });
     }
   });
+  
+  // ─── Schedule reschedule with double-booking guard ─────────────────────────
+  app.patch("/api/schedule/reschedule/:jobId", requireRole("admin", "dispatcher"), async (req, res) => {
+    try {
+      const { jobId } = req.params;
+      const {
+        scheduledDate,
+        scheduledTimeStart,
+        scheduledTimeEnd,
+        assignedTechnicianId,
+      } = req.body;
+
+      const job = await storage.getJob(jobId);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+
+      // ── Double-booking guard ──────────────────────────────────────────────
+      if (assignedTechnicianId && scheduledDate && scheduledTimeStart) {
+        const allJobs = await storage.getJobs();
+        const targetDate = new Date(scheduledDate);
+
+        const strToMins = (t: string) => {
+          const [h, m] = t.split(":").map(Number);
+          return h * 60 + m;
+        };
+
+        const newStart = strToMins(scheduledTimeStart);
+        const newEnd = scheduledTimeEnd
+          ? strToMins(scheduledTimeEnd)
+          : newStart + 60;
+
+        const conflicting = allJobs.find((j) => {
+          if (j.id === jobId) return false;
+          if (j.assignedTechnicianId !== assignedTechnicianId) return false;
+          if (!j.scheduledDate || !j.scheduledTimeStart) return false;
+          if (["completed", "cancelled"].includes(j.status)) return false;
+          if (
+            new Date(j.scheduledDate).toDateString() !==
+            targetDate.toDateString()
+          )
+            return false;
+
+          const jStart = strToMins(j.scheduledTimeStart);
+          const jEnd = j.scheduledTimeEnd
+            ? strToMins(j.scheduledTimeEnd)
+            : jStart + (j.estimatedDuration ?? 60);
+
+          return !(newEnd <= jStart || newStart >= jEnd);
+        });
+
+        if (conflicting) {
+          return res.status(409).json({
+            error: "Double-booking conflict",
+            conflictingJobId: conflicting.id,
+            conflictingJob: {
+              customerName: conflicting.customerName,
+              scheduledTimeStart: conflicting.scheduledTimeStart,
+            },
+          });
+        }
+      }
+
+      const updates: Partial<typeof job> = {};
+      if (scheduledDate) updates.scheduledDate = new Date(scheduledDate);
+      if (scheduledTimeStart) updates.scheduledTimeStart = scheduledTimeStart;
+      if (scheduledTimeEnd !== undefined)
+        updates.scheduledTimeEnd = scheduledTimeEnd;
+      if (assignedTechnicianId !== undefined)
+        updates.assignedTechnicianId = assignedTechnicianId || null;
+
+      const updated = await storage.updateJob(jobId, updates);
+      res.json(updated);
+    } catch (err) {
+      console.error("Reschedule error:", err);
+      res.status(500).json({ error: "Failed to reschedule" });
+    }
+  });
 
   app.delete("/api/jobs/:id", async (req, res) => {
     try {
@@ -2496,6 +2575,11 @@ export async function registerRoutes(
           console.error(`Chat update failed for job ${id}:`, err)
         );
       }
+
+      logAudit(req, "job.completed", "job", id, {
+        technicianId,
+        totalRevenue,
+      }).catch(() => {});
       
       res.json(job);
     } catch (error) {
@@ -6472,9 +6556,12 @@ ${emailContent}
     }
   });
 
-  app.patch("/api/settings", async (req, res) => {
+  app.patch("/api/settings", requireRole("admin"), async (req, res) => {
     try {
       const settings = await storage.updateCompanySettings(req.body);
+      logAudit(req, "settings.changed", "settings", settings?.id ?? null, {
+        fields: Object.keys(req.body),
+      }).catch(() => {});
       res.json(settings);
     } catch (error) {
       console.error("Error updating company settings:", error);
@@ -6574,7 +6661,7 @@ ${emailContent}
   // PAYROLL PERIODS
   // ============================================
   
-  app.get("/api/payroll/periods", async (req, res) => {
+  app.get("/api/payroll/periods", requireRole("admin"), async (req, res) => {
     try {
       const periods = await storage.getPayrollPeriods();
       res.json(periods);
@@ -6607,7 +6694,7 @@ ${emailContent}
     }
   });
 
-  app.post("/api/payroll/periods", async (req, res) => {
+  app.post("/api/payroll/periods", requireRole("admin"), async (req, res) => {
     try {
       const data = {
         ...req.body,
@@ -6673,7 +6760,7 @@ ${emailContent}
     }
   });
 
-  app.post("/api/payroll/records", async (req, res) => {
+  app.post("/api/payroll/records", requireRole("admin"), async (req, res) => {
     try {
       const validatedData = insertPayrollRecordSchema.parse(req.body);
       const record = await storage.createPayrollRecord(validatedData);
@@ -8262,6 +8349,1101 @@ ${emailContent}
       console.error("Error marking customer thread read:", error);
       res.status(500).json({ error: "Failed to mark as read" });
     }
+  });
+
+  // ============================================================
+  // STRIPE CONNECT & INVOICING
+  // ============================================================
+
+  const {
+    isStripeConfigured,
+    getConnectOAuthUrl,
+    exchangeConnectCode,
+    getConnectedAccount,
+    disconnectConnectedAccount,
+    createCheckoutSession,
+    constructWebhookEvent,
+    retrieveCheckoutSession,
+  } = await import("./services/stripe");
+
+  // ------------------------------------------------------------------
+  // Stripe Connect — OAuth
+  // ------------------------------------------------------------------
+
+  // Return current Stripe connection status + account info
+  app.get("/api/stripe/connect/status", async (req, res) => {
+    if (!req.isAuthenticated() || (req.user as any).role !== "admin") {
+      return res.status(403).json({ error: "Admin only" });
+    }
+    try {
+      const settings = await storage.getCompanySettings();
+      const configured = isStripeConfigured();
+      if (!settings?.stripeConnectedAccountId) {
+        return res.json({
+          connected: false,
+          stripeKeyPresent: configured,
+          stripeClientIdPresent: !!process.env.STRIPE_CLIENT_ID,
+        });
+      }
+      let accountInfo = null;
+      if (configured) {
+        try {
+          accountInfo = await getConnectedAccount(settings.stripeConnectedAccountId);
+        } catch (_) {
+          // account may have been revoked; treat as disconnected
+        }
+      }
+      res.json({
+        connected: true,
+        onboardingComplete: settings.stripeConnectOnboardingComplete,
+        accountId: settings.stripeConnectedAccountId,
+        accountEmail: (accountInfo as any)?.email ?? null,
+        businessName: (accountInfo as any)?.business_profile?.name ?? null,
+        stripeKeyPresent: configured,
+        stripeClientIdPresent: !!process.env.STRIPE_CLIENT_ID,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Begin OAuth flow — redirect admin to Stripe's authorisation page
+  app.get("/api/stripe/connect/authorize", async (req, res) => {
+    if (!req.isAuthenticated() || (req.user as any).role !== "admin") {
+      return res.status(403).json({ error: "Admin only" });
+    }
+    try {
+      const baseUrl = process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+      const redirectUri = `${baseUrl}/api/stripe/connect/callback`;
+      const state = Math.random().toString(36).slice(2);
+      (req.session as any).stripeOAuthState = state;
+      const url = getConnectOAuthUrl(redirectUri, state);
+      res.redirect(url);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // OAuth callback — exchange code for connected account ID
+  app.get("/api/stripe/connect/callback", async (req, res) => {
+    try {
+      const { code, state, error: oauthError } = req.query as Record<string, string>;
+      if (oauthError) {
+        return res.redirect(`/settings?stripe_error=${encodeURIComponent(oauthError)}`);
+      }
+      if (state !== (req.session as any).stripeOAuthState) {
+        return res.redirect("/settings?stripe_error=state_mismatch");
+      }
+      const { accountId } = await exchangeConnectCode(code);
+      await storage.updateCompanySettings({
+        stripeConnectedAccountId: accountId,
+        stripeConnectOnboardingComplete: true,
+      });
+      delete (req.session as any).stripeOAuthState;
+      res.redirect("/settings?stripe_connected=1");
+    } catch (error: any) {
+      console.error("Stripe Connect callback error:", error);
+      res.redirect(`/settings?stripe_error=${encodeURIComponent(error.message)}`);
+    }
+  });
+
+  // Disconnect / deauthorise connected account
+  app.delete("/api/stripe/connect/disconnect", async (req, res) => {
+    if (!req.isAuthenticated() || (req.user as any).role !== "admin") {
+      return res.status(403).json({ error: "Admin only" });
+    }
+    try {
+      const settings = await storage.getCompanySettings();
+      if (settings?.stripeConnectedAccountId) {
+        try {
+          await disconnectConnectedAccount(settings.stripeConnectedAccountId);
+        } catch (_) {
+          // Proceed even if Stripe revocation fails (account may already be gone)
+        }
+      }
+      await storage.updateCompanySettings({
+        stripeConnectedAccountId: null,
+        stripeConnectOnboardingComplete: false,
+      });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // Invoices — CRUD
+  // ------------------------------------------------------------------
+
+  // Helper: generate sequential invoice number
+  async function generateInvoiceNumber(): Promise<string> {
+    const invoiceList = await storage.listInvoices();
+    const seq = (invoiceList.length + 1).toString().padStart(4, "0");
+    return `INV-${seq}`;
+  }
+
+  // List invoices (admin/dispatcher)
+  app.get("/api/invoices", requireRole("admin", "dispatcher"), async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const invoices = await storage.listInvoices(req.query as any);
+      res.json(invoices);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create invoice (manually or from a job)
+  app.post("/api/invoices", requireRole("admin", "dispatcher"), async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const { lineItems = [], ...invoiceData } = req.body;
+      const invoiceNumber = await generateInvoiceNumber();
+      // Compute totals from line items
+      let subtotal = 0;
+      const normalizedItems = (lineItems as any[]).map((item: any, idx: number) => {
+        const qty = parseFloat(item.quantity ?? 1);
+        const unit = parseFloat(item.unitPrice ?? 0);
+        const amount = qty * unit;
+        subtotal += amount;
+        return { ...item, quantity: qty, unitPrice: unit, amount, sortOrder: idx };
+      });
+      const taxRate = parseFloat(invoiceData.taxRate ?? 0);
+      const taxAmount = subtotal * (taxRate / 100);
+      const total = subtotal + taxAmount;
+
+      const crypto = await import("crypto");
+      const publicToken = crypto.randomBytes(24).toString("hex");
+
+      const invoice = await storage.createInvoice({
+        ...invoiceData,
+        invoiceNumber,
+        subtotal: subtotal.toFixed(2),
+        taxRate: taxRate.toFixed(2),
+        taxAmount: taxAmount.toFixed(2),
+        total: total.toFixed(2),
+        publicToken,
+        createdByUserId: (req.user as any).id,
+      }, normalizedItems);
+
+      logAudit(req, "invoice.created", "invoice", invoice.id, {
+        invoiceNumber: invoice.invoiceNumber,
+        total: invoice.total,
+        customerName: invoice.customerName,
+      }).catch(() => {});
+
+      res.status(201).json(invoice);
+    } catch (error: any) {
+      console.error("Create invoice error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get single invoice with line items
+  app.get("/api/invoices/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const invoice = await storage.getInvoice(req.params.id);
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+      res.json(invoice);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update invoice (only draft invoices can be freely edited)
+  app.patch("/api/invoices/:id", requireRole("admin", "dispatcher"), async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const { lineItems, ...updates } = req.body;
+      // Recompute totals if line items are being updated
+      if (lineItems) {
+        let subtotal = 0;
+        const normalizedItems = (lineItems as any[]).map((item: any, idx: number) => {
+          const qty = parseFloat(item.quantity ?? 1);
+          const unit = parseFloat(item.unitPrice ?? 0);
+          const amount = qty * unit;
+          subtotal += amount;
+          return { ...item, quantity: qty, unitPrice: unit, amount, sortOrder: idx };
+        });
+        const taxRate = parseFloat(updates.taxRate ?? 0);
+        const taxAmount = subtotal * (taxRate / 100);
+        updates.subtotal = subtotal.toFixed(2);
+        updates.taxAmount = taxAmount.toFixed(2);
+        updates.total = (subtotal + taxAmount).toFixed(2);
+        await storage.replaceInvoiceLineItems(req.params.id, normalizedItems);
+      }
+      const invoice = await storage.updateInvoice(req.params.id, updates);
+      logAudit(req, "invoice.updated", "invoice", req.params.id, {
+        fields: Object.keys(updates),
+      }).catch(() => {});
+      res.json(invoice);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Void invoice
+  app.post("/api/invoices/:id/void", requireRole("admin"), async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const invoice = await storage.updateInvoice(req.params.id, { status: "void" });
+      logAudit(req, "invoice.voided", "invoice", req.params.id).catch(() => {});
+      res.json(invoice);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Generate invoice from completed job
+  app.post("/api/jobs/:jobId/invoice", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const job = await storage.getJob(req.params.jobId);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+
+      // Pull line items from linked quote if available
+      let lineItems: any[] = [];
+      if (job.quoteId) {
+        const quoteItems = await storage.getQuoteLineItems(job.quoteId);
+        lineItems = quoteItems.map((qi: any) => ({
+          description: qi.description,
+          quantity: parseFloat(qi.quantity ?? 1),
+          unitPrice: parseFloat(qi.unitPrice ?? 0),
+          amount: parseFloat(qi.quantity ?? 1) * parseFloat(qi.unitPrice ?? 0),
+        }));
+      }
+
+      const invoiceNumber = await generateInvoiceNumber();
+      let subtotal = lineItems.reduce((s: number, i: any) => s + i.amount, 0);
+      const settings = await storage.getCompanySettings();
+      const taxRate = parseFloat((settings as any)?.defaultTaxRate ?? 0);
+      const taxAmount = subtotal * (taxRate / 100);
+      const total = subtotal + taxAmount;
+
+      const crypto = await import("crypto");
+      const publicToken = crypto.randomBytes(24).toString("hex");
+
+      const invoice = await storage.createInvoice({
+        invoiceNumber,
+        jobId: job.id,
+        quoteId: job.quoteId ?? undefined,
+        customerName: job.customerName,
+        customerEmail: job.customerEmail ?? undefined,
+        customerPhone: job.customerPhone ?? undefined,
+        customerAddress: job.address ?? undefined,
+        subtotal: subtotal.toFixed(2),
+        taxRate: taxRate.toFixed(2),
+        taxAmount: taxAmount.toFixed(2),
+        total: total.toFixed(2),
+        publicToken,
+        status: "draft",
+        createdByUserId: (req.user as any).id,
+      }, lineItems);
+
+      res.status(201).json(invoice);
+    } catch (error: any) {
+      console.error("Create invoice from job error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // Invoice actions — send & payment link
+  // ------------------------------------------------------------------
+
+  // Mark invoice as sent (+ optionally email the customer)
+  app.post("/api/invoices/:id/send", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const invoice = await storage.getInvoice(req.params.id);
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+      if (invoice.status === "void") {
+        return res.status(400).json({ error: "Cannot send a voided invoice" });
+      }
+
+      const updated = await storage.updateInvoice(req.params.id, {
+        status: "sent",
+        sentAt: new Date(),
+      });
+
+      // Attempt to email customer (non-fatal if email service not configured)
+      if (invoice.customerEmail) {
+        try {
+          const { sendEmail } = await import("./services/email");
+          const baseUrl = process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+          const invoiceUrl = `${baseUrl}/invoice/${invoice.publicToken}`;
+          await sendEmail({
+            to: invoice.customerEmail,
+            subject: `Invoice ${invoice.invoiceNumber} — $${Number(invoice.total).toFixed(2)} due`,
+            html: `
+              <p>Hi ${invoice.customerName},</p>
+              <p>Your invoice <strong>${invoice.invoiceNumber}</strong> for <strong>$${Number(invoice.total).toFixed(2)}</strong> is ready.</p>
+              <p><a href="${invoiceUrl}" style="background:#0070f3;color:#fff;padding:10px 20px;border-radius:5px;text-decoration:none;">View & Pay Invoice</a></p>
+              <p>Thank you for your business!</p>
+            `,
+          });
+        } catch (emailErr) {
+          console.error("Invoice email send error (non-fatal):", emailErr);
+        }
+      }
+
+      // Schedule automatic invoice reminders
+      try {
+        const { scheduleInvoiceReminders } = await import("./services/automation");
+        await scheduleInvoiceReminders(req.params.id);
+      } catch (reminderErr) {
+        console.error("[InvoiceReminder] Failed to schedule (non-fatal):", reminderErr);
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a Stripe Checkout Session for an invoice
+  app.post("/api/invoices/:id/payment-link", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      if (!isStripeConfigured()) {
+        return res.status(503).json({
+          error: "Stripe is not configured. Set STRIPE_SECRET_KEY to enable payments.",
+        });
+      }
+
+      const invoice = await storage.getInvoice(req.params.id);
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+      if (invoice.status === "void" || invoice.status === "paid") {
+        return res.status(400).json({ error: `Cannot create payment link for a ${invoice.status} invoice` });
+      }
+
+      const settings = await storage.getCompanySettings();
+      const connectedAccountId = settings?.stripeConnectedAccountId ?? null;
+      const baseUrl = process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+      const lineItems = await storage.getInvoiceLineItems(req.params.id);
+
+      const session = await createCheckoutSession({
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        customerEmail: invoice.customerEmail,
+        lineItems: lineItems.map((li: any) => ({
+          description: li.description,
+          unitAmount: parseFloat(li.unitPrice),
+          quantity: parseFloat(li.quantity),
+        })),
+        successUrl: `${baseUrl}/invoice/${invoice.publicToken}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${baseUrl}/invoice/${invoice.publicToken}?payment=cancelled`,
+        connectedAccountId,
+        currency: settings?.stripeDefaultCurrency ?? "usd",
+      });
+
+      // Persist checkout session ID on invoice
+      await storage.updateInvoice(invoice.id, {
+        stripeCheckoutSessionId: session.id,
+      });
+
+      res.json({ checkoutUrl: session.url, sessionId: session.id });
+    } catch (error: any) {
+      console.error("Payment link creation error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // Stripe Webhook — receives events from Stripe
+  // IMPORTANT: raw body required — must be placed before express.json() would
+  // re-parse it.  We use req.rawBody which is captured in server/index.ts.
+  // ------------------------------------------------------------------
+  app.post("/api/webhooks/stripe", async (req, res) => {
+    const sig = req.headers["stripe-signature"] as string;
+    if (!sig) return res.status(400).json({ error: "Missing stripe-signature header" });
+
+    let event: any;
+    try {
+      const rawBody = (req as any).rawBody;
+      if (!rawBody) return res.status(400).json({ error: "Missing raw body" });
+      event = constructWebhookEvent(rawBody as Buffer, sig);
+    } catch (err: any) {
+      console.error("Stripe webhook signature verification failed:", err.message);
+      return res.status(400).json({ error: `Webhook error: ${err.message}` });
+    }
+
+    try {
+      switch (event.type) {
+        case "checkout.session.completed": {
+          const session = event.data.object as any;
+          const invoiceId = session.metadata?.invoice_id;
+          if (invoiceId && session.payment_status === "paid") {
+            await storage.updateInvoice(invoiceId, {
+              status: "paid",
+              paidAt: new Date(),
+              paidAmount: (session.amount_total / 100).toFixed(2),
+              stripeCheckoutSessionId: session.id,
+              stripePaymentIntentId: session.payment_intent ?? null,
+            });
+            logAudit(null, "invoice.payment_received", "invoice", invoiceId, {
+              amountPaid: (session.amount_total / 100).toFixed(2),
+              source: "stripe_checkout",
+              sessionId: session.id,
+            }).catch(() => {});
+            console.log(`[Stripe] Invoice ${invoiceId} marked paid via checkout.session.completed`);
+            // Cancel pending reminders since invoice is paid
+            try {
+              const { cancelInvoiceReminders } = await import("./services/automation");
+              await cancelInvoiceReminders(invoiceId);
+            } catch {}
+          }
+          break;
+        }
+        case "payment_intent.succeeded": {
+          const pi = event.data.object as any;
+          const invoiceId = pi.metadata?.invoice_id;
+          if (invoiceId) {
+            await storage.updateInvoice(invoiceId, {
+              status: "paid",
+              paidAt: new Date(),
+              paidAmount: (pi.amount_received / 100).toFixed(2),
+              stripePaymentIntentId: pi.id,
+              stripeChargeId: pi.latest_charge ?? null,
+            });
+            console.log(`[Stripe] Invoice ${invoiceId} marked paid via payment_intent.succeeded`);
+          }
+          break;
+        }
+        case "payment_intent.payment_failed": {
+          const pi = event.data.object as any;
+          console.warn(`[Stripe] Payment failed for PI ${pi.id}: ${pi.last_payment_error?.message}`);
+          break;
+        }
+        default:
+          // Unhandled event type — ignore
+          break;
+      }
+      res.json({ received: true });
+    } catch (error: any) {
+      console.error("Stripe webhook handler error:", error);
+      res.status(500).json({ error: "Webhook handler error" });
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // Public invoice view (no auth — token-gated)
+  // ------------------------------------------------------------------
+
+  app.get("/api/public/invoice/:token", async (req, res) => {
+    try {
+      const invoice = await storage.getInvoiceByToken(req.params.token);
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+      // Never expose internal IDs or Stripe secret-side data to the public
+      const { stripePaymentIntentId, stripeCheckoutSessionId, stripeChargeId, ...safe } = invoice as any;
+      res.json(safe);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create payment link from the public invoice page (customer-initiated)
+  app.post("/api/public/invoice/:token/pay", async (req, res) => {
+    try {
+      if (!isStripeConfigured()) {
+        return res.status(503).json({ error: "Online payments are not yet configured." });
+      }
+      const invoice = await storage.getInvoiceByToken(req.params.token);
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+      if (invoice.status === "paid" || invoice.status === "void") {
+        return res.status(400).json({ error: `Invoice is already ${invoice.status}` });
+      }
+
+      const settings = await storage.getCompanySettings();
+      const connectedAccountId = settings?.stripeConnectedAccountId ?? null;
+      const baseUrl = process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+      const lineItems = await storage.getInvoiceLineItems(invoice.id);
+
+      const session = await createCheckoutSession({
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        customerEmail: invoice.customerEmail,
+        lineItems: lineItems.map((li: any) => ({
+          description: li.description,
+          unitAmount: parseFloat(li.unitPrice),
+          quantity: parseFloat(li.quantity),
+        })),
+        successUrl: `${baseUrl}/invoice/${invoice.publicToken}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${baseUrl}/invoice/${invoice.publicToken}?payment=cancelled`,
+        connectedAccountId,
+        currency: settings?.stripeDefaultCurrency ?? "usd",
+      });
+
+      await storage.updateInvoice(invoice.id, { stripeCheckoutSessionId: session.id });
+      res.json({ checkoutUrl: session.url });
+    } catch (error: any) {
+      console.error("Public invoice pay error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================
+  // AUDIT LOG ROUTES
+  // ============================================================
+
+  app.get("/api/audit-logs", requireRole("admin"), async (req, res) => {
+    try {
+      const { entityType, entityId, limit } = req.query;
+      const logs = await storage.getAuditLogs({
+        entityType: entityType as string | undefined,
+        entityId: entityId as string | undefined,
+        limit: limit ? Number(limit) : 200,
+      });
+      res.json(logs);
+    } catch (err) {
+      console.error("Error fetching audit logs:", err);
+      res.status(500).json({ error: "Failed to fetch audit logs" });
+    }
+  });
+
+  // ============================================================
+  // CUSTOMER ROUTES (admin-authenticated)
+  // ============================================================
+
+  app.get("/api/customers", requireRole("admin"), async (req, res) => {
+    try {
+      const customerList = await storage.getCustomers();
+      res.json(customerList);
+    } catch (err) {
+      console.error("Error fetching customers:", err);
+      res.status(500).json({ error: "Failed to fetch customers" });
+    }
+  });
+
+  app.get("/api/customers/:id", requireRole("admin"),  async (req, res) => {
+    try {
+      const customer = await storage.getCustomer(req.params.id);
+      if (!customer) return res.status(404).json({ error: "Customer not found" });
+
+      const allJobs = await storage.getJobs();
+      const normalized = customer.phone.replace(/\D/g, "");
+      const customerJobs = allJobs.filter(
+        (j) => j.customerPhone.replace(/\D/g, "") === normalized
+      );
+
+      const customerInvoices: any[] = [];
+      for (const job of customerJobs) {
+        const jobInvoices = await storage.listInvoices({ jobId: job.id });
+        customerInvoices.push(...jobInvoices);
+      }
+
+      res.json({ customer, jobs: customerJobs, invoices: customerInvoices });
+    } catch (err) {
+      console.error("Error fetching customer:", err);
+      res.status(500).json({ error: "Failed to fetch customer" });
+    }
+  });
+
+  app.post("/api/customers", requireRole("admin"), async (req, res) => {
+    try {
+      const customer = await storage.createCustomer(req.body);
+      res.status(201).json(customer);
+    } catch (err) {
+      console.error("Error creating customer:", err);
+      res.status(500).json({ error: "Failed to create customer" });
+    }
+  });
+
+  app.patch("/api/customers/:id", requireRole("admin"), async (req, res) => {
+    try {
+      const customer = await storage.updateCustomer(req.params.id, req.body);
+      if (!customer) return res.status(404).json({ error: "Customer not found" });
+      res.json(customer);
+    } catch (err) {
+      console.error("Error updating customer:", err);
+      res.status(500).json({ error: "Failed to update customer" });
+    }
+  });
+
+  // Generate (or regenerate) a portal token for a customer
+  app.post("/api/customers/:id/portal-token", requireRole("admin"), async (req, res) => {
+    try {
+      const token = randomUUID();
+      const customer = await storage.updateCustomer(req.params.id, {
+        portalToken: token,
+      });
+      if (!customer) return res.status(404).json({ error: "Customer not found" });
+      const baseUrl =
+        process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+      res.json({ token, portalUrl: `${baseUrl}/customer/${token}` });
+    } catch (err) {
+      console.error("Error generating portal token:", err);
+      res.status(500).json({ error: "Failed to generate portal token" });
+    }
+  });
+
+  // ============================================================
+  // CUSTOMER PORTAL (public — token-authenticated)
+  // ============================================================
+
+  app.get("/api/customer-portal/:token", async (req, res) => {
+    try {
+      const customer = await storage.getCustomerByPortalToken(req.params.token);
+      if (!customer) return res.status(404).json({ error: "Portal not found" });
+
+      const allJobs = await storage.getJobs();
+      const normalized = customer.phone.replace(/\D/g, "");
+      const customerJobs = allJobs
+        .filter((j) => j.customerPhone.replace(/\D/g, "") === normalized)
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+
+      const customerInvoices: any[] = [];
+      for (const job of customerJobs) {
+        const jobInvoices = await storage.listInvoices({ jobId: job.id });
+        customerInvoices.push(...jobInvoices);
+      }
+
+      res.json({
+        customer: {
+          id: customer.id,
+          fullName: customer.fullName,
+          phone: customer.phone,
+          email: customer.email,
+          address: customer.address,
+        },
+        jobs: customerJobs,
+        invoices: customerInvoices,
+      });
+    } catch (err) {
+      console.error("Customer portal error:", err);
+      res.status(500).json({ error: "Portal unavailable" });
+    }
+  });
+
+  // Service request form submission (creates a lead)
+  app.post("/api/customer-portal/:token/request", async (req, res) => {
+    try {
+      const customer = await storage.getCustomerByPortalToken(req.params.token);
+      if (!customer) return res.status(404).json({ error: "Portal not found" });
+
+      const { serviceType, description, preferredDate } = req.body;
+
+      const lead = await storage.createLead({
+        source: "Customer Portal",
+        customerName: customer.fullName,
+        customerPhone: customer.phone,
+        customerEmail: customer.email || undefined,
+        address: customer.address || undefined,
+        city: customer.city || undefined,
+        zipCode: customer.zipCode || undefined,
+        serviceType: serviceType || "Other",
+        description: description
+          ? `[Portal Request] ${description}${preferredDate ? ` · Preferred: ${preferredDate}` : ""}`
+          : undefined,
+        status: "new",
+        priority: "normal",
+      });
+
+      res.status(201).json({ success: true, leadId: lead.id });
+    } catch (err) {
+      console.error("Portal request error:", err);
+      res.status(500).json({ error: "Failed to submit request" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // CONTRACTOR PRODUCTIVITY FEATURES
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ─── Invoice Reminders ───────────────────────────────────────────────────
+
+  app.get("/api/invoice-reminders/:invoiceId", async (req, res) => {
+    try {
+      const reminders = await storage.getInvoiceReminders(req.params.invoiceId);
+      res.json(reminders);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch reminders" });
+    }
+  });
+
+  // ─── Public Intake Form (auto-qualification) ────────────────────────────
+
+  app.get("/api/public/intake/services", async (req, res) => {
+    try {
+      const estimates = await storage.getServiceEstimates();
+      const settings = await storage.getCompanySettings();
+      res.json({
+        companyName: settings?.companyName || "BossMan",
+        companyPhone: settings?.phone || "",
+        services: estimates,
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to load services" });
+    }
+  });
+
+  app.post("/api/public/intake", async (req, res) => {
+    try {
+      const { name, phone, address, serviceType, urgency, description } = req.body;
+      if (!name || !phone || !serviceType) {
+        return res.status(400).json({ error: "Name, phone, and service type are required" });
+      }
+
+      // Get price estimate for the service
+      const estimates = await storage.getServiceEstimates();
+      const estimate = estimates.find(e => e.serviceType === serviceType);
+
+      // Save submission
+      const submission = await storage.createIntakeSubmission({
+        name, phone, address, serviceType, urgency: urgency || "this_week",
+        description,
+        estimatedMin: estimate?.minPrice || null,
+        estimatedMax: estimate?.maxPrice || null,
+        source: "mctb_intake",
+      });
+
+      // Auto-create lead
+      const lead = await storage.createLead({
+        customerName: name,
+        customerPhone: phone,
+        customerEmail: null,
+        address: address || null,
+        serviceType,
+        description: description || `Intake form: ${serviceType} - ${urgency || "this week"}`,
+        source: "Website",
+        priority: urgency === "today" ? "urgent" : urgency === "this_week" ? "high" : "normal",
+        status: "new",
+      });
+
+      // Link submission to lead
+      await storage.updateIntakeSubmission(submission.id, { convertedToLeadId: lead.id });
+
+      // Notify dispatcher via SMS
+      const settings = await storage.getCompanySettings();
+      if (settings?.phone) {
+        const { sendSMS, isConfigured } = await import("./services/sms");
+        if (isConfigured()) {
+          const urgencyLabel = urgency === "today" ? "URGENT - TODAY" : urgency === "this_week" ? "This week" : "Flexible";
+          await sendSMS(
+            settings.phone,
+            `New intake form: ${name} at ${address || "no address"} needs ${serviceType} (${urgencyLabel}). Phone: ${phone}`
+          );
+        }
+      }
+
+      res.status(201).json({
+        success: true,
+        estimatedMin: estimate?.minPrice || null,
+        estimatedMax: estimate?.maxPrice || null,
+        estimatedDuration: estimate?.estimatedDuration || null,
+        message: estimate
+          ? `${estimate.displayName} typically runs $${estimate.minPrice}-$${estimate.maxPrice}. We'll confirm on-site.`
+          : "We'll reach out shortly to confirm details and pricing.",
+      });
+    } catch (err) {
+      console.error("Intake submission error:", err);
+      res.status(500).json({ error: "Failed to submit" });
+    }
+  });
+
+  // ─── Service Estimates (admin CRUD) ──────────────────────────────────────
+
+  app.get("/api/service-estimates", async (req, res) => {
+    try {
+      res.json(await storage.getServiceEstimates());
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch estimates" });
+    }
+  });
+
+  app.post("/api/service-estimates", async (req, res) => {
+    try {
+      const estimate = await storage.createServiceEstimate(req.body);
+      res.status(201).json(estimate);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to create estimate" });
+    }
+  });
+
+  app.patch("/api/service-estimates/:id", async (req, res) => {
+    try {
+      await storage.updateServiceEstimate(req.params.id, req.body);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update estimate" });
+    }
+  });
+
+  // ─── QR Code Payment ────────────────────────────────────────────────────
+
+  app.get("/api/invoices/:id/qr", async (req, res) => {
+    try {
+      const invoice = await storage.getInvoice(req.params.id);
+      if (!invoice || !invoice.publicToken) {
+        return res.status(404).json({ error: "Invoice not found or no public token" });
+      }
+
+      const paymentUrl = `${process.env.APP_URL || req.headers.origin || "https://app.bossman.io"}/public/invoice/${invoice.publicToken}`;
+
+      const QRCode = await import("qrcode");
+      const qrDataUrl = await QRCode.toDataURL(paymentUrl, {
+        width: 300,
+        margin: 2,
+        color: { dark: "#0f172a", light: "#ffffff" },
+      });
+
+      res.json({ qrDataUrl, paymentUrl });
+    } catch (err) {
+      console.error("QR generation error:", err);
+      res.status(500).json({ error: "Failed to generate QR code" });
+    }
+  });
+
+  // ─── Follow-Ups ──────────────────────────────────────────────────────────
+
+  app.get("/api/follow-ups", async (req, res) => {
+    try {
+      const jobId = req.query.jobId as string | undefined;
+      res.json(await storage.getFollowUps(jobId));
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch follow-ups" });
+    }
+  });
+
+  app.post("/api/follow-ups", async (req, res) => {
+    try {
+      const { scheduleFollowUp } = await import("./services/automation");
+      await scheduleFollowUp(req.body.jobId, req.body.months);
+      res.status(201).json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to schedule follow-up" });
+    }
+  });
+
+  app.patch("/api/follow-ups/:id", async (req, res) => {
+    try {
+      await storage.updateFollowUp(req.params.id, req.body);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update follow-up" });
+    }
+  });
+
+  // ─── Intake Submissions (admin view) ─────────────────────────────────────
+
+  app.get("/api/intake-submissions", async (req, res) => {
+    try {
+      res.json(await storage.getIntakeSubmissions());
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch submissions" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // MCTB AUTO-PROVISIONING + MULTI-TENANT WEBHOOKS
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ─── Onboard a new MCTB customer (creates account + provisions number) ───
+
+  app.post("/api/mctb/onboard", async (req, res) => {
+    try {
+      const { businessName, ownerName, businessPhone, businessEmail, businessZip, phoneType } = req.body;
+
+      if (!businessName || !ownerName || !businessPhone) {
+        return res.status(400).json({ error: "businessName, ownerName, and businessPhone are required" });
+      }
+
+      // Generate a URL-safe slug from business name
+      const slug = businessName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
+      // Create account
+      const account = await storage.createMctbAccount({
+        businessName,
+        ownerName,
+        businessEmail,
+        businessPhone,
+        businessZip: businessZip || null,
+        phoneType: phoneType || "cell",
+        companySlug: slug,
+        plan: "apprentice",
+        status: "provisioning",
+        trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14-day trial
+      });
+
+      // Auto-provision a Twilio number
+      const { provisionNumber } = await import("./services/twilio-provisioning");
+      const result = await provisionNumber(businessPhone, businessZip || null, account.id);
+
+      if (result.success) {
+        await storage.updateMctbAccount(account.id, {
+          twilioNumberSid: result.twilioNumberSid,
+          twilioNumber: result.twilioNumber,
+          twilioAreaCode: result.areaCode,
+          status: "active",
+        });
+
+        res.status(201).json({
+          success: true,
+          accountId: account.id,
+          twilioNumber: result.twilioNumber,
+          forwardingInstructions: getForwardingInstructions(phoneType || "cell", result.twilioNumber!),
+          trialEndsAt: account.trialEndsAt,
+        });
+      } else {
+        // Account created but provisioning failed — they can retry
+        await storage.updateMctbAccount(account.id, { status: "provisioning" });
+        res.status(201).json({
+          success: true,
+          accountId: account.id,
+          provisioningStatus: "pending",
+          error: `Number provisioning delayed: ${result.error}. We'll assign one manually.`,
+        });
+      }
+    } catch (err: any) {
+      console.error("[MCTB Onboard] Error:", err);
+      res.status(500).json({ error: "Failed to create account" });
+    }
+  });
+
+  // ─── Get forwarding instructions for a phone type ────────────────────────
+
+  app.get("/api/mctb/setup-instructions/:accountId", async (req, res) => {
+    try {
+      const account = await storage.getMctbAccount(req.params.accountId);
+      if (!account || !account.twilioNumber) {
+        return res.status(404).json({ error: "Account not found or no number assigned" });
+      }
+      res.json({
+        twilioNumber: account.twilioNumber,
+        phoneType: account.phoneType,
+        instructions: getForwardingInstructions(account.phoneType, account.twilioNumber),
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to get instructions" });
+    }
+  });
+
+  // ─── Send a test call to verify forwarding ───────────────────────────────
+
+  app.post("/api/mctb/test-call/:accountId", async (req, res) => {
+    try {
+      const account = await storage.getMctbAccount(req.params.accountId);
+      if (!account) return res.status(404).json({ error: "Account not found" });
+
+      const { sendTestCall } = await import("./services/twilio-provisioning");
+      const result = await sendTestCall(account.businessPhone);
+
+      res.json({
+        success: result.success,
+        message: result.success
+          ? "Test call initiated. Don't answer your phone — you should receive an auto-text within 30 seconds."
+          : `Test call failed: ${result.error}`,
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to send test call" });
+    }
+  });
+
+  // ─── MCTB Account management ────────────────────────────────────────────
+
+  app.get("/api/mctb/accounts", async (req, res) => {
+    try { res.json(await storage.getMctbAccounts()); }
+    catch (err) { res.status(500).json({ error: "Failed to fetch accounts" }); }
+  });
+
+  app.get("/api/mctb/accounts/:id", async (req, res) => {
+    try {
+      const account = await storage.getMctbAccount(req.params.id);
+      if (!account) return res.status(404).json({ error: "Not found" });
+      res.json(account);
+    } catch (err) { res.status(500).json({ error: "Failed to fetch account" }); }
+  });
+
+  app.get("/api/mctb/accounts/:id/calls", async (req, res) => {
+    try { res.json(await storage.getMctbCallLogs(req.params.id)); }
+    catch (err) { res.status(500).json({ error: "Failed to fetch call logs" }); }
+  });
+
+  app.patch("/api/mctb/accounts/:id", async (req, res) => {
+    try {
+      const updated = await storage.updateMctbAccount(req.params.id, req.body);
+      res.json(updated);
+    } catch (err) { res.status(500).json({ error: "Failed to update account" }); }
+  });
+
+  // ─── Multi-tenant MCTB Webhooks (Twilio calls these) ────────────────────
+
+  app.post("/api/webhooks/mctb/voice", async (req, res) => {
+    const accountId = req.query.accountId as string;
+    const callStatus = req.body.CallStatus;
+    const from = req.body.From;
+    const to = req.body.To;
+    const callSid = req.body.CallSid;
+
+    console.log(`[MCTB Webhook] Voice: ${callStatus} from ${from} to ${to} (account: ${accountId || "direct"})`);
+
+    // ── Direct BossMan demo numbers (no accountId needed) ──────────────
+    const BOSSMAN_NUMBERS = ["+18568306568", "+16306268905"];
+    if (BOSSMAN_NUMBERS.includes(to)) {
+      // Immediately send auto-text to the caller FROM the number they called
+      try {
+        const smsService = await import("./services/sms");
+        if (smsService.isConfigured()) {
+          const autoText = "Hey! Sorry we missed your call. Tell us what you need and we'll get right back to you: https://webslingerai.com/activate";
+          await smsService.sendSMS(from, autoText, to);
+          console.log(`[MCTB] Auto-text sent to ${from} from ${to}`);
+        }
+      } catch (smsErr) {
+        console.error(`[MCTB] Auto-text failed:`, smsErr);
+      }
+
+      // Reject the call
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="no-answer"/></Response>`;
+      res.type("text/xml").send(twiml);
+      return;
+    }
+
+    // ── Multi-tenant provisioned numbers (with accountId) ──────────────
+    if (callStatus === "ringing" || callStatus === "in-progress") {
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="busy"/></Response>`;
+      res.type("text/xml").send(twiml);
+      return;
+    }
+
+    if (accountId && from) {
+      const { handleMissedCall } = await import("./services/mctb-handler");
+      await handleMissedCall(accountId, from, callSid || "");
+    }
+
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`;
+    res.type("text/xml").send(twiml);
+  });
+
+  app.post("/api/webhooks/mctb/sms", async (req, res) => {
+    const accountId = req.query.accountId as string;
+    const from = req.body.From;
+    const body = req.body.Body;
+
+    console.log(`[MCTB Webhook] SMS from ${from} for account ${accountId}: ${body?.slice(0, 50)}`);
+
+    if (accountId && from && body) {
+      const { handleCustomerReply } = await import("./services/mctb-handler");
+      await handleCustomerReply(accountId, from, body);
+    }
+
+    // Respond with empty TwiML
+    res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response/>`);
+  });
+
+  app.post("/api/webhooks/mctb/status", async (req, res) => {
+    // Status callback — log delivery status
+    const accountId = req.query.accountId as string;
+    console.log(`[MCTB Webhook] Status for account ${accountId}: ${req.body.MessageStatus || req.body.CallStatus}`);
+    res.sendStatus(200);
+  });
+
+  app.post("/api/webhooks/mctb/voice-fallback", async (req, res) => {
+    console.error(`[MCTB Webhook] Voice fallback hit — primary webhook failed`);
+    res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`);
   });
 
   // ============================================
@@ -10019,4 +11201,65 @@ Important guidelines:
   });
 
   return httpServer;
+}
+
+// ─── Helper: Generate forwarding instructions per phone type ─────────────────
+
+function getForwardingInstructions(phoneType: string, twilioNumber: string): {
+  steps: string[];
+  forwardCode: string | null;
+  testInstructions: string;
+} {
+  const cleanNumber = twilioNumber.replace(/\D/g, "");
+  const formatted = `(${cleanNumber.slice(1, 4)}) ${cleanNumber.slice(4, 7)}-${cleanNumber.slice(7)}`;
+
+  switch (phoneType) {
+    case "cell":
+      return {
+        steps: [
+          "Open your phone app (the one you use to make calls)",
+          `Dial: *73${cleanNumber}# and press call`,
+          "You'll hear a confirmation beep or message",
+          "That's it — missed calls now forward to BossMan",
+        ],
+        forwardCode: `*73${cleanNumber}#`,
+        testInstructions: `Call your business number from another phone. Don't answer. You should get a text within 10 seconds.`,
+      };
+
+    case "google_voice":
+      return {
+        steps: [
+          "Open voice.google.com on your computer",
+          "Click the gear icon (Settings) in the top right",
+          "Click 'Calls' on the left sidebar",
+          `Under 'Forward calls to', add this number: ${formatted}`,
+          "Make sure 'Forward calls when not answered' is enabled",
+          "Save",
+        ],
+        forwardCode: null,
+        testInstructions: `Call your Google Voice number from another phone. Don't answer. You should get a text within 10 seconds.`,
+      };
+
+    case "voip":
+    case "landline":
+      return {
+        steps: [
+          "Log into your phone provider's website or app",
+          "Find 'Call Forwarding' or 'Call Rules' in settings",
+          `Set 'Forward when no answer' to: ${formatted}`,
+          "Save the changes",
+          "If you can't find it, call your phone provider and say: 'I need calls forwarded when I don't answer'",
+          `Give them this number: ${formatted}`,
+        ],
+        forwardCode: `*72${cleanNumber}# (try this first — works for many landlines)`,
+        testInstructions: `Call your business number from another phone. Don't answer. You should get a text within 10 seconds.`,
+      };
+
+    default:
+      return {
+        steps: [`Forward your missed calls to: ${formatted}`],
+        forwardCode: `*73${cleanNumber}#`,
+        testInstructions: `Call your business number. Don't answer. You should get a text within 10 seconds.`,
+      };
+  }
 }

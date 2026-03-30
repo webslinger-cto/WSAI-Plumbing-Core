@@ -38,6 +38,16 @@ import {
   type ChatThreadParticipant, type InsertChatThreadParticipant,
   type ChatMessage, type InsertChatMessage,
   type ChatMagicSession, type InsertChatMagicSession,
+  type Invoice, type InsertInvoice,
+  type InvoiceLineItem, type InsertInvoiceLineItem,
+  type Customer, type InsertCustomer,
+  type AuditLog,
+  type InvoiceReminder, type InsertInvoiceReminder,
+  type IntakeSubmission, type InsertIntakeSubmission,
+  type ServiceEstimate, type InsertServiceEstimate,
+  type FollowUp, type InsertFollowUp,
+  type MctbAccount, type InsertMctbAccount,
+  type MctbCallLog, type InsertMctbCallLog,
   type AuditLog, type InsertAuditLog,
   type WorkOrder, type InsertWorkOrder,
   type JobMedia, type InsertJobMedia,
@@ -51,6 +61,11 @@ import {
   timeEntries, payrollPeriods, payrollRecords, employeePayRates, jobLeadFees, jobRevenueEvents, companySettings, quoteLineItems,
   contentPacks, contentItems, jobMessages,
   chatThreads, chatThreadParticipants, chatMessages, chatMagicSessions, chatEmailNotifications,
+  invoices, invoiceLineItems,
+  customers,
+  auditLogs,
+  invoiceReminders, intakeSubmissions, serviceEstimates, followUps,
+  mctbAccounts, mctbCallLog,
   auditLogs, workOrders, jobMedia, callRecordings,
   velocityLeads, velocityLeadAuditLog,
 } from "@shared/schema";
@@ -416,6 +431,18 @@ export interface IStorage {
   getLastChatEmailNotification(jobId: string, customerIdentifier: string): Promise<Date | null>;
   getLastChatEmailNotificationByLead(leadId: string, customerIdentifier: string): Promise<Date | null>;
   updateChatEmailNotification(jobId: string, customerIdentifier: string): Promise<void>;
+
+  // Audit Logs
+  getAuditLogs(options?: { limit?: number; entityType?: string; entityId?: string }): Promise<AuditLog[]>;
+
+  // Customers
+  getCustomer(id: string): Promise<Customer | undefined>;
+  getCustomerByPhone(phone: string): Promise<Customer | undefined>;
+  getCustomerByPortalToken(token: string): Promise<Customer | undefined>;
+  getCustomers(): Promise<Customer[]>;
+  createCustomer(customer: InsertCustomer): Promise<Customer>;
+  updateCustomer(id: string, updates: Partial<Customer>): Promise<Customer | undefined>;
+  upsertCustomerByPhone(phone: string, data: Partial<InsertCustomer>): Promise<Customer>;
   updateChatEmailNotificationByLead(leadId: string, customerIdentifier: string): Promise<void>;
 
   // Audit Logs
@@ -3659,6 +3686,297 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  // ============================================================
+  // INVOICES
+  // ============================================================
+
+  async listInvoices(filters?: { status?: string; jobId?: string }): Promise<Invoice[]> {
+    let query = db.select().from(invoices).$dynamic();
+    const conditions = [];
+    if (filters?.status) conditions.push(eq(invoices.status, filters.status));
+    if (filters?.jobId) conditions.push(eq(invoices.jobId, filters.jobId));
+    if (conditions.length > 0) query = query.where(and(...conditions));
+    return query.orderBy(desc(invoices.createdAt));
+  }
+
+  async getInvoice(id: string): Promise<(Invoice & { lineItems: InvoiceLineItem[] }) | null> {
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.id, id));
+    if (!invoice) return null;
+    const lineItems = await db
+      .select()
+      .from(invoiceLineItems)
+      .where(eq(invoiceLineItems.invoiceId, id))
+      .orderBy(invoiceLineItems.sortOrder);
+    return { ...invoice, lineItems };
+  }
+
+  async getInvoiceByToken(token: string): Promise<(Invoice & { lineItems: InvoiceLineItem[] }) | null> {
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.publicToken, token));
+    if (!invoice) return null;
+    const lineItems = await db
+      .select()
+      .from(invoiceLineItems)
+      .where(eq(invoiceLineItems.invoiceId, invoice.id))
+      .orderBy(invoiceLineItems.sortOrder);
+    return { ...invoice, lineItems };
+  }
+
+  async createInvoice(
+    data: Omit<InsertInvoice, "id">,
+    lineItemsData: Omit<InsertInvoiceLineItem, "id" | "invoiceId">[] = []
+  ): Promise<Invoice & { lineItems: InvoiceLineItem[] }> {
+    const [invoice] = await db.insert(invoices).values(data as any).returning();
+    const lineItems: InvoiceLineItem[] = [];
+    for (const item of lineItemsData) {
+      const [li] = await db
+        .insert(invoiceLineItems)
+        .values({ ...item, invoiceId: invoice.id } as any)
+        .returning();
+      lineItems.push(li);
+    }
+    return { ...invoice, lineItems };
+  }
+
+  async updateInvoice(id: string, updates: Partial<Invoice>): Promise<Invoice> {
+    const [updated] = await db
+      .update(invoices)
+      .set({ ...updates, updatedAt: new Date() } as any)
+      .where(eq(invoices.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getInvoiceLineItems(invoiceId: string): Promise<InvoiceLineItem[]> {
+    return db
+      .select()
+      .from(invoiceLineItems)
+      .where(eq(invoiceLineItems.invoiceId, invoiceId))
+      .orderBy(invoiceLineItems.sortOrder);
+  }
+
+  async replaceInvoiceLineItems(
+    invoiceId: string,
+    items: Omit<InsertInvoiceLineItem, "id" | "invoiceId">[]
+  ): Promise<InvoiceLineItem[]> {
+    await db.delete(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, invoiceId));
+    const created: InvoiceLineItem[] = [];
+    for (const item of items) {
+      const [li] = await db
+        .insert(invoiceLineItems)
+        .values({ ...item, invoiceId } as any)
+        .returning();
+      created.push(li);
+    }
+    return created;
+  }
+
+  // ── Audit Logs ─────────────────────────────────────────────────────────────
+  async getAuditLogs(
+    options: { limit?: number; entityType?: string; entityId?: string } = {}
+  ): Promise<AuditLog[]> {
+    const { limit = 200, entityType, entityId } = options;
+    let query = db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt));
+    if (entityType) {
+      query = query.where(eq(auditLogs.entityType, entityType)) as typeof query;
+    }
+    if (entityId) {
+      query = query.where(eq(auditLogs.entityId, entityId)) as typeof query;
+    }
+    return (query as any).limit(limit);
+  }
+
+  // ── Customers ──────────────────────────────────────────────────────────────
+  async getCustomer(id: string): Promise<Customer | undefined> {
+    const [c] = await db.select().from(customers).where(eq(customers.id, id));
+    return c;
+  }
+
+  async getCustomerByPhone(phone: string): Promise<Customer | undefined> {
+    const normalized = phone.replace(/\D/g, "");
+    const all = await db.select().from(customers);
+    return all.find((c) => c.phone.replace(/\D/g, "") === normalized);
+  }
+
+  async getCustomerByPortalToken(token: string): Promise<Customer | undefined> {
+    const [c] = await db
+      .select()
+      .from(customers)
+      .where(eq(customers.portalToken, token));
+    return c;
+  }
+
+  async getCustomers(): Promise<Customer[]> {
+    return db.select().from(customers).orderBy(desc(customers.createdAt));
+  }
+
+  async createCustomer(customer: InsertCustomer): Promise<Customer> {
+    const [c] = await db.insert(customers).values(customer).returning();
+    return c;
+  }
+
+  async updateCustomer(
+    id: string,
+    updates: Partial<Customer>
+  ): Promise<Customer | undefined> {
+    const [c] = await db
+      .update(customers)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(customers.id, id))
+      .returning();
+    return c;
+  }
+
+  async upsertCustomerByPhone(
+    phone: string,
+    data: Partial<InsertCustomer>
+  ): Promise<Customer> {
+    const existing = await this.getCustomerByPhone(phone);
+    if (existing) {
+      const updated = await this.updateCustomer(existing.id, data);
+      return updated!;
+    }
+    return this.createCustomer({
+      fullName: data.fullName || "Unknown",
+      phone,
+      ...data,
+    } as InsertCustomer);
+  }
+  // ─── Invoice Reminders ────────────────────────────────────────────────────
+
+  async createInvoiceReminder(data: InsertInvoiceReminder): Promise<InvoiceReminder> {
+    const [r] = await db.insert(invoiceReminders).values(data).returning();
+    return r;
+  }
+
+  async getPendingInvoiceReminders(): Promise<InvoiceReminder[]> {
+    return db.select().from(invoiceReminders)
+      .where(and(eq(invoiceReminders.status, "pending"), lte(invoiceReminders.scheduledFor, new Date())));
+  }
+
+  async updateInvoiceReminder(id: string, data: Partial<InvoiceReminder>): Promise<void> {
+    await db.update(invoiceReminders).set(data).where(eq(invoiceReminders.id, id));
+  }
+
+  async cancelInvoiceReminders(invoiceId: string): Promise<void> {
+    await db.update(invoiceReminders)
+      .set({ status: "cancelled" })
+      .where(and(eq(invoiceReminders.invoiceId, invoiceId), eq(invoiceReminders.status, "pending")));
+  }
+
+  async getInvoiceReminders(invoiceId: string): Promise<InvoiceReminder[]> {
+    return db.select().from(invoiceReminders).where(eq(invoiceReminders.invoiceId, invoiceId));
+  }
+
+  // ─── Intake Submissions ──────────────────────────────────────────────────
+
+  async createIntakeSubmission(data: InsertIntakeSubmission): Promise<IntakeSubmission> {
+    const [s] = await db.insert(intakeSubmissions).values(data).returning();
+    return s;
+  }
+
+  async getIntakeSubmissions(): Promise<IntakeSubmission[]> {
+    return db.select().from(intakeSubmissions).orderBy(desc(intakeSubmissions.createdAt));
+  }
+
+  async getIntakeSubmission(id: string): Promise<IntakeSubmission | undefined> {
+    const [s] = await db.select().from(intakeSubmissions).where(eq(intakeSubmissions.id, id));
+    return s;
+  }
+
+  async updateIntakeSubmission(id: string, data: Partial<IntakeSubmission>): Promise<void> {
+    await db.update(intakeSubmissions).set(data).where(eq(intakeSubmissions.id, id));
+  }
+
+  // ─── Service Estimates ───────────────────────────────────────────────────
+
+  async getServiceEstimates(): Promise<ServiceEstimate[]> {
+    return db.select().from(serviceEstimates).where(eq(serviceEstimates.active, true)).orderBy(serviceEstimates.sortOrder);
+  }
+
+  async createServiceEstimate(data: InsertServiceEstimate): Promise<ServiceEstimate> {
+    const [s] = await db.insert(serviceEstimates).values(data).returning();
+    return s;
+  }
+
+  async updateServiceEstimate(id: string, data: Partial<ServiceEstimate>): Promise<void> {
+    await db.update(serviceEstimates).set(data).where(eq(serviceEstimates.id, id));
+  }
+
+  // ─── Follow-Ups ──────────────────────────────────────────────────────────
+
+  async createFollowUp(data: InsertFollowUp): Promise<FollowUp> {
+    const [f] = await db.insert(followUps).values(data).returning();
+    return f;
+  }
+
+  async getDueFollowUps(): Promise<FollowUp[]> {
+    return db.select().from(followUps)
+      .where(and(eq(followUps.status, "scheduled"), lte(followUps.followUpDate, new Date())));
+  }
+
+  async updateFollowUp(id: string, data: Partial<FollowUp>): Promise<void> {
+    await db.update(followUps).set(data).where(eq(followUps.id, id));
+  }
+
+  async getFollowUps(jobId?: string): Promise<FollowUp[]> {
+    if (jobId) {
+      return db.select().from(followUps).where(eq(followUps.jobId, jobId)).orderBy(desc(followUps.createdAt));
+    }
+    return db.select().from(followUps).orderBy(desc(followUps.createdAt));
+  }
+
+  // ─── MCTB Accounts ──────────────────────────────────────────────────────
+
+  async createMctbAccount(data: InsertMctbAccount): Promise<MctbAccount> {
+    const [a] = await db.insert(mctbAccounts).values(data).returning();
+    return a;
+  }
+
+  async getMctbAccount(id: string): Promise<MctbAccount | undefined> {
+    const [a] = await db.select().from(mctbAccounts).where(eq(mctbAccounts.id, id));
+    return a;
+  }
+
+  async getMctbAccountByTwilioNumber(twilioNumber: string): Promise<MctbAccount | undefined> {
+    const [a] = await db.select().from(mctbAccounts).where(eq(mctbAccounts.twilioNumber, twilioNumber));
+    return a;
+  }
+
+  async getMctbAccounts(): Promise<MctbAccount[]> {
+    return db.select().from(mctbAccounts).orderBy(desc(mctbAccounts.createdAt));
+  }
+
+  async updateMctbAccount(id: string, data: Partial<MctbAccount>): Promise<MctbAccount | undefined> {
+    const [a] = await db.update(mctbAccounts).set({ ...data, updatedAt: new Date() }).where(eq(mctbAccounts.id, id)).returning();
+    return a;
+  }
+
+  // ─── MCTB Call Log ───────────────────────────────────────────────────────
+
+  async createMctbCallLog(data: InsertMctbCallLog): Promise<MctbCallLog> {
+    const [l] = await db.insert(mctbCallLog).values(data).returning();
+    return l;
+  }
+
+  async getRecentMctbCallLog(accountId: string, callerPhone: string): Promise<MctbCallLog | undefined> {
+    const [l] = await db.select().from(mctbCallLog)
+      .where(and(eq(mctbCallLog.accountId, accountId), eq(mctbCallLog.callerPhone, callerPhone)))
+      .orderBy(desc(mctbCallLog.calledAt))
+      .limit(1);
+    return l;
+  }
+
+  async updateMctbCallLog(id: string, data: Partial<MctbCallLog>): Promise<void> {
+    await db.update(mctbCallLog).set(data).where(eq(mctbCallLog.id, id));
+  }
+
+  async getMctbCallLogs(accountId: string, limit = 50): Promise<MctbCallLog[]> {
+    return db.select().from(mctbCallLog)
+      .where(eq(mctbCallLog.accountId, accountId))
+      .orderBy(desc(mctbCallLog.calledAt))
+      .limit(limit);
+  }
+  
   async getLastChatEmailNotificationByLead(leadId: string, customerIdentifier: string): Promise<Date | null> {
     const [record] = await db.select().from(chatEmailNotifications)
       .where(and(

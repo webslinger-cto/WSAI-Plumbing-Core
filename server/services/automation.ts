@@ -377,6 +377,17 @@ export async function completeJob(
       }
     }
 
+    // ── Schedule review request 2 hours after completion ──────────────────
+    try {
+      const settings = await storage.getCompanySettings();
+      const delayMinutes = settings?.reviewRequestDelayMinutes ?? 120;
+      if (settings?.reviewRequestEnabled !== false) {
+        scheduleReviewRequest(jobId, delayMinutes * 60 * 1000);
+      }
+    } catch (reviewErr) {
+      console.error("[ReviewRequest] Failed to schedule review request:", reviewErr);
+    }
+
     return { success: true };
   } catch (error) {
     console.error("Complete job error:", error);
@@ -947,5 +958,308 @@ export async function notifyJobApproved(
   } catch (error) {
     console.error("Job approved notification error:", error);
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
+// ─── Review Request Automation ────────────────────────────────────────────────
+// Generates the review request message body (SMS and plain-text email fallback)
+function buildReviewMessage(
+  customerName: string,
+  companyName: string,
+  googleUrl: string | null | undefined,
+  yelpUrl: string | null | undefined
+): string {
+  const firstName = customerName.split(" ")[0] || customerName;
+  const links: string[] = [];
+  if (googleUrl) links.push(`Google: ${googleUrl}`);
+  if (yelpUrl)   links.push(`Yelp: ${yelpUrl}`);
+  const linkBlock = links.length
+    ? `\n${links.join("\n")}`
+    : "";
+  return (
+    `Hi ${firstName}, thank you for choosing ${companyName}! ` +
+    `We hope everything went smoothly. If you have a moment, we'd love a quick review — it means the world to our small team.` +
+    linkBlock
+  );
+}
+
+function buildReviewEmailHtml(
+  customerName: string,
+  companyName: string,
+  googleUrl: string | null | undefined,
+  yelpUrl: string | null | undefined
+): string {
+  const firstName = customerName.split(" ")[0] || customerName;
+  const googleBtn = googleUrl
+    ? `<a href="${googleUrl}" style="display:inline-block;background:#4285F4;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;margin:8px 4px;font-weight:bold;">⭐ Review on Google</a>`
+    : "";
+  const yelpBtn = yelpUrl
+    ? `<a href="${yelpUrl}" style="display:inline-block;background:#d32323;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;margin:8px 4px;font-weight:bold;">⭐ Review on Yelp</a>`
+    : "";
+  return `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0f172a;color:#f1f5f9;padding:24px;border-radius:8px;">
+  <h2 style="color:#3b82f6;margin-top:0;">${companyName}</h2>
+  <p>Hi ${firstName},</p>
+  <p>Thank you for trusting us with your plumbing needs! We hope the work exceeded your expectations.</p>
+  <p>If you have just a minute, an honest review helps other homeowners find reliable service — and it means a lot to our team.</p>
+  <div style="text-align:center;margin:24px 0;">
+    ${googleBtn}
+    ${yelpBtn}
+  </div>
+  <p style="font-size:12px;color:#64748b;">You received this message because you recently used our services. Reply STOP to opt out.</p>
+</div>`;
+}
+
+/**
+ * Schedules a review request to fire delayMs after job completion.
+ * Uses a simple setTimeout — no Redis/queue required.
+ * Falls back gracefully if SMS/email is not configured.
+ */
+export function scheduleReviewRequest(jobId: string, delayMs: number): void {
+  setTimeout(async () => {
+    try {
+      const job = await storage.getJob(jobId);
+      if (!job) return;
+      // Only send if job is still completed (not re-opened or cancelled)
+      if (job.status !== "completed") return;
+
+      const settings = await storage.getCompanySettings();
+      if (settings?.reviewRequestEnabled === false) return;
+
+      const companyName = settings?.companyName || "Chicago Sewer Experts";
+      const googleUrl   = settings?.googleReviewUrl || null;
+      const yelpUrl     =
+        settings?.yelpReviewUrl ||
+        process.env.YELP_REVIEW_URL ||
+        null;
+
+      // ── SMS ────────────────────────────────────────────────────────────────
+      if (
+        job.customerPhone &&
+        smsService.isConfigured() &&
+        (job.customerConsentSmsOptIn === true || job.customerConsentAt === null)
+      ) {
+        const smsBody = buildReviewMessage(job.customerName, companyName, googleUrl, yelpUrl);
+        const smsResult = await smsService.sendSMS(job.customerPhone, smsBody);
+        await storage.createContactAttempt({
+          jobId: job.id,
+          type: "sms",
+          direction: "outbound",
+          status: smsResult.success ? "sent" : "failed",
+          content: smsBody,
+          recipientPhone: job.customerPhone,
+          sentAt: smsResult.success ? new Date() : null,
+          externalId: (smsResult as any).messageId || null,
+          failedReason: smsResult.error || null,
+        });
+        console.log(`[ReviewRequest] SMS to ${job.customerPhone}: ${smsResult.success ? "sent" : smsResult.error}`);
+      }
+
+      // ── Email ──────────────────────────────────────────────────────────────
+      if (
+        job.customerEmail &&
+        (job.customerConsentEmailOptIn === true || job.customerConsentAt === null)
+      ) {
+        const emailResult = await sendEmail({
+          to: job.customerEmail,
+          subject: `How did we do? — ${companyName}`,
+          html: buildReviewEmailHtml(job.customerName, companyName, googleUrl, yelpUrl),
+          text: buildReviewMessage(job.customerName, companyName, googleUrl, yelpUrl),
+        });
+        await storage.createContactAttempt({
+          jobId: job.id,
+          type: "email",
+          direction: "outbound",
+          status: emailResult.success ? "sent" : "failed",
+          subject: `How did we do? — ${companyName}`,
+          content: "Review request email",
+          recipientEmail: job.customerEmail,
+          sentAt: emailResult.success ? new Date() : null,
+          externalId: emailResult.messageId || null,
+          failedReason: emailResult.error || null,
+        });
+        console.log(`[ReviewRequest] Email to ${job.customerEmail}: ${emailResult.success ? "sent" : emailResult.error}`);
+      }
+    } catch (err) {
+      console.error(`[ReviewRequest] Error for job ${jobId}:`, err);
+    }
+  }, delayMs);
+
+  console.log(`[ReviewRequest] Scheduled for job ${jobId} in ${delayMs / 60000} min`);
+}
+
+// ─── Invoice Reminder Automation ──────────────────────────────────────────────
+
+/**
+ * Schedules invoice reminders at day 3, 7, 14, 30 after invoice is sent.
+ * Called when an invoice status changes to "sent".
+ */
+export async function scheduleInvoiceReminders(invoiceId: string): Promise<void> {
+  try {
+    const delays = [3, 7, 14, 30]; // days after send
+    const now = new Date();
+
+    for (let i = 0; i < delays.length; i++) {
+      const scheduledFor = new Date(now);
+      scheduledFor.setDate(scheduledFor.getDate() + delays[i]);
+
+      await storage.createInvoiceReminder({
+        invoiceId,
+        reminderNumber: i + 1,
+        scheduledFor,
+        status: "pending",
+        channel: "sms",
+      });
+    }
+
+    console.log(`[InvoiceReminder] Scheduled ${delays.length} reminders for invoice ${invoiceId}`);
+  } catch (err) {
+    console.error(`[InvoiceReminder] Failed to schedule for ${invoiceId}:`, err);
+  }
+}
+
+/**
+ * Process pending invoice reminders. Run on a cron (every hour).
+ */
+export async function processInvoiceReminders(): Promise<void> {
+  try {
+    const pending = await storage.getPendingInvoiceReminders();
+    const settings = await storage.getCompanySettings();
+    const companyName = settings?.companyName || "our team";
+
+    for (const reminder of pending) {
+      const invoice = await storage.getInvoice(reminder.invoiceId);
+      if (!invoice) continue;
+
+      // Skip if already paid or voided
+      if (invoice.status === "paid" || invoice.status === "void") {
+        await storage.updateInvoiceReminder(reminder.id, { status: "cancelled" });
+        continue;
+      }
+
+      // Build payment link
+      const paymentUrl = invoice.publicToken
+        ? `${process.env.APP_URL || "https://app.bossman.io"}/public/invoice/${invoice.publicToken}`
+        : null;
+
+      // Send SMS
+      if (invoice.customerPhone && smsService.isConfigured()) {
+        const firstName = invoice.customerName.split(" ")[0];
+        const amount = parseFloat(invoice.total as string || "0").toFixed(2);
+        const body = paymentUrl
+          ? `Hi ${firstName}, friendly reminder about your $${amount} invoice from ${companyName}. Tap to pay: ${paymentUrl}`
+          : `Hi ${firstName}, friendly reminder about your $${amount} invoice from ${companyName}. Please contact us to arrange payment.`;
+
+        await smsService.sendSMS(invoice.customerPhone, body);
+      }
+
+      await storage.updateInvoiceReminder(reminder.id, {
+        status: "sent",
+        sentAt: new Date(),
+      });
+
+      console.log(`[InvoiceReminder] Sent reminder #${reminder.reminderNumber} for invoice ${invoice.invoiceNumber}`);
+    }
+  } catch (err) {
+    console.error("[InvoiceReminder] Processing error:", err);
+  }
+}
+
+/**
+ * Cancel all pending reminders for an invoice (called when invoice is paid).
+ */
+export async function cancelInvoiceReminders(invoiceId: string): Promise<void> {
+  try {
+    await storage.cancelInvoiceReminders(invoiceId);
+    console.log(`[InvoiceReminder] Cancelled reminders for invoice ${invoiceId}`);
+  } catch (err) {
+    console.error(`[InvoiceReminder] Cancel error for ${invoiceId}:`, err);
+  }
+}
+
+// ─── Seasonal Follow-Up Automation ────────────────────────────────────────────
+
+// Default follow-up periods by service type (months)
+const DEFAULT_FOLLOW_UP_MONTHS: Record<string, number> = {
+  "sewer_repair": 12,
+  "sewer_line": 12,
+  "drain_cleaning": 6,
+  "water_heater": 12,
+  "plumbing_repair": 12,
+  "hvac_repair": 6,
+  "hvac_install": 12,
+  "electrical": 12,
+  "roofing": 18,
+  "sealcoating": 12,
+  "general": 12,
+};
+
+/**
+ * Schedule a follow-up for a completed job.
+ * Called from job completion flow or manually.
+ */
+export async function scheduleFollowUp(
+  jobId: string,
+  months?: number
+): Promise<void> {
+  try {
+    const job = await storage.getJob(jobId);
+    if (!job) return;
+
+    const followUpMonths = months || DEFAULT_FOLLOW_UP_MONTHS[job.serviceType] || 12;
+    const followUpDate = new Date();
+    followUpDate.setMonth(followUpDate.getMonth() + followUpMonths);
+
+    await storage.createFollowUp({
+      jobId: job.id,
+      customerName: job.customerName,
+      customerPhone: job.customerPhone,
+      customerEmail: job.customerEmail || undefined,
+      address: job.address,
+      serviceType: job.serviceType,
+      followUpDate,
+      followUpMonths,
+      status: "scheduled",
+    });
+
+    console.log(`[FollowUp] Scheduled ${followUpMonths}-month follow-up for job ${jobId}`);
+  } catch (err) {
+    console.error(`[FollowUp] Failed to schedule for ${jobId}:`, err);
+  }
+}
+
+/**
+ * Process due follow-ups. Run on a daily cron.
+ */
+export async function processDueFollowUps(): Promise<void> {
+  try {
+    const due = await storage.getDueFollowUps();
+    const settings = await storage.getCompanySettings();
+    const companyName = settings?.companyName || "our team";
+    const companyPhone = settings?.phone || "";
+
+    for (const followUp of due) {
+      const firstName = followUp.customerName.split(" ")[0];
+      const monthsAgo = followUp.followUpMonths;
+      const serviceLabel = followUp.serviceType.replace(/_/g, " ");
+
+      const body =
+        `Hi ${firstName}! It's been ${monthsAgo} months since we did ${serviceLabel} at ${followUp.address || "your property"}. ` +
+        `Most ${serviceLabel} needs a check-up around now. Want to schedule? ` +
+        `Reply YES or call us: ${companyPhone}`;
+
+      if (followUp.customerPhone && smsService.isConfigured()) {
+        await smsService.sendSMS(followUp.customerPhone, body);
+      }
+
+      await storage.updateFollowUp(followUp.id, {
+        status: "sent",
+        sentAt: new Date(),
+      });
+
+      console.log(`[FollowUp] Sent to ${followUp.customerName} for ${followUp.serviceType}`);
+    }
+  } catch (err) {
+    console.error("[FollowUp] Processing error:", err);
   }
 }

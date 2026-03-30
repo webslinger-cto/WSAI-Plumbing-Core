@@ -109,7 +109,7 @@ function maskPhone(phone: string): string {
   return "***";
 }
 
-export async function sendSMS(to: string, body: string): Promise<SMSResult> {
+export async function sendSMS(to: string, body: string, fromOverride?: string): Promise<SMSResult> {
   const normalizedTo = normalizePhoneNumber(to);
   console.log(`SMS: Sending to ${maskPhone(normalizedTo)}`);
   
@@ -130,7 +130,7 @@ export async function sendSMS(to: string, body: string): Promise<SMSResult> {
     try {
       const twilioCallbackUrl = getStatusCallbackUrl("twilio");
       const message = await twilioClient.messages.create({
-        from: twilioPhoneNumber,
+        from: fromOverride || twilioPhoneNumber,
         to: normalizedTo,
         body: body,
         ...(twilioCallbackUrl && { statusCallback: twilioCallbackUrl }),
