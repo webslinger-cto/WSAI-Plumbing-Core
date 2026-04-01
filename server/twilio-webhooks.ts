@@ -67,6 +67,7 @@ export function registerTwilioWebhooks(app: Express) {
     const callStatus = req.body.CallStatus;
 
     console.log(`[Twilio Voice] ${callStatus} | from: ${from} → to: ${to} | SID: ${callSid}`);
+    console.log(`[Twilio Voice] req.body keys: ${Object.keys(req.body || {}).join(", ")}`);
 
     // Step 1: Respond to Twilio IMMEDIATELY with busy signal.
     // This MUST happen fast — Twilio times out after 15 seconds.
@@ -74,7 +75,10 @@ export function registerTwilioWebhooks(app: Express) {
 
     // Step 2: Send auto-text in the background (non-blocking).
     // The TwiML response is already sent — this runs independently.
-    if (from && BOSSMAN_NUMBERS.includes(to)) {
+    const shouldText = !!(from && BOSSMAN_NUMBERS.includes(to));
+    console.log(`[Twilio Voice] Should send auto-text? ${shouldText} (from=${from}, to=${to}, inList=${BOSSMAN_NUMBERS.includes(to)})`);
+
+    if (shouldText) {
       sendAutoText(from, to).catch((err) =>
         console.error(`[Twilio Voice] Auto-text failed for ${from}:`, err.message)
       );
@@ -117,6 +121,21 @@ export function registerTwilioWebhooks(app: Express) {
       a2pNumber: process.env.TWILIO_A2P_NUMBER || "(not set)",
       bossmanNumbers: BOSSMAN_NUMBERS,
     });
+  });
+
+  // ── Manual test: send auto-text without making a phone call ────────────────
+  // Usage: GET /api/twilio/test-autotext?to=+13123699850
+  app.get("/api/twilio/test-autotext", async (req: Request, res: Response) => {
+    const to = req.query.to as string;
+    if (!to) {
+      return res.status(400).json({ error: "Missing ?to=+1XXXXXXXXXX" });
+    }
+    try {
+      await sendAutoText(to, BOSSMAN_NUMBERS[0]);
+      res.json({ success: true, sentTo: to, from: process.env.TWILIO_A2P_NUMBER });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   console.log("[Twilio] Webhook routes registered: /api/twilio/voice, /api/twilio/sms, /api/twilio/voice-status");
