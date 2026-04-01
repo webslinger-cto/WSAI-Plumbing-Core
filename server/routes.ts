@@ -9384,26 +9384,28 @@ ${emailContent}
     // ── Direct BossMan demo numbers (no accountId needed) ──────────────
     const BOSSMAN_NUMBERS = ["+18568306568", "+16306268905"];
     if (BOSSMAN_NUMBERS.includes(to)) {
-      // Immediately send auto-text to the caller via Messaging Service (A2P compliant)
-      try {
-        const twilio = await import("twilio");
-        const client = twilio.default(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!);
-        // Use Messaging Service SID for A2P delivery — Twilio picks the best registered sender
-        const msgServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MG6c5cf2fbbebe3734b3baef50bbb73e7e";
-        const autoText = "Hey! Sorry we missed your call. Tell us what you need and we'll get right back to you: https://webslingerai.com/activate";
-        const msg = await client.messages.create({
-          to: from,
-          messagingServiceSid: msgServiceSid,
-          body: autoText,
-        });
-        console.log(`[MCTB] Auto-text sent to ${from} via MessagingService: ${msg.sid}`);
-      } catch (smsErr) {
-        console.error(`[MCTB] Auto-text failed:`, smsErr);
-      }
-
-      // Reject the call
+      // Respond to Twilio IMMEDIATELY — don't block on SMS send
       const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="busy"/></Response>`;
       res.type("text/xml").send(twiml);
+
+      // Fire SMS async (non-blocking — Twilio already got its TwiML response)
+      (async () => {
+        try {
+          const twilio = await import("twilio");
+          const client = twilio.default(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!);
+          const msgServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MG6c5cf2fbbebe3734b3baef50bbb73e7e";
+          const autoText = "Hey! Sorry we missed your call. Tell us what you need and we'll get right back to you: https://webslingerai.com/activate";
+          const msg = await client.messages.create({
+            to: from,
+            messagingServiceSid: msgServiceSid,
+            body: autoText,
+          });
+          console.log(`[MCTB] Auto-text sent to ${from} via MessagingService: ${msg.sid}`);
+        } catch (smsErr) {
+          console.error(`[MCTB] Auto-text failed:`, smsErr);
+        }
+      })();
+
       return;
     }
 
