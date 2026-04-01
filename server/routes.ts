@@ -9384,14 +9384,19 @@ ${emailContent}
     // ── Direct BossMan demo numbers (no accountId needed) ──────────────
     const BOSSMAN_NUMBERS = ["+18568306568", "+16306268905"];
     if (BOSSMAN_NUMBERS.includes(to)) {
-      // Immediately send auto-text to the caller FROM the number they called
+      // Immediately send auto-text to the caller via Messaging Service (A2P compliant)
       try {
-        const smsService = await import("./services/sms");
-        if (smsService.isConfigured()) {
-          const autoText = "Hey! Sorry we missed your call. Tell us what you need and we'll get right back to you: https://webslingerai.com/activate";
-          await smsService.sendSMS(from, autoText, to);
-          console.log(`[MCTB] Auto-text sent to ${from} from ${to}`);
-        }
+        const twilio = await import("twilio");
+        const client = twilio.default(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!);
+        // Use Messaging Service SID for A2P delivery — Twilio picks the best registered sender
+        const msgServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MG6c5cf2fbbebe3734b3baef50bbb73e7e";
+        const autoText = "Hey! Sorry we missed your call. Tell us what you need and we'll get right back to you: https://webslingerai.com/activate";
+        const msg = await client.messages.create({
+          to: from,
+          messagingServiceSid: msgServiceSid,
+          body: autoText,
+        });
+        console.log(`[MCTB] Auto-text sent to ${from} via MessagingService: ${msg.sid}`);
       } catch (smsErr) {
         console.error(`[MCTB] Auto-text failed:`, smsErr);
       }
