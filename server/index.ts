@@ -1,5 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import { registerTwilioWebhooks } from "./twilio-webhooks";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { storage } from "./storage";
@@ -29,6 +30,9 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// ── Twilio webhooks (registered early for fastest response) ──────────────────
+registerTwilioWebhooks(app);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {

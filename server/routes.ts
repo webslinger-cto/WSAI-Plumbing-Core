@@ -9370,89 +9370,10 @@ ${emailContent}
     } catch (err) { res.status(500).json({ error: "Failed to update account" }); }
   });
 
-  // ─── Multi-tenant MCTB Webhooks (Twilio calls these) ────────────────────
-
-  app.post("/api/webhooks/mctb/voice", async (req, res) => {
-    const accountId = req.query.accountId as string;
-    const callStatus = req.body.CallStatus;
-    const from = req.body.From;
-    const to = req.body.To;
-    const callSid = req.body.CallSid;
-
-    console.log(`[MCTB Webhook] Voice: ${callStatus} from ${from} to ${to} (account: ${accountId || "direct"})`);
-
-    // ── Direct BossMan demo numbers (no accountId needed) ──────────────
-    const BOSSMAN_NUMBERS = ["+18568306568", "+16306268905"];
-    if (BOSSMAN_NUMBERS.includes(to)) {
-      // Respond to Twilio IMMEDIATELY — don't block on SMS send
-      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="busy"/></Response>`;
-      res.type("text/xml").send(twiml);
-
-      // Fire SMS async (non-blocking — Twilio already got its TwiML response)
-      // Send directly from the A2P-registered 856 number (messaging service routing is unreliable after number swaps)
-      (async () => {
-        try {
-          const twilio = await import("twilio");
-          const client = twilio.default(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!);
-          const a2pNumber = process.env.TWILIO_A2P_NUMBER || "+18568306568";
-          const autoText = "Hey! Sorry we missed your call. Tell us what you need and we'll get right back to you: https://webslingerai.com/activate";
-          const msg = await client.messages.create({
-            to: from,
-            from: a2pNumber,
-            body: autoText,
-          });
-          console.log(`[MCTB] Auto-text sent to ${from} from ${a2pNumber}: ${msg.sid}`);
-        } catch (smsErr) {
-          console.error(`[MCTB] Auto-text failed:`, smsErr);
-        }
-      })();
-
-      return;
-    }
-
-    // ── Multi-tenant provisioned numbers (with accountId) ──────────────
-    if (callStatus === "ringing" || callStatus === "in-progress") {
-      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="busy"/></Response>`;
-      res.type("text/xml").send(twiml);
-      return;
-    }
-
-    if (accountId && from) {
-      const { handleMissedCall } = await import("./services/mctb-handler");
-      await handleMissedCall(accountId, from, callSid || "");
-    }
-
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`;
-    res.type("text/xml").send(twiml);
-  });
-
-  app.post("/api/webhooks/mctb/sms", async (req, res) => {
-    const accountId = req.query.accountId as string;
-    const from = req.body.From;
-    const body = req.body.Body;
-
-    console.log(`[MCTB Webhook] SMS from ${from} for account ${accountId}: ${body?.slice(0, 50)}`);
-
-    if (accountId && from && body) {
-      const { handleCustomerReply } = await import("./services/mctb-handler");
-      await handleCustomerReply(accountId, from, body);
-    }
-
-    // Respond with empty TwiML
-    res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response/>`);
-  });
-
-  app.post("/api/webhooks/mctb/status", async (req, res) => {
-    // Status callback — log delivery status
-    const accountId = req.query.accountId as string;
-    console.log(`[MCTB Webhook] Status for account ${accountId}: ${req.body.MessageStatus || req.body.CallStatus}`);
-    res.sendStatus(200);
-  });
-
-  app.post("/api/webhooks/mctb/voice-fallback", async (req, res) => {
-    console.error(`[MCTB Webhook] Voice fallback hit — primary webhook failed`);
-    res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`);
-  });
+  // ─── MCTB Webhooks moved to server/twilio-webhooks.ts ───────────────────
+  // Voice: /api/twilio/voice
+  // SMS:   /api/twilio/sms
+  // Status: /api/twilio/voice-status
 
   // ============================================
   // LEAD-BASED CUSTOMER CHAT ENDPOINTS
