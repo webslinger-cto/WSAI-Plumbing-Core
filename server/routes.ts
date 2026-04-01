@@ -9389,18 +9389,19 @@ ${emailContent}
       res.type("text/xml").send(twiml);
 
       // Fire SMS async (non-blocking — Twilio already got its TwiML response)
+      // Send directly from the A2P-registered 856 number (messaging service routing is unreliable after number swaps)
       (async () => {
         try {
           const twilio = await import("twilio");
           const client = twilio.default(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!);
-          const msgServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MG6c5cf2fbbebe3734b3baef50bbb73e7e";
+          const a2pNumber = process.env.TWILIO_A2P_NUMBER || "+18568306568";
           const autoText = "Hey! Sorry we missed your call. Tell us what you need and we'll get right back to you: https://webslingerai.com/activate";
           const msg = await client.messages.create({
             to: from,
-            messagingServiceSid: msgServiceSid,
+            from: a2pNumber,
             body: autoText,
           });
-          console.log(`[MCTB] Auto-text sent to ${from} via MessagingService: ${msg.sid}`);
+          console.log(`[MCTB] Auto-text sent to ${from} from ${a2pNumber}: ${msg.sid}`);
         } catch (smsErr) {
           console.error(`[MCTB] Auto-text failed:`, smsErr);
         }
