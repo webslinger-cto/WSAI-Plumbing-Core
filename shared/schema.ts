@@ -1738,9 +1738,15 @@ export const mctbAccounts = pgTable("mctb_accounts", {
   twilioNumber: text("twilio_number"), // E.164 format +1XXXXXXXXXX
   twilioAreaCode: text("twilio_area_code"),
   // MCTB configuration
+  businessDisplayName: text("business_display_name"), // name shown in text greeting (defaults to businessName)
   autoTextTemplate: text("auto_text_template"), // custom message, null = use default
+  autoTextLinkUrl: text("auto_text_link_url"), // optional booking/website link appended to auto-reply
   intakeFormEnabled: boolean("intake_form_enabled").notNull().default(true),
   companySlug: text("company_slug").unique(), // for public intake URL: /intake/smith-plumbing
+  // Follow-up configuration
+  followUpEnabled: boolean("follow_up_enabled").notNull().default(false),
+  followUpMessage: text("follow_up_message"), // sent if customer doesn't reply
+  followUpDelayHours: integer("follow_up_delay_hours").default(2), // hours to wait before follow-up
   // Subscription
   plan: text("plan").notNull().default("apprentice"), // apprentice | foreman | gc | developer | owner-builder
   trialEndsAt: timestamp("trial_ends_at"),

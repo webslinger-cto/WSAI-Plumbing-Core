@@ -55,6 +55,7 @@ import PublicChatPage from "@/pages/PublicChatPage";
 import NotFound from "@/pages/not-found";
 import PublicQuotePage from "@/pages/PublicQuotePage";
 import BusinessIntakePage from "@/pages/business-intake";
+import MctbActivatePage from "@/pages/MctbActivatePage";
 import InvoicesPage from "@/pages/InvoicesPage";
 import PublicInvoicePage from "@/pages/PublicInvoicePage";
 import SchedulePage from "@/pages/SchedulePage";
@@ -594,6 +595,18 @@ function App() {
           <Switch>
             <Route path="/public-chat" component={PublicChatPage} />
           </Switch>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  // Public MCTB activation page (no auth required)
+  if (location === '/activate' || location.startsWith('/activate')) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <MctbActivatePage />
           <Toaster />
         </TooltipProvider>
       </QueryClientProvider>

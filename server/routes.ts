@@ -9246,7 +9246,11 @@ ${emailContent}
 
   app.post("/api/mctb/onboard", async (req, res) => {
     try {
-      const { businessName, ownerName, businessPhone, businessEmail, businessZip, phoneType } = req.body;
+      const {
+        businessName, ownerName, businessPhone, businessEmail, businessZip, phoneType,
+        businessDisplayName, autoTextTemplate, autoTextLinkUrl,
+        followUpEnabled, followUpMessage, followUpDelayHours,
+      } = req.body;
 
       if (!businessName || !ownerName || !businessPhone) {
         return res.status(400).json({ error: "businessName, ownerName, and businessPhone are required" });
@@ -9264,6 +9268,12 @@ ${emailContent}
         businessZip: businessZip || null,
         phoneType: phoneType || "cell",
         companySlug: slug,
+        businessDisplayName: businessDisplayName || null,
+        autoTextTemplate: autoTextTemplate || null,
+        autoTextLinkUrl: autoTextLinkUrl || null,
+        followUpEnabled: followUpEnabled || false,
+        followUpMessage: followUpMessage || null,
+        followUpDelayHours: followUpDelayHours || 2,
         plan: "apprentice",
         status: "provisioning",
         trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14-day trial

@@ -5,12 +5,12 @@
 import { storage } from "../storage";
 import * as smsService from "./sms";
 
-const DEFAULT_TEMPLATE = (businessName: string, intakeUrl?: string) => {
-  const base = `Hey! This is ${businessName} — sorry we missed your call.`;
-  if (intakeUrl) {
-    return `${base} Tell us what you need and we'll get right back to you: ${intakeUrl}`;
+const DEFAULT_TEMPLATE = (businessName: string, linkUrl?: string) => {
+  const base = `Hey! This is ${businessName} — sorry we missed your call. Tell us what you need and we'll get back to you ASAP.`;
+  if (linkUrl) {
+    return `${base} ${linkUrl}`;
   }
-  return `${base} Tell us what you need and we'll get back to you ASAP. Reply to this text or call us back.`;
+  return `${base} Reply to this text or call us back.`;
 };
 
 /**
@@ -29,16 +29,15 @@ export async function handleMissedCall(
       return { success: false, error: "Account not active" };
     }
 
-    const businessName = account.businessName;
-    const baseUrl = process.env.APP_BASE_URL || "https://app.bossman.io";
-    const intakeUrl = account.intakeFormEnabled && account.companySlug
-      ? `${baseUrl}/public/intake?ref=${account.companySlug}`
-      : undefined;
+    const displayName = (account as any).businessDisplayName || account.businessName;
+    const linkUrl = (account as any).autoTextLinkUrl || undefined;
 
     // Build the auto-text message
     const message = account.autoTextTemplate
-      ? account.autoTextTemplate.replace("{business_name}", businessName).replace("{intake_url}", intakeUrl || "")
-      : DEFAULT_TEMPLATE(businessName, intakeUrl);
+      ? account.autoTextTemplate
+          .replace("{business_name}", displayName)
+          .replace("{link}", linkUrl || "")
+      : DEFAULT_TEMPLATE(displayName, linkUrl);
 
     // Send auto-text to the caller FROM the provisioned Twilio number
     let autoTextSid: string | undefined;
