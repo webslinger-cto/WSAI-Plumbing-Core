@@ -112,17 +112,18 @@ export async function provisionNumber(
     const selectedNumber = available[0];
     console.log(`[Provisioning] Found number: ${selectedNumber.phoneNumber}`);
 
-    // Step 2: Purchase the number
+    // Step 2: Purchase the number — webhooks point to /api/twilio/* on this server
     const purchased = await client.incomingPhoneNumbers.create({
       phoneNumber: selectedNumber.phoneNumber,
       friendlyName: `BossMan MCTB - ${accountId}`,
-      // Step 3: Configure webhooks on purchase
-      voiceUrl: `${baseUrl}/api/webhooks/mctb/voice?accountId=${accountId}`,
+      voiceUrl: `${baseUrl}/api/twilio/voice`,
       voiceMethod: "POST",
-      voiceFallbackUrl: `${baseUrl}/api/webhooks/mctb/voice-fallback?accountId=${accountId}`,
-      smsUrl: `${baseUrl}/api/webhooks/mctb/sms?accountId=${accountId}`,
+      voiceFallbackUrl: `${baseUrl}/api/twilio/voice`,
+      voiceFallbackMethod: "POST",
+      smsUrl: `${baseUrl}/api/twilio/sms`,
       smsMethod: "POST",
-      statusCallback: `${baseUrl}/api/webhooks/mctb/status?accountId=${accountId}`,
+      statusCallback: `${baseUrl}/api/twilio/voice-status`,
+      statusCallbackMethod: "POST",
     });
 
     const areaCode = selectedNumber.phoneNumber.slice(2, 5); // +1XXX...
