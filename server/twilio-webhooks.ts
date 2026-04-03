@@ -25,6 +25,36 @@ const BOSSMAN_NUMBERS = ["+18568306568", "+16306268905"];
 const AUTO_TEXT_MESSAGE =
   "Hey! Sorry we missed your call. Tell us what you need and we'll get right back to you. Reply to this text or call us back anytime.";
 
+// ── Demo config: temporary custom messages keyed by caller phone ─────────────
+// Prospects set their custom message during the activate flow.
+// When they call to test, they get THEIR message back. Expires after 30 min.
+interface DemoConfig {
+  message: string;
+  linkUrl?: string;
+  businessName?: string;
+  expiresAt: number;
+}
+const demoConfigs = new Map<string, DemoConfig>();
+
+// Clean up expired entries every 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  demoConfigs.forEach((config, phone) => {
+    if (config.expiresAt < now) demoConfigs.delete(phone);
+  });
+}, 10 * 60 * 1000);
+
+function getDemoMessage(callerPhone: string): string | null {
+  const config = demoConfigs.get(callerPhone);
+  if (!config || config.expiresAt < Date.now()) {
+    if (config) demoConfigs.delete(callerPhone);
+    return null;
+  }
+  let msg = config.message;
+  if (config.linkUrl) msg += ` ${config.linkUrl}`;
+  return msg;
+}
+
 // ── Twilio client (lazy init) ────────────────────────────────────────────────
 let _twilioClient: twilio.Twilio | null = null;
 
@@ -123,6 +153,38 @@ export function registerTwilioWebhooks(app: Express) {
     });
   });
 
+  // ── Demo config: prospect saves their custom message for live preview ───────
+  // Called by the Full-Site activate flow after step 2 (customize).
+  // Stores the custom message so the next call from this phone gets it back.
+  // CORS: allow cross-origin from Full-Site
+  app.options("/api/twilio/demo-config", (_req: Request, res: Response) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "POST");
+    res.set("Access-Control-Allow-Headers", "Content-Type");
+    res.sendStatus(204);
+  });
+  app.post("/api/twilio/demo-config", (req: Request, res: Response) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    const { phone, message, linkUrl, businessName } = req.body;
+    if (!phone || !message) {
+      return res.status(400).json({ error: "phone and message required" });
+    }
+
+    // Normalize phone to E.164
+    const digits = phone.replace(/\D/g, "");
+    const normalized = digits.length === 10 ? `+1${digits}` : digits.length === 11 ? `+${digits}` : phone;
+
+    demoConfigs.set(normalized, {
+      message,
+      linkUrl: linkUrl || undefined,
+      businessName: businessName || undefined,
+      expiresAt: Date.now() + 30 * 60 * 1000, // 30 minutes
+    });
+
+    console.log(`[Twilio Demo] Custom message saved for ${normalized} (expires in 30m)`);
+    res.json({ success: true, phone: normalized, expiresIn: "30 minutes" });
+  });
+
   // ── Manual test: send auto-text without making a phone call ────────────────
   // Usage: GET /api/twilio/test-autotext?to=+13123699850
   app.get("/api/twilio/test-autotext", async (req: Request, res: Response) => {
@@ -158,10 +220,18 @@ async function sendAutoText(callerPhone: string, dialedNumber: string): Promise<
     return;
   }
 
+  // Check for a custom demo message for this caller
+  const customMessage = getDemoMessage(callerPhone);
+  const body = customMessage || AUTO_TEXT_MESSAGE;
+
+  if (customMessage) {
+    console.log(`[Twilio] Using custom demo message for ${callerPhone}`);
+  }
+
   const message = await client.messages.create({
     to: callerPhone,
     from: a2pNumber,
-    body: AUTO_TEXT_MESSAGE,
+    body,
   });
 
   console.log(`[Twilio] Auto-text sent to ${callerPhone} from ${a2pNumber} — SID: ${message.sid}`);
