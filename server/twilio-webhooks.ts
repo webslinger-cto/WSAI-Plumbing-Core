@@ -157,12 +157,36 @@ export function registerTwilioWebhooks(app: Express) {
   // Called by the Full-Site activate flow after step 2 (customize).
   // Stores the custom message so the next call from this phone gets it back.
   // CORS: allow cross-origin from Full-Site
+  // CORS preflight for demo-config
   app.options("/api/twilio/demo-config", (_req: Request, res: Response) => {
     res.set("Access-Control-Allow-Origin", "*");
-    res.set("Access-Control-Allow-Methods", "POST");
+    res.set("Access-Control-Allow-Methods", "GET, POST");
     res.set("Access-Control-Allow-Headers", "Content-Type");
     res.sendStatus(204);
   });
+
+  // GET: retrieve saved demo config for a phone (used to skip customize step)
+  app.get("/api/twilio/demo-config", (req: Request, res: Response) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    const phone = req.query.phone as string;
+    if (!phone) return res.status(400).json({ error: "Missing ?phone=" });
+
+    const digits = phone.replace(/\D/g, "");
+    const normalized = digits.length === 10 ? `+1${digits}` : digits.length === 11 ? `+${digits}` : phone;
+    const config = demoConfigs.get(normalized);
+
+    if (config && config.expiresAt > Date.now()) {
+      console.log(`[Twilio Demo] Config found for ${normalized} — returning saved message`);
+      return res.json({
+        found: true,
+        message: config.message,
+        linkUrl: config.linkUrl || null,
+        businessName: config.businessName || null,
+      });
+    }
+    res.json({ found: false });
+  });
+
   app.post("/api/twilio/demo-config", (req: Request, res: Response) => {
     res.set("Access-Control-Allow-Origin", "*");
     const { phone, message, linkUrl, businessName } = req.body;
